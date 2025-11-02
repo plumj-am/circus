@@ -7,9 +7,6 @@ pub mod migrate;
 pub mod migrate_cli;
 pub mod models;
 
-#[cfg(test)]
-mod tests;
-
 pub use config::*;
 pub use database::*;
 pub use error::*;

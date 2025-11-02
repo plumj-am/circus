@@ -30,7 +30,8 @@ impl Database {
         Ok(Self { pool })
     }
 
-    #[must_use] pub const fn pool(&self) -> &PgPool {
+    #[must_use]
+    pub const fn pool(&self) -> &PgPool {
         &self.pool
     }
 
