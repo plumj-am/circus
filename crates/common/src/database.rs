@@ -38,7 +38,7 @@ impl Database {
     pub async fn health_check(pool: &PgPool) -> anyhow::Result<()> {
         debug!("Performing database health check");
 
-        let result: i64 = sqlx::query_scalar("SELECT 1").fetch_one(pool).await?;
+        let result: i32 = sqlx::query_scalar("SELECT 1").fetch_one(pool).await?;
 
         if result != 1 {
             return Err(anyhow::anyhow!(

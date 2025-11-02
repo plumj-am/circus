@@ -24,6 +24,24 @@ pub enum CiError {
 
     #[error("Not found: {0}")]
     NotFound(String),
+
+    #[error("Validation error: {0}")]
+    Validation(String),
+
+    #[error("Conflict: {0}")]
+    Conflict(String),
+
+    #[error("Timeout: {0}")]
+    Timeout(String),
+
+    #[error("Nix evaluation error: {0}")]
+    NixEval(String),
+
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
+
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
 }
 
 pub type Result<T> = std::result::Result<T, CiError>;

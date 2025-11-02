@@ -19,7 +19,10 @@ async fn test_database_connection() -> anyhow::Result<()> {
     let db = match Database::new(config).await {
         Ok(db) => db,
         Err(e) => {
-            println!("Skipping test_database_connection: no PostgreSQL instance available - {}", e);
+            println!(
+                "Skipping test_database_connection: no PostgreSQL instance available - {}",
+                e
+            );
             return Ok(());
         }
     };
@@ -48,7 +51,10 @@ async fn test_database_health_check() -> anyhow::Result<()> {
     let pool = match PgPool::connect("postgresql://postgres:password@localhost/test").await {
         Ok(pool) => pool,
         Err(e) => {
-            println!("Skipping test_database_health_check: no PostgreSQL instance available - {}", e);
+            println!(
+                "Skipping test_database_health_check: no PostgreSQL instance available - {}",
+                e
+            );
             return Ok(());
         }
     };
@@ -66,7 +72,10 @@ async fn test_connection_info() -> anyhow::Result<()> {
     let pool = match PgPool::connect("postgresql://postgres:password@localhost/test").await {
         Ok(pool) => pool,
         Err(e) => {
-            println!("Skipping test_connection_info: no PostgreSQL instance available - {}", e);
+            println!(
+                "Skipping test_connection_info: no PostgreSQL instance available - {}",
+                e
+            );
             return Ok(());
         }
     };
@@ -79,10 +88,14 @@ async fn test_connection_info() -> anyhow::Result<()> {
         idle_timeout: 600,
         max_lifetime: 1800,
     })
-    .await {
+    .await
+    {
         Ok(db) => db,
         Err(e) => {
-            println!("Skipping test_connection_info: database connection failed - {}", e);
+            println!(
+                "Skipping test_connection_info: database connection failed - {}",
+                e
+            );
             pool.close().await;
             return Ok(());
         }
@@ -111,10 +124,14 @@ async fn test_pool_stats() -> anyhow::Result<()> {
         idle_timeout: 600,
         max_lifetime: 1800,
     })
-    .await {
+    .await
+    {
         Ok(db) => db,
         Err(e) => {
-            println!("Skipping test_pool_stats: no PostgreSQL instance available - {}", e);
+            println!(
+                "Skipping test_pool_stats: no PostgreSQL instance available - {}",
+                e
+            );
             return Ok(());
         }
     };
@@ -176,4 +193,3 @@ async fn test_database_config_validation() -> anyhow::Result<()> {
 
     Ok(())
 }
-

@@ -1,8 +1,9 @@
 //! Configuration management for FC CI
 
+use std::path::PathBuf;
+
 use config as config_crate;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
@@ -10,6 +11,11 @@ pub struct Config {
     pub server: ServerConfig,
     pub evaluator: EvaluatorConfig,
     pub queue_runner: QueueRunnerConfig,
+    pub gc: GcConfig,
+    pub logs: LogConfig,
+    pub notifications: NotificationsConfig,
+    pub cache: CacheConfig,
+    pub signing: SigningConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,19 +29,29 @@ pub struct DatabaseConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
     pub request_timeout: u64,
     pub max_body_size: usize,
+    pub api_key: Option<String>,
+    pub allowed_origins: Vec<String>,
+    pub cors_permissive: bool,
+    pub rate_limit_rps: Option<u64>,
+    pub rate_limit_burst: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct EvaluatorConfig {
     pub poll_interval: u64,
     pub git_timeout: u64,
     pub nix_timeout: u64,
+    pub max_concurrent_evals: usize,
     pub work_dir: PathBuf,
+    pub restrict_eval: bool,
+    pub allow_ifd: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +60,56 @@ pub struct QueueRunnerConfig {
     pub poll_interval: u64,
     pub build_timeout: u64,
     pub work_dir: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GcConfig {
+    pub gc_roots_dir: PathBuf,
+    pub enabled: bool,
+    pub max_age_days: u64,
+    pub cleanup_interval: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogConfig {
+    pub log_dir: PathBuf,
+    pub compress: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NotificationsConfig {
+    pub run_command: Option<String>,
+    pub github_token: Option<String>,
+    pub gitea_url: Option<String>,
+    pub gitea_token: Option<String>,
+    pub email: Option<EmailConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EmailConfig {
+    pub smtp_host: String,
+    pub smtp_port: u16,
+    pub smtp_user: Option<String>,
+    pub smtp_password: Option<String>,
+    pub from_address: String,
+    pub to_addresses: Vec<String>,
+    pub tls: bool,
+    pub on_failure_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheConfig {
+    pub enabled: bool,
+    pub secret_key_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SigningConfig {
+    pub enabled: bool,
+    pub key_file: Option<PathBuf>,
 }
 
 impl Default for DatabaseConfig {
@@ -94,6 +160,11 @@ impl Default for ServerConfig {
             port: 3000,
             request_timeout: 30,
             max_body_size: 10 * 1024 * 1024, // 10MB
+            api_key: None,
+            allowed_origins: Vec::new(),
+            cors_permissive: false,
+            rate_limit_rps: None,
+            rate_limit_burst: None,
         }
     }
 }
@@ -104,7 +175,10 @@ impl Default for EvaluatorConfig {
             poll_interval: 60,
             git_timeout: 600,
             nix_timeout: 1800,
+            max_concurrent_evals: 4,
             work_dir: PathBuf::from("/tmp/fc-evaluator"),
+            restrict_eval: true,
+            allow_ifd: false,
         }
     }
 }
@@ -116,6 +190,56 @@ impl Default for QueueRunnerConfig {
             poll_interval: 5,
             build_timeout: 3600,
             work_dir: PathBuf::from("/tmp/fc-queue-runner"),
+        }
+    }
+}
+
+impl Default for GcConfig {
+    fn default() -> Self {
+        Self {
+            gc_roots_dir: PathBuf::from("/nix/var/nix/gcroots/per-user/fc/fc-roots"),
+            enabled: true,
+            max_age_days: 30,
+            cleanup_interval: 3600,
+        }
+    }
+}
+
+impl Default for LogConfig {
+    fn default() -> Self {
+        Self {
+            log_dir: PathBuf::from("/var/lib/fc/logs"),
+            compress: false,
+        }
+    }
+}
+
+impl Default for NotificationsConfig {
+    fn default() -> Self {
+        Self {
+            run_command: None,
+            github_token: None,
+            gitea_url: None,
+            gitea_token: None,
+            email: None,
+        }
+    }
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            secret_key_file: None,
+        }
+    }
+}
+
+impl Default for SigningConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            key_file: None,
         }
     }
 }
@@ -195,6 +319,18 @@ impl Config {
             return Err(anyhow::anyhow!(
                 "Queue runner workers must be greater than 0"
             ));
+        }
+
+        // Validate GC config
+        if self.gc.enabled && self.gc.gc_roots_dir.as_os_str().is_empty() {
+            return Err(anyhow::anyhow!(
+                "GC roots directory cannot be empty when GC is enabled"
+            ));
+        }
+
+        // Validate log config
+        if self.logs.log_dir.as_os_str().is_empty() {
+            return Err(anyhow::anyhow!("Log directory cannot be empty"));
         }
 
         Ok(())
