@@ -51,9 +51,16 @@
         pname = "common";
         cargoExtraArgs = "--package common";
       });
+
+    migrate-cli = craneLib.buildPackage (commonArgs
+      // {
+        inherit cargoArtifacts;
+        pname = "migrate-cli";
+        cargoExtraArgs = "--package migrate-cli";
+      });
   in {
     packages.${system} = {
-      inherit server evaluator queue-runner common;
+      inherit server evaluator queue-runner common migrate-cli;
     };
 
     devShells.${system}.default = craneLib.devShell {
