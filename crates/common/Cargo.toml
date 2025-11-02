@@ -15,3 +15,6 @@ chrono.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 git2.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true

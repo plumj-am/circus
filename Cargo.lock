@@ -532,11 +532,14 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "clap",
  "git2",
  "serde",
  "serde_json",
  "sqlx",
  "thiserror",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
