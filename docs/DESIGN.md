@@ -37,3 +37,26 @@ FC commits to this design with minimal tweaks. Most critically, FC is not
 designed to be used alongside Nixpkgs. Sure you can do it, but that is not the
 main goal. The main goal is a distributed, declarative CI that has learned from
 Hydra's mistakes.
+
+### Component Interactions and Data Flow
+
+Hydra follows a tightly-coupled architecture with three main daemons:
+
+```ascii
+Git Repository -> Evaluator -> Database -> Queue Runner -> Build Hosts -> Results -> Database -> Web UI
+```
+
+In this flow, the responsible components are as follows:
+
+1. **hydra-server** (Perl, Catalyst): Web interface and REST API
+2. **hydra-evaluator**: Polls Git repos, evaluates Nix expressions, creates
+   `.drv` files
+3. **hydra-queue-runner**: Dispatches builds to available builders via SSH/Nix
+   remote
+4. **Database (PostgreSQL)**: Central state management for all components
+
+While simple on paper, this design leads to several issues. Besides the single
+point of failure (the database), the tight coupling leads to requiring shared
+database state and contributes to the lack of horizontal scaling in Hydra. Also
+worth nothing that the evaluator must complete before the queue runner can
+dispatch, the dependencies are synchronous.
