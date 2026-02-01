@@ -1,0 +1,31 @@
+# FC CI Configuration File
+# This file contains default configuration for all FC CI components
+
+[database]
+url = "postgresql://fc_ci:password@localhost/fc_ci"
+max_connections = 20
+min_connections = 5
+connect_timeout = 30
+idle_timeout = 600
+max_lifetime = 1800
+
+[server]
+host = "127.0.0.1"
+port = 3000
+request_timeout = 30
+max_body_size = 10485760  # 10MB
+allowed_origins = []
+
+[evaluator]
+poll_interval = 60
+git_timeout = 600
+nix_timeout = 1800
+work_dir = "/tmp/fc-evaluator"
+restrict_eval = true
+allow_ifd = false
+
+[queue_runner]
+workers = 4
+poll_interval = 5
+build_timeout = 3600
+work_dir = "/tmp/fc-queue-runner"
