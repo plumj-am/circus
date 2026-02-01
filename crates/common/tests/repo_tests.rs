@@ -50,6 +50,8 @@ async fn create_test_jobset(pool: &sqlx::PgPool, project_id: uuid::Uuid) -> Jobs
             enabled: Some(true),
             flake_mode: None,
             check_interval: None,
+            branch: None,
+            scheduling_shares: None,
         },
     )
     .await
@@ -202,6 +204,8 @@ async fn test_jobset_crud() {
             enabled: Some(true),
             flake_mode: None,
             check_interval: None,
+            branch: None,
+            scheduling_shares: None,
         },
     )
     .await
@@ -232,6 +236,8 @@ async fn test_jobset_crud() {
             enabled: Some(false),
             flake_mode: None,
             check_interval: None,
+            branch: None,
+            scheduling_shares: None,
         },
     )
     .await
