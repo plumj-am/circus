@@ -19,4 +19,10 @@ anyhow.workspace = true
 thiserror.workspace = true
 clap.workspace = true
 config.workspace = true
-fc-common = { path = "../common" }
+tokio-util.workspace = true
+
+# Our crates
+fc-common.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
