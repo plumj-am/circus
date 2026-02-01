@@ -8,6 +8,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 const MAX_LOG_SIZE: usize = 100 * 1024 * 1024; // 100MB
 
 /// Run a build on a remote machine via `nix build --store ssh://...`.
+#[tracing::instrument(skip(work_dir, live_log_path), fields(drv_path, store_uri))]
 pub async fn run_nix_build_remote(
     drv_path: &str,
     work_dir: &Path,
@@ -157,6 +158,7 @@ pub fn parse_nix_log_line(line: &str) -> Option<(&'static str, String)> {
 
 /// Run `nix build` for a derivation path.
 /// If `live_log_path` is provided, build output is streamed to that file incrementally.
+#[tracing::instrument(skip(work_dir, live_log_path), fields(drv_path))]
 pub async fn run_nix_build(
     drv_path: &str,
     work_dir: &Path,
@@ -225,12 +227,11 @@ pub async fn run_nix_build(
                     }
 
                     // Parse nix internal JSON log lines
-                    if line.starts_with("@nix ") {
-                        if let Some(json_str) = line.strip_prefix("@nix ") {
-                            if let Ok(parsed) =
+                    if line.starts_with("@nix ")
+                        && let Some(json_str) = line.strip_prefix("@nix ")
+                            && let Ok(parsed) =
                                 serde_json::from_str::<serde_json::Value>(json_str.trim())
-                            {
-                                if let Some(action) = parsed.get("action").and_then(|a| a.as_str())
+                                && let Some(action) = parsed.get("action").and_then(|a| a.as_str())
                                 {
                                     match action {
                                         "start" => {
@@ -247,21 +248,16 @@ pub async fn run_nix_build(
                                         "stop" => {
                                             if let Some(drv) =
                                                 parsed.get("derivation").and_then(|d| d.as_str())
-                                            {
-                                                if let Some(step) =
+                                                && let Some(step) =
                                                     steps.iter_mut().rfind(|s| s.drv_path == drv)
                                                 {
                                                     step.completed_at = Some(chrono::Utc::now());
                                                     step.success = true;
                                                 }
-                                            }
                                         }
                                         _ => {}
                                     }
                                 }
-                            }
-                        }
-                    }
 
                     if buf.len() < MAX_LOG_SIZE {
                         buf.push_str(&line);

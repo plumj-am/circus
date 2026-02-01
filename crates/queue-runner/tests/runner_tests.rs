@@ -86,6 +86,7 @@ async fn test_worker_pool_drain_stops_dispatch() {
         fc_common::config::GcConfig::default(),
         fc_common::config::NotificationsConfig::default(),
         fc_common::config::SigningConfig::default(),
+        fc_common::config::CacheUploadConfig::default(),
     );
 
     // Drain should not panic
@@ -139,6 +140,8 @@ async fn test_atomic_build_claiming() {
             enabled: None,
             flake_mode: None,
             check_interval: None,
+            branch: None,
+            scheduling_shares: None,
         },
     )
     .await
@@ -228,6 +231,8 @@ async fn test_orphan_build_reset() {
             enabled: None,
             flake_mode: None,
             check_interval: None,
+            branch: None,
+            scheduling_shares: None,
         },
     )
     .await

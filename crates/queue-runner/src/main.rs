@@ -19,18 +19,18 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
-
     let cli = Cli::parse();
 
-    tracing::info!("Starting CI Queue Runner");
-
     let config = Config::load()?;
+    fc_common::init_tracing(&config.tracing);
+
+    tracing::info!("Starting CI Queue Runner");
     let log_config = config.logs;
     let gc_config = config.gc;
     let gc_config_for_loop = gc_config.clone();
     let notifications_config = config.notifications;
     let signing_config = config.signing;
+    let cache_upload_config = config.cache_upload;
     let qr_config = config.queue_runner;
 
     let workers = cli.workers.unwrap_or(qr_config.workers);
@@ -55,6 +55,7 @@ async fn main() -> anyhow::Result<()> {
         gc_config,
         notifications_config,
         signing_config,
+        cache_upload_config,
     ));
 
     tracing::info!(

@@ -5,7 +5,9 @@ use std::time::Duration;
 use sqlx::PgPool;
 use tokio::sync::Semaphore;
 
-use fc_common::config::{GcConfig, LogConfig, NotificationsConfig, SigningConfig};
+use fc_common::config::{
+    CacheUploadConfig, GcConfig, LogConfig, NotificationsConfig, SigningConfig,
+};
 use fc_common::gc_roots::GcRoots;
 use fc_common::log_storage::LogStorage;
 use fc_common::models::{Build, BuildStatus, CreateBuildProduct, CreateBuildStep};
@@ -20,6 +22,7 @@ pub struct WorkerPool {
     gc_config: Arc<GcConfig>,
     notifications_config: Arc<NotificationsConfig>,
     signing_config: Arc<SigningConfig>,
+    cache_upload_config: Arc<CacheUploadConfig>,
     drain_token: tokio_util::sync::CancellationToken,
 }
 
@@ -33,6 +36,7 @@ impl WorkerPool {
         gc_config: GcConfig,
         notifications_config: NotificationsConfig,
         signing_config: SigningConfig,
+        cache_upload_config: CacheUploadConfig,
     ) -> Self {
         Self {
             semaphore: Arc::new(Semaphore::new(workers)),
@@ -43,6 +47,7 @@ impl WorkerPool {
             gc_config: Arc::new(gc_config),
             notifications_config: Arc::new(notifications_config),
             signing_config: Arc::new(signing_config),
+            cache_upload_config: Arc::new(cache_upload_config),
             drain_token: tokio_util::sync::CancellationToken::new(),
         }
     }
@@ -69,6 +74,7 @@ impl WorkerPool {
         .await;
     }
 
+    #[tracing::instrument(skip(self, build), fields(build_id = %build.id, job = %build.job_name))]
     pub fn dispatch(&self, build: Build) {
         if self.drain_token.is_cancelled() {
             tracing::info!(build_id = %build.id, "Drain in progress, not dispatching");
@@ -83,6 +89,7 @@ impl WorkerPool {
         let gc_config = self.gc_config.clone();
         let notifications_config = self.notifications_config.clone();
         let signing_config = self.signing_config.clone();
+        let cache_upload_config = self.cache_upload_config.clone();
 
         tokio::spawn(async move {
             let _permit = match semaphore.acquire().await {
@@ -99,6 +106,7 @@ impl WorkerPool {
                 &gc_config,
                 &notifications_config,
                 &signing_config,
+                &cache_upload_config,
             )
             .await
             {
@@ -178,6 +186,28 @@ async fn sign_outputs(output_paths: &[String], signing_config: &SigningConfig) -
     true
 }
 
+/// Push output paths to an external binary cache via `nix copy`.
+async fn push_to_cache(output_paths: &[String], store_uri: &str) {
+    for path in output_paths {
+        let result = tokio::process::Command::new("nix")
+            .args(["copy", "--to", store_uri, path])
+            .output()
+            .await;
+        match result {
+            Ok(o) if o.status.success() => {
+                tracing::debug!(output = path, store = store_uri, "Pushed to binary cache");
+            }
+            Ok(o) => {
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                tracing::warn!(output = path, "Failed to push to cache: {stderr}");
+            }
+            Err(e) => {
+                tracing::warn!(output = path, "Failed to run nix copy: {e}");
+            }
+        }
+    }
+}
+
 /// Try to run the build on a remote builder if one is available for the build's system.
 async fn try_remote_build(
     pool: &PgPool,
@@ -230,6 +260,7 @@ async fn try_remote_build(
     None
 }
 
+#[tracing::instrument(skip(pool, build, work_dir, log_config, gc_config, notifications_config, signing_config, cache_upload_config), fields(build_id = %build.id, job = %build.job_name))]
 async fn run_build(
     pool: &PgPool,
     build: &Build,
@@ -239,6 +270,7 @@ async fn run_build(
     gc_config: &GcConfig,
     notifications_config: &NotificationsConfig,
     signing_config: &SigningConfig,
+    cache_upload_config: &CacheUploadConfig,
 ) -> anyhow::Result<()> {
     // Atomically claim the build
     let claimed = repo::builds::start(pool, build.id).await?;
@@ -408,6 +440,12 @@ async fn run_build(
                     let _ = repo::builds::mark_signed(pool, build.id).await;
                 }
 
+                // Push to external binary cache if configured
+                if cache_upload_config.enabled
+                    && let Some(ref store_uri) = cache_upload_config.store_uri {
+                        push_to_cache(&build_result.output_paths, store_uri).await;
+                    }
+
                 let primary_output = build_result.output_paths.first().map(|s| s.as_str());
 
                 repo::builds::complete(
@@ -488,12 +526,11 @@ async fn run_build(
         }
 
         // Auto-promote channels if all builds in the evaluation are done
-        if updated_build.status == BuildStatus::Completed {
-            if let Ok(eval) = repo::evaluations::get(pool, build.evaluation_id).await {
+        if updated_build.status == BuildStatus::Completed
+            && let Ok(eval) = repo::evaluations::get(pool, build.evaluation_id).await {
                 let _ =
                     repo::channels::auto_promote_if_complete(pool, eval.jobset_id, eval.id).await;
             }
-        }
     }
 
     Ok(())
