@@ -6,9 +6,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use fc_common::{
-    Build, BuildProduct, BuildStatus, BuildStep, CreateBuild, PaginatedResponse, PaginationParams,
-};
+use fc_common::{Build, BuildProduct, BuildStep, PaginatedResponse, PaginationParams};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -155,44 +153,17 @@ async fn restart_build(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Build>, ApiError> {
     check_role(&extensions, &["restart-jobs"])?;
-    let original = fc_common::repo::builds::get(&state.pool, id)
+    let build = fc_common::repo::builds::restart(&state.pool, id)
         .await
         .map_err(ApiError)?;
 
-    // Can only restart completed or failed builds
-    if original.status != BuildStatus::Failed
-        && original.status != BuildStatus::Completed
-        && original.status != BuildStatus::Cancelled
-    {
-        return Err(ApiError(fc_common::CiError::Validation(
-            "Can only restart failed, completed, or cancelled builds".to_string(),
-        )));
-    }
-
-    // Create a new build with the same parameters
-    let new_build = fc_common::repo::builds::create(
-        &state.pool,
-        CreateBuild {
-            evaluation_id: original.evaluation_id,
-            job_name: original.job_name.clone(),
-            drv_path: original.drv_path.clone(),
-            system: original.system.clone(),
-            outputs: original.outputs.clone(),
-            is_aggregate: Some(original.is_aggregate),
-            constituents: original.constituents.clone(),
-        },
-    )
-    .await
-    .map_err(ApiError)?;
-
     tracing::info!(
-        original_id = %id,
-        new_id = %new_build.id,
-        job = %original.job_name,
+        build_id = %id,
+        job = %build.job_name,
         "Build restarted"
     );
 
-    Ok(Json(new_build))
+    Ok(Json(build))
 }
 
 async fn bump_build(

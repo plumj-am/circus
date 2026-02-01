@@ -22,17 +22,59 @@ impl IntoResponse for ApiError {
             CiError::Timeout(msg) => (StatusCode::REQUEST_TIMEOUT, "TIMEOUT", msg.clone()),
             CiError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, "UNAUTHORIZED", msg.clone()),
             CiError::Forbidden(msg) => (StatusCode::FORBIDDEN, "FORBIDDEN", msg.clone()),
-            CiError::Database(_) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "DATABASE_ERROR",
-                "Internal database error".to_string(),
+            CiError::NixEval(msg) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "NIX_EVAL_ERROR",
+                msg.clone(),
             ),
-            _ => (
+            CiError::Build(msg) => (StatusCode::UNPROCESSABLE_ENTITY, "BUILD_ERROR", msg.clone()),
+            CiError::Config(msg) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "INTERNAL_ERROR",
-                "Internal server error".to_string(),
+                "CONFIG_ERROR",
+                msg.clone(),
             ),
+            CiError::Database(e) => {
+                tracing::error!(error = %e, "Database error in API handler");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "DATABASE_ERROR",
+                    "Internal database error".to_string(),
+                )
+            }
+            CiError::Git(e) => {
+                tracing::error!(error = %e, "Git error in API handler");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "GIT_ERROR",
+                    format!("Git operation failed: {e}"),
+                )
+            }
+            CiError::Serialization(e) => {
+                tracing::error!(error = %e, "Serialization error in API handler");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "SERIALIZATION_ERROR",
+                    format!("Data serialization error: {e}"),
+                )
+            }
+            CiError::Io(e) => {
+                tracing::error!(error = %e, "IO error in API handler");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "IO_ERROR",
+                    format!("IO error: {e}"),
+                )
+            }
         };
+
+        if status.is_server_error() {
+            tracing::warn!(
+                status = %status,
+                code = code,
+                "API error response: {}",
+                message
+            );
+        }
 
         let body = axum::Json(json!({ "error": message, "error_code": code }));
         (status, body).into_response()

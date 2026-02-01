@@ -317,6 +317,14 @@ struct AdminTemplate {
 }
 
 #[derive(Template)]
+#[template(path = "project_setup.html")]
+#[allow(dead_code)]
+struct ProjectSetupTemplate {
+    is_admin: bool,
+    auth_name: String,
+}
+
+#[derive(Template)]
 #[template(path = "login.html")]
 struct LoginTemplate {
     error: Option<String>,
@@ -353,14 +361,13 @@ async fn home(State(state): State<AppState>, extensions: Extensions) -> Html<Str
                 fc_common::repo::evaluations::list_filtered(&state.pool, Some(js.id), None, 1, 0)
                     .await
                     .unwrap_or_default();
-            if let Some(e) = js_evals.into_iter().next() {
-                if last_eval
+            if let Some(e) = js_evals.into_iter().next()
+                && last_eval
                     .as_ref()
-                    .map_or(true, |le| e.evaluation_time > le.evaluation_time)
+                    .is_none_or(|le| e.evaluation_time > le.evaluation_time)
                 {
                     last_eval = Some(e);
                 }
-            }
         }
         let (status, class, time) = match &last_eval {
             Some(e) => {
@@ -884,6 +891,19 @@ async fn admin_page(State(state): State<AppState>, extensions: Extensions) -> Ht
     )
 }
 
+// --- Setup Wizard ---
+
+async fn project_setup_page(extensions: Extensions) -> Html<String> {
+    let tmpl = ProjectSetupTemplate {
+        is_admin: is_admin(&extensions),
+        auth_name: auth_name(&extensions),
+    };
+    Html(
+        tmpl.render()
+            .unwrap_or_else(|e| format!("Template error: {e}")),
+    )
+}
+
 // --- Login / Logout ---
 
 async fn login_page() -> Html<String> {
@@ -950,7 +970,28 @@ async fn login_action(State(state): State<AppState>, Form(form): Form<LoginForm>
     }
 }
 
-async fn logout_action() -> Response {
+async fn logout_action(State(state): State<AppState>, request: axum::extract::Request) -> Response {
+    // Remove server-side session
+    if let Some(cookie_header) = request
+        .headers()
+        .get("cookie")
+        .and_then(|v| v.to_str().ok())
+        && let Some(session_id) = cookie_header
+            .split(';')
+            .filter_map(|pair| {
+                let pair = pair.trim();
+                let (k, v) = pair.split_once('=')?;
+                if k.trim() == "fc_session" {
+                    Some(v.trim().to_string())
+                } else {
+                    None
+                }
+            })
+            .next()
+        {
+            state.sessions.remove(&session_id);
+        }
+
     let cookie = "fc_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0";
     (
         [(axum::http::header::SET_COOKIE, cookie.to_string())],
@@ -966,6 +1007,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/logout", axum::routing::post(logout_action))
         .route("/", get(home))
         .route("/projects", get(projects_page))
+        .route("/projects/new", get(project_setup_page))
         .route("/project/{id}", get(project_page))
         .route("/jobset/{id}", get(jobset_page))
         .route("/evaluations", get(evaluations_page))

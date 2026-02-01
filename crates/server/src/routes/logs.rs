@@ -96,13 +96,12 @@ async fn stream_build_log(
                     consecutive_empty += 1;
                     if consecutive_empty > 5 {
                         // Check build status
-                        if let Ok(b) = fc_common::repo::builds::get(&pool, build_id).await {
-                            if b.status != fc_common::models::BuildStatus::Running
+                        if let Ok(b) = fc_common::repo::builds::get(&pool, build_id).await
+                            && b.status != fc_common::models::BuildStatus::Running
                                 && b.status != fc_common::models::BuildStatus::Pending {
                                 yield Ok(Event::default().event("done").data("Build completed"));
                                 return;
                             }
-                        }
                         consecutive_empty = 0;
                     }
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;

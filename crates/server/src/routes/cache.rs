@@ -170,9 +170,9 @@ async fn sign_narinfo(narinfo: &str, key_file: &std::path::Path) -> String {
                 .output()
                 .await;
 
-            if let Ok(o) = re_output {
-                if let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&o.stdout) {
-                    if let Some(sigs) = parsed
+            if let Ok(o) = re_output
+                && let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&o.stdout)
+                    && let Some(sigs) = parsed
                         .as_array()
                         .and_then(|a| a.first())
                         .and_then(|e| e.get("signatures"))
@@ -187,8 +187,6 @@ async fn sign_narinfo(narinfo: &str, key_file: &std::path::Path) -> String {
                             return format!("{narinfo}{}\n", sig_lines.join("\n"));
                         }
                     }
-                }
-            }
             narinfo.to_string()
         }
         _ => narinfo.to_string(),

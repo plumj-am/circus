@@ -9,8 +9,8 @@ use sha2::{Digest, Sha256};
 
 use crate::state::AppState;
 
-/// Extract and validate an API key from the Authorization header.
-/// Keys use the format: `Bearer fc_xxxx`.
+/// Extract and validate an API key from the Authorization header or session cookie.
+/// Keys use the format: `Bearer fc_xxxx`. Session cookies use `fc_session=<id>`.
 /// Write endpoints (POST/PUT/DELETE/PATCH) require a valid key.
 /// Read endpoints (GET/HEAD/OPTIONS) try to extract optionally (for dashboard admin UI).
 pub async fn require_api_key(
@@ -33,41 +33,43 @@ pub async fn require_api_key(
         .as_deref()
         .and_then(|h| h.strip_prefix("Bearer "));
 
-    match token {
-        Some(token) => {
-            let mut hasher = Sha256::new();
-            hasher.update(token.as_bytes());
-            let key_hash = hex::encode(hasher.finalize());
+    // Try Bearer token first
+    if let Some(token) = token {
+        let mut hasher = Sha256::new();
+        hasher.update(token.as_bytes());
+        let key_hash = hex::encode(hasher.finalize());
 
-            match fc_common::repo::api_keys::get_by_hash(&state.pool, &key_hash).await {
-                Ok(Some(api_key)) => {
-                    // Touch last_used_at (fire and forget)
-                    let pool = state.pool.clone();
-                    let key_id = api_key.id;
-                    tokio::spawn(async move {
-                        let _ = fc_common::repo::api_keys::touch_last_used(&pool, key_id).await;
-                    });
+        if let Ok(Some(api_key)) =
+            fc_common::repo::api_keys::get_by_hash(&state.pool, &key_hash).await
+        {
+            let pool = state.pool.clone();
+            let key_id = api_key.id;
+            tokio::spawn(async move {
+                let _ = fc_common::repo::api_keys::touch_last_used(&pool, key_id).await;
+            });
 
-                    request.extensions_mut().insert(api_key);
-                    Ok(next.run(request).await)
-                }
-                _ => {
-                    if is_read {
-                        // Invalid token on read is still allowed, just no ApiKey in extensions
-                        Ok(next.run(request).await)
-                    } else {
-                        Err(StatusCode::UNAUTHORIZED)
-                    }
-                }
-            }
+            request.extensions_mut().insert(api_key);
+            return Ok(next.run(request).await);
         }
-        None => {
-            if is_read {
-                Ok(next.run(request).await)
-            } else {
-                Err(StatusCode::UNAUTHORIZED)
-            }
-        }
+    }
+
+    // Fall back to session cookie (so dashboard JS fetches work)
+    if let Some(cookie_header) = request
+        .headers()
+        .get("cookie")
+        .and_then(|v| v.to_str().ok())
+        && let Some(session_id) = parse_cookie(cookie_header, "fc_session")
+            && let Some(session) = state.sessions.get(&session_id)
+                && session.created_at.elapsed() < std::time::Duration::from_secs(24 * 60 * 60) {
+                    request.extensions_mut().insert(session.api_key.clone());
+                    return Ok(next.run(request).await);
+                }
+
+    // No valid auth found
+    if is_read {
+        Ok(next.run(request).await)
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
     }
 }
 
@@ -129,9 +131,8 @@ pub async fn extract_session(
         .headers()
         .get("cookie")
         .and_then(|v| v.to_str().ok())
-    {
-        if let Some(session_id) = parse_cookie(cookie_header, "fc_session") {
-            if let Some(session) = state.sessions.get(&session_id) {
+        && let Some(session_id) = parse_cookie(cookie_header, "fc_session")
+            && let Some(session) = state.sessions.get(&session_id) {
                 // Check session expiry (24 hours)
                 if session.created_at.elapsed() < std::time::Duration::from_secs(24 * 60 * 60) {
                     request.extensions_mut().insert(session.api_key.clone());
@@ -141,12 +142,10 @@ pub async fn extract_session(
                     state.sessions.remove(&session_id);
                 }
             }
-        }
-    }
     next.run(request).await
 }
 
-fn parse_cookie<'a>(header: &'a str, name: &str) -> Option<String> {
+fn parse_cookie(header: &str, name: &str) -> Option<String> {
     header
         .split(';')
         .filter_map(|pair| {

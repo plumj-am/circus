@@ -45,15 +45,18 @@ async fn shutdown_signal() {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    let config = Config::load()?;
+    fc_common::init_tracing(&config.tracing);
 
     let cli = Cli::parse();
-    let config = Config::load()?;
 
     let host = cli.host.unwrap_or(config.server.host.clone());
     let port = cli.port.unwrap_or(config.server.port);
 
     let db = Database::new(config.database.clone()).await?;
+
+    // Bootstrap declarative projects, jobsets, and API keys from config
+    fc_common::bootstrap::run(db.pool(), &config.declarative).await?;
 
     let state = AppState {
         pool: db.pool().clone(),
