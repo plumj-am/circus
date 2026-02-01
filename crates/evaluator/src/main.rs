@@ -11,13 +11,12 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
-
     let _cli = Cli::parse();
 
-    tracing::info!("Starting CI Evaluator");
-
     let config = Config::load()?;
+    fc_common::init_tracing(&config.tracing);
+
+    tracing::info!("Starting CI Evaluator");
     tracing::info!("Configuration loaded");
 
     // Ensure work directory exists

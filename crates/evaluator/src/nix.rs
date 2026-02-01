@@ -45,8 +45,8 @@ pub fn parse_eval_output(stdout: &str) -> EvalResult {
             continue;
         }
 
-        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(line) {
-            if parsed.get("error").is_some() {
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(line)
+            && parsed.get("error").is_some() {
                 if let Ok(eval_err) = serde_json::from_str::<NixEvalError>(line) {
                     let name = eval_err.name.as_deref().unwrap_or("<unknown>");
                     tracing::warn!(
@@ -58,7 +58,6 @@ pub fn parse_eval_output(stdout: &str) -> EvalResult {
                 }
                 continue;
             }
-        }
 
         match serde_json::from_str::<NixJob>(line) {
             Ok(job) => jobs.push(job),
@@ -74,6 +73,7 @@ pub fn parse_eval_output(stdout: &str) -> EvalResult {
 /// Evaluate nix expressions and return discovered jobs.
 /// If flake_mode is true, uses nix-eval-jobs with --flake flag.
 /// If flake_mode is false, evaluates a legacy expression file.
+#[tracing::instrument(skip(config, inputs), fields(flake_mode, nix_expression))]
 pub async fn evaluate(
     repo_path: &Path,
     nix_expression: &str,
@@ -89,6 +89,7 @@ pub async fn evaluate(
     }
 }
 
+#[tracing::instrument(skip(config, inputs))]
 async fn evaluate_flake(
     repo_path: &Path,
     nix_expression: &str,
@@ -98,7 +99,9 @@ async fn evaluate_flake(
 ) -> Result<EvalResult> {
     let flake_ref = format!("{}#{}", repo_path.display(), nix_expression);
 
-    let result = tokio::time::timeout(timeout, async {
+    
+
+    tokio::time::timeout(timeout, async {
         let mut cmd = tokio::process::Command::new("nix-eval-jobs");
         cmd.arg("--flake").arg(&flake_ref);
 
@@ -141,12 +144,11 @@ async fn evaluate_flake(
         }
     })
     .await
-    .map_err(|_| CiError::Timeout(format!("Nix evaluation timed out after {timeout:?}")))?;
-
-    result
+    .map_err(|_| CiError::Timeout(format!("Nix evaluation timed out after {timeout:?}")))?
 }
 
 /// Legacy (non-flake) evaluation: import the nix expression file and evaluate it.
+#[tracing::instrument(skip(config, inputs))]
 async fn evaluate_legacy(
     repo_path: &Path,
     nix_expression: &str,
@@ -156,7 +158,9 @@ async fn evaluate_legacy(
 ) -> Result<EvalResult> {
     let expr_path = repo_path.join(nix_expression);
 
-    let result = tokio::time::timeout(timeout, async {
+    
+
+    tokio::time::timeout(timeout, async {
         // Try nix-eval-jobs without --flake for legacy expressions
         let mut cmd = tokio::process::Command::new("nix-eval-jobs");
         cmd.arg(&expr_path);
@@ -222,9 +226,7 @@ async fn evaluate_legacy(
         }
     })
     .await
-    .map_err(|_| CiError::Timeout(format!("Nix evaluation timed out after {timeout:?}")))?;
-
-    result
+    .map_err(|_| CiError::Timeout(format!("Nix evaluation timed out after {timeout:?}")))?
 }
 
 async fn evaluate_with_nix_eval(repo_path: &Path, nix_expression: &str) -> Result<Vec<NixJob>> {
@@ -261,8 +263,8 @@ async fn evaluate_with_nix_eval(repo_path: &Path, nix_expression: &str) -> Resul
 
             if drv_output.status.success() {
                 let drv_stdout = String::from_utf8_lossy(&drv_output.stdout);
-                if let Ok(drv_json) = serde_json::from_str::<serde_json::Value>(&drv_stdout) {
-                    if let Some((drv_path, drv_val)) =
+                if let Ok(drv_json) = serde_json::from_str::<serde_json::Value>(&drv_stdout)
+                    && let Some((drv_path, drv_val)) =
                         drv_json.as_object().and_then(|o| o.iter().next())
                     {
                         let system = drv_val
@@ -278,7 +280,6 @@ async fn evaluate_with_nix_eval(repo_path: &Path, nix_expression: &str) -> Resul
                             constituents: None,
                         });
                     }
-                }
             }
         }
     }

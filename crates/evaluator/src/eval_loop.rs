@@ -58,12 +58,13 @@ async fn evaluate_jobset(
     let url = jobset.repository_url.clone();
     let work_dir = config.work_dir.clone();
     let project_name = jobset.project_name.clone();
+    let branch = jobset.branch.clone();
 
     // Clone/fetch in a blocking task (git2 is sync) with timeout
     let (repo_path, commit_hash) = tokio::time::timeout(
         git_timeout,
         tokio::task::spawn_blocking(move || {
-            crate::git::clone_or_fetch(&url, &work_dir, &project_name)
+            crate::git::clone_or_fetch(&url, &work_dir, &project_name, branch.as_deref())
         }),
     )
     .await
@@ -92,8 +93,8 @@ async fn evaluate_jobset(
     }
 
     // Also skip if commit hasn't changed (backward compat)
-    if let Some(latest) = repo::evaluations::get_latest(pool, jobset.id).await? {
-        if latest.commit_hash == commit_hash && latest.inputs_hash.as_deref() == Some(&inputs_hash)
+    if let Some(latest) = repo::evaluations::get_latest(pool, jobset.id).await?
+        && latest.commit_hash == commit_hash && latest.inputs_hash.as_deref() == Some(&inputs_hash)
         {
             tracing::debug!(
                 jobset = %jobset.name,
@@ -102,7 +103,6 @@ async fn evaluate_jobset(
             );
             return Ok(());
         }
-    }
 
     tracing::info!(
         jobset = %jobset.name,
@@ -189,26 +189,24 @@ async fn evaluate_jobset(
                 // Input derivation dependencies
                 if let Some(ref input_drvs) = job.input_drvs {
                     for dep_drv in input_drvs.keys() {
-                        if let Some(&dep_build_id) = drv_to_build.get(dep_drv) {
-                            if dep_build_id != build_id {
+                        if let Some(&dep_build_id) = drv_to_build.get(dep_drv)
+                            && dep_build_id != build_id {
                                 let _ =
                                     repo::build_dependencies::create(pool, build_id, dep_build_id)
                                         .await;
                             }
-                        }
                     }
                 }
 
                 // Aggregate constituent dependencies
                 if let Some(ref constituents) = job.constituents {
                     for constituent_name in constituents {
-                        if let Some(&dep_build_id) = name_to_build.get(constituent_name) {
-                            if dep_build_id != build_id {
+                        if let Some(&dep_build_id) = name_to_build.get(constituent_name)
+                            && dep_build_id != build_id {
                                 let _ =
                                     repo::build_dependencies::create(pool, build_id, dep_build_id)
                                         .await;
                             }
-                        }
                     }
                 }
             }
@@ -303,6 +301,8 @@ async fn check_declarative_config(pool: &PgPool, repo_path: &std::path::Path, pr
                 enabled: js.enabled,
                 flake_mode: js.flake_mode,
                 check_interval: js.check_interval,
+                branch: None,
+                scheduling_shares: None,
             };
             if let Err(e) = repo::jobsets::upsert(pool, input).await {
                 tracing::warn!("Failed to upsert declarative jobset: {e}");

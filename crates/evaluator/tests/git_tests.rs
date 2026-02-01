@@ -22,7 +22,7 @@ fn test_clone_or_fetch_clones_new_repo() {
     }
 
     let url = format!("file://{}", upstream_dir.path().display());
-    let result = fc_evaluator::git::clone_or_fetch(&url, work_dir.path(), "test-project");
+    let result = fc_evaluator::git::clone_or_fetch(&url, work_dir.path(), "test-project", None);
 
     assert!(
         result.is_ok(),
@@ -54,7 +54,7 @@ fn test_clone_or_fetch_fetches_existing() {
 
     // First clone
     let (_, hash1): (std::path::PathBuf, String) =
-        fc_evaluator::git::clone_or_fetch(&url, work_dir.path(), "test-project")
+        fc_evaluator::git::clone_or_fetch(&url, work_dir.path(), "test-project", None)
             .expect("first clone failed");
 
     // Make another commit upstream
@@ -70,7 +70,7 @@ fn test_clone_or_fetch_fetches_existing() {
 
     // Second fetch
     let (_, hash2): (std::path::PathBuf, String) =
-        fc_evaluator::git::clone_or_fetch(&url, work_dir.path(), "test-project")
+        fc_evaluator::git::clone_or_fetch(&url, work_dir.path(), "test-project", None)
             .expect("second fetch failed");
 
     assert!(!hash1.is_empty());
@@ -80,7 +80,11 @@ fn test_clone_or_fetch_fetches_existing() {
 #[test]
 fn test_clone_invalid_url_returns_error() {
     let work_dir = TempDir::new().unwrap();
-    let result =
-        fc_evaluator::git::clone_or_fetch("file:///nonexistent/repo", work_dir.path(), "bad-proj");
+    let result = fc_evaluator::git::clone_or_fetch(
+        "file:///nonexistent/repo",
+        work_dir.path(),
+        "bad-proj",
+        None,
+    );
     assert!(result.is_err());
 }
