@@ -20,4 +20,13 @@ thiserror.workspace = true
 git2.workspace = true
 clap.workspace = true
 config.workspace = true
-fc-common = { path = "../common" }
+futures.workspace = true
+toml.workspace = true
+sha2.workspace = true
+hex.workspace = true
+
+# Our crates
+fc-common.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

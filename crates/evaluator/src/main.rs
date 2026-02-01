@@ -1,5 +1,5 @@
 use clap::Parser;
-use tracing_subscriber::fmt::init;
+use fc_common::{Config, Database};
 
 #[derive(Parser)]
 #[command(name = "fc-evaluator")]
@@ -11,13 +11,62 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    #[allow(unused_variables, reason = "Main application logic is TODO")]
-    let cli = Cli::parse();
+    tracing_subscriber::fmt::init();
+
+    let _cli = Cli::parse();
 
     tracing::info!("Starting CI Evaluator");
-    init();
 
-    // TODO: Implement evaluator logic
+    let config = Config::load()?;
+    tracing::info!("Configuration loaded");
+
+    // Ensure work directory exists
+    tokio::fs::create_dir_all(&config.evaluator.work_dir).await?;
+    tracing::info!(work_dir = %config.evaluator.work_dir.display(), "Work directory ready");
+
+    let db = Database::new(config.database.clone()).await?;
+    tracing::info!("Database connection established");
+
+    let pool = db.pool().clone();
+    let eval_config = config.evaluator;
+
+    tokio::select! {
+        result = fc_evaluator::eval_loop::run(pool, eval_config) => {
+            if let Err(e) = result {
+                tracing::error!("Evaluator loop failed: {e}");
+            }
+        }
+        () = shutdown_signal() => {
+            tracing::info!("Shutdown signal received");
+        }
+    }
+
+    tracing::info!("Evaluator shutting down, closing database pool");
+    db.close().await;
 
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        () = ctrl_c => {},
+        () = terminate => {},
+    }
 }
