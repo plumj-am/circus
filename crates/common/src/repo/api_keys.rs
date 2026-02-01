@@ -15,10 +15,26 @@ pub async fn create(pool: &PgPool, name: &str, key_hash: &str, role: &str) -> Re
     .await
     .map_err(|e| match &e {
         sqlx::Error::Database(db_err) if db_err.is_unique_violation() => {
-            CiError::Conflict(format!("API key with this hash already exists"))
+            CiError::Conflict("API key with this hash already exists".to_string())
         }
         _ => CiError::Database(e),
     })
+}
+
+pub async fn upsert(pool: &PgPool, name: &str, key_hash: &str, role: &str) -> Result<ApiKey> {
+    sqlx::query_as::<_, ApiKey>(
+        "INSERT INTO api_keys (name, key_hash, role) VALUES ($1, $2, $3) \
+         ON CONFLICT (key_hash) DO UPDATE SET \
+         name = EXCLUDED.name, \
+         role = EXCLUDED.role \
+         RETURNING *",
+    )
+    .bind(name)
+    .bind(key_hash)
+    .bind(role)
+    .fetch_one(pool)
+    .await
+    .map_err(CiError::Database)
 }
 
 pub async fn get_by_hash(pool: &PgPool, key_hash: &str) -> Result<Option<ApiKey>> {

@@ -8,9 +8,10 @@ pub async fn create(pool: &PgPool, input: CreateJobset) -> Result<Jobset> {
     let enabled = input.enabled.unwrap_or(true);
     let flake_mode = input.flake_mode.unwrap_or(true);
     let check_interval = input.check_interval.unwrap_or(60);
+    let scheduling_shares = input.scheduling_shares.unwrap_or(100);
 
     sqlx::query_as::<_, Jobset>(
-        "INSERT INTO jobsets (project_id, name, nix_expression, enabled, flake_mode, check_interval) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+        "INSERT INTO jobsets (project_id, name, nix_expression, enabled, flake_mode, check_interval, branch, scheduling_shares) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
     )
     .bind(input.project_id)
     .bind(&input.name)
@@ -18,6 +19,8 @@ pub async fn create(pool: &PgPool, input: CreateJobset) -> Result<Jobset> {
     .bind(enabled)
     .bind(flake_mode)
     .bind(check_interval)
+    .bind(&input.branch)
+    .bind(scheduling_shares)
     .fetch_one(pool)
     .await
     .map_err(|e| match &e {
@@ -70,15 +73,21 @@ pub async fn update(pool: &PgPool, id: Uuid, input: UpdateJobset) -> Result<Jobs
     let enabled = input.enabled.unwrap_or(existing.enabled);
     let flake_mode = input.flake_mode.unwrap_or(existing.flake_mode);
     let check_interval = input.check_interval.unwrap_or(existing.check_interval);
+    let branch = input.branch.or(existing.branch);
+    let scheduling_shares = input
+        .scheduling_shares
+        .unwrap_or(existing.scheduling_shares);
 
     sqlx::query_as::<_, Jobset>(
-        "UPDATE jobsets SET name = $1, nix_expression = $2, enabled = $3, flake_mode = $4, check_interval = $5 WHERE id = $6 RETURNING *",
+        "UPDATE jobsets SET name = $1, nix_expression = $2, enabled = $3, flake_mode = $4, check_interval = $5, branch = $6, scheduling_shares = $7 WHERE id = $8 RETURNING *",
     )
     .bind(&name)
     .bind(&nix_expression)
     .bind(enabled)
     .bind(flake_mode)
     .bind(check_interval)
+    .bind(&branch)
+    .bind(scheduling_shares)
     .bind(id)
     .fetch_one(pool)
     .await
@@ -107,15 +116,18 @@ pub async fn upsert(pool: &PgPool, input: CreateJobset) -> Result<Jobset> {
     let enabled = input.enabled.unwrap_or(true);
     let flake_mode = input.flake_mode.unwrap_or(true);
     let check_interval = input.check_interval.unwrap_or(60);
+    let scheduling_shares = input.scheduling_shares.unwrap_or(100);
 
     sqlx::query_as::<_, Jobset>(
-        "INSERT INTO jobsets (project_id, name, nix_expression, enabled, flake_mode, check_interval) \
-         VALUES ($1, $2, $3, $4, $5, $6) \
+        "INSERT INTO jobsets (project_id, name, nix_expression, enabled, flake_mode, check_interval, branch, scheduling_shares) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
          ON CONFLICT (project_id, name) DO UPDATE SET \
          nix_expression = EXCLUDED.nix_expression, \
          enabled = EXCLUDED.enabled, \
          flake_mode = EXCLUDED.flake_mode, \
-         check_interval = EXCLUDED.check_interval \
+         check_interval = EXCLUDED.check_interval, \
+         branch = EXCLUDED.branch, \
+         scheduling_shares = EXCLUDED.scheduling_shares \
          RETURNING *",
     )
     .bind(input.project_id)
@@ -124,6 +136,8 @@ pub async fn upsert(pool: &PgPool, input: CreateJobset) -> Result<Jobset> {
     .bind(enabled)
     .bind(flake_mode)
     .bind(check_interval)
+    .bind(&input.branch)
+    .bind(scheduling_shares)
     .fetch_one(pool)
     .await
     .map_err(CiError::Database)

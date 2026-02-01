@@ -60,7 +60,12 @@ pub async fn list_for_evaluation(pool: &PgPool, evaluation_id: Uuid) -> Result<V
 
 pub async fn list_pending(pool: &PgPool, limit: i64) -> Result<Vec<Build>> {
     sqlx::query_as::<_, Build>(
-        "SELECT * FROM builds WHERE status = 'pending' ORDER BY priority DESC, created_at ASC LIMIT $1",
+        "SELECT b.* FROM builds b \
+         JOIN evaluations e ON b.evaluation_id = e.id \
+         JOIN jobsets j ON e.jobset_id = j.id \
+         WHERE b.status = 'pending' \
+         ORDER BY b.priority DESC, j.scheduling_shares DESC, b.created_at ASC \
+         LIMIT $1",
     )
     .bind(limit)
     .fetch_all(pool)
@@ -243,6 +248,25 @@ pub async fn cancel_cascade(pool: &PgPool, id: Uuid) -> Result<Vec<Build>> {
     }
 
     Ok(cancelled)
+}
+
+/// Restart a build by resetting it to pending state.
+/// Only works for failed, completed, or cancelled builds.
+pub async fn restart(pool: &PgPool, id: Uuid) -> Result<Build> {
+    sqlx::query_as::<_, Build>(
+        "UPDATE builds SET status = 'pending', started_at = NULL, completed_at = NULL, \
+         log_path = NULL, build_output_path = NULL, error_message = NULL, \
+         retry_count = retry_count + 1 \
+         WHERE id = $1 AND status IN ('failed', 'completed', 'cancelled') RETURNING *",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| {
+        CiError::NotFound(format!(
+            "Build {id} not found or not in a restartable state"
+        ))
+    })
 }
 
 /// Mark a build's outputs as signed.

@@ -81,6 +81,22 @@ pub async fn update(pool: &PgPool, id: Uuid, input: UpdateProject) -> Result<Pro
     })
 }
 
+pub async fn upsert(pool: &PgPool, input: CreateProject) -> Result<Project> {
+    sqlx::query_as::<_, Project>(
+        "INSERT INTO projects (name, description, repository_url) VALUES ($1, $2, $3) \
+         ON CONFLICT (name) DO UPDATE SET \
+         description = EXCLUDED.description, \
+         repository_url = EXCLUDED.repository_url \
+         RETURNING *",
+    )
+    .bind(&input.name)
+    .bind(&input.description)
+    .bind(&input.repository_url)
+    .fetch_one(pool)
+    .await
+    .map_err(CiError::Database)
+}
+
 pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
     let result = sqlx::query("DELETE FROM projects WHERE id = $1")
         .bind(id)
