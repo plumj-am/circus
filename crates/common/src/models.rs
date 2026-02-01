@@ -24,6 +24,8 @@ pub struct Jobset {
     pub enabled: bool,
     pub flake_mode: bool,
     pub check_interval: i32,
+    pub branch: Option<String>,
+    pub scheduling_shares: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -128,6 +130,8 @@ pub struct ActiveJobset {
     pub enabled: bool,
     pub flake_mode: bool,
     pub check_interval: i32,
+    pub branch: Option<String>,
+    pub scheduling_shares: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub project_name: String,
@@ -278,6 +282,8 @@ pub struct CreateJobset {
     pub enabled: Option<bool>,
     pub flake_mode: Option<bool>,
     pub check_interval: Option<i32>,
+    pub branch: Option<String>,
+    pub scheduling_shares: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -287,6 +293,8 @@ pub struct UpdateJobset {
     pub enabled: Option<bool>,
     pub flake_mode: Option<bool>,
     pub check_interval: Option<i32>,
+    pub branch: Option<String>,
+    pub scheduling_shares: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

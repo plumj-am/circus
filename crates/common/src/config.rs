@@ -16,6 +16,11 @@ pub struct Config {
     pub notifications: NotificationsConfig,
     pub cache: CacheConfig,
     pub signing: SigningConfig,
+    #[serde(default)]
+    pub cache_upload: CacheUploadConfig,
+    pub tracing: TracingConfig,
+    #[serde(default)]
+    pub declarative: DeclarativeConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,6 +84,7 @@ pub struct LogConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct NotificationsConfig {
     pub run_command: Option<String>,
     pub github_token: Option<String>,
@@ -107,9 +113,89 @@ pub struct CacheConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct SigningConfig {
     pub enabled: bool,
     pub key_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+#[derive(Default)]
+pub struct CacheUploadConfig {
+    pub enabled: bool,
+    pub store_uri: Option<String>,
+}
+
+
+/// Declarative project/jobset/api-key definitions.
+/// These are upserted on server startup, enabling fully declarative operation.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct DeclarativeConfig {
+    pub projects: Vec<DeclarativeProject>,
+    pub api_keys: Vec<DeclarativeApiKey>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeclarativeProject {
+    pub name: String,
+    pub repository_url: String,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub jobsets: Vec<DeclarativeJobset>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeclarativeJobset {
+    pub name: String,
+    pub nix_expression: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_true")]
+    pub flake_mode: bool,
+    #[serde(default = "default_check_interval")]
+    pub check_interval: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeclarativeApiKey {
+    pub name: String,
+    pub key: String,
+    #[serde(default = "default_role")]
+    pub role: String,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_check_interval() -> i32 {
+    60
+}
+
+fn default_role() -> String {
+    "admin".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TracingConfig {
+    pub level: String,
+    pub format: String,
+    pub show_targets: bool,
+    pub show_timestamps: bool,
+}
+
+impl Default for TracingConfig {
+    fn default() -> Self {
+        Self {
+            level: "info".to_string(),
+            format: "compact".to_string(),
+            show_targets: true,
+            show_timestamps: true,
+        }
+    }
 }
 
 impl Default for DatabaseConfig {
@@ -214,17 +300,6 @@ impl Default for LogConfig {
     }
 }
 
-impl Default for NotificationsConfig {
-    fn default() -> Self {
-        Self {
-            run_command: None,
-            github_token: None,
-            gitea_url: None,
-            gitea_token: None,
-            email: None,
-        }
-    }
-}
 
 impl Default for CacheConfig {
     fn default() -> Self {
@@ -235,14 +310,6 @@ impl Default for CacheConfig {
     }
 }
 
-impl Default for SigningConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            key_file: None,
-        }
-    }
-}
 
 impl Config {
     pub fn load() -> anyhow::Result<Self> {
@@ -374,6 +441,83 @@ mod tests {
         config.database.max_connections = 10;
         config.database.min_connections = 15;
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_declarative_config_default_is_empty() {
+        let config = DeclarativeConfig::default();
+        assert!(config.projects.is_empty());
+        assert!(config.api_keys.is_empty());
+    }
+
+    #[test]
+    fn test_declarative_config_deserialization() {
+        let toml_str = r#"
+            [[projects]]
+            name = "my-project"
+            repository_url = "https://github.com/test/repo"
+            description = "Test project"
+
+            [[projects.jobsets]]
+            name = "packages"
+            nix_expression = "packages"
+
+            [[api_keys]]
+            name = "admin-key"
+            key = "fc_secret_key_123"
+            role = "admin"
+        "#;
+        let config: DeclarativeConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.projects.len(), 1);
+        assert_eq!(config.projects[0].name, "my-project");
+        assert_eq!(config.projects[0].jobsets.len(), 1);
+        assert_eq!(config.projects[0].jobsets[0].name, "packages");
+        assert!(config.projects[0].jobsets[0].enabled); // default true
+        assert!(config.projects[0].jobsets[0].flake_mode); // default true
+        assert_eq!(config.api_keys.len(), 1);
+        assert_eq!(config.api_keys[0].role, "admin");
+    }
+
+    #[test]
+    fn test_declarative_config_serialization_roundtrip() {
+        let config = DeclarativeConfig {
+            projects: vec![DeclarativeProject {
+                name: "test".to_string(),
+                repository_url: "https://example.com/repo".to_string(),
+                description: Some("desc".to_string()),
+                jobsets: vec![DeclarativeJobset {
+                    name: "checks".to_string(),
+                    nix_expression: "checks".to_string(),
+                    enabled: true,
+                    flake_mode: true,
+                    check_interval: 300,
+                }],
+            }],
+            api_keys: vec![DeclarativeApiKey {
+                name: "test-key".to_string(),
+                key: "fc_test".to_string(),
+                role: "admin".to_string(),
+            }],
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: DeclarativeConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.projects.len(), 1);
+        assert_eq!(parsed.projects[0].jobsets[0].check_interval, 300);
+        assert_eq!(parsed.api_keys[0].name, "test-key");
+    }
+
+    #[test]
+    fn test_declarative_config_with_main_config() {
+        // Ensure declarative section is optional (default empty)
+        // Use the config crate loader which provides defaults for missing fields
+        let config = Config::default();
+        assert!(config.declarative.projects.is_empty());
+        assert!(config.declarative.api_keys.is_empty());
+        // And that the Config can be serialized back with declarative section
+        let toml_str = toml::to_string_pretty(&config).unwrap();
+        let parsed: Config = toml::from_str(&toml_str).unwrap();
+        assert!(parsed.declarative.projects.is_empty());
     }
 
     #[test]

@@ -469,6 +469,8 @@ mod tests {
             enabled: None,
             flake_mode: None,
             check_interval: Some(300),
+            branch: None,
+            scheduling_shares: None,
         };
         assert!(j.validate().is_ok());
     }
@@ -482,6 +484,8 @@ mod tests {
             enabled: None,
             flake_mode: None,
             check_interval: Some(5),
+            branch: None,
+            scheduling_shares: None,
         };
         assert!(j.validate().is_err());
     }
