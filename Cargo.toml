@@ -31,7 +31,7 @@ serde_json = "1.0.145"
 uuid = { version = "1.18.1", features = ["v4", "serde"] }
 chrono = { version = "0.4.42", features = ["serde"] }
 tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
 anyhow = "1.0.100"
 thiserror = "2.0.17"
 git2 = "0.20.2"
@@ -39,7 +39,7 @@ clap = { version = "4.5.51", features = ["derive"] }
 config = "0.15.18"
 tempfile = "3.8"
 toml = "0.9.8"
-tower-http = { version = "0.6.8", features = ["cors", "trace", "limit", "fs"] }
+tower-http = { version = "0.6.8", features = ["cors", "trace", "limit", "fs", "set-header"] }
 tower = "0.5.3"
 futures = "0.3.31"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
