@@ -17,8 +17,12 @@
 </form>
 
 {% if builds.is_empty() %}
-<p class="empty">No builds match filters.</p>
+<div class="empty">
+  <div class="empty-title">No builds match filters</div>
+  <div class="empty-hint">Try adjusting the filters above or wait for builds to be queued.</div>
+</div>
 {% else %}
+<div class="table-wrap">
 <table>
   <thead>
     <tr><th>Job</th><th>Status</th><th>System</th><th>Created</th></tr>
@@ -34,7 +38,8 @@
     {% endfor %}
   </tbody>
 </table>
-{% endif %}
+</div>
+{% if total_pages > 1 %}
 <div class="pagination">
   {% if has_prev %}
   <a href="/builds?offset={{ prev_offset }}&limit={{ limit }}&status={{ filter_status }}&system={{ filter_system }}&job_name={{ filter_job }}">&laquo; Previous</a>
@@ -44,4 +49,6 @@
   <a href="/builds?offset={{ next_offset }}&limit={{ limit }}&status={{ filter_status }}&system={{ filter_system }}&job_name={{ filter_job }}">Next &raquo;</a>
   {% endif %}
 </div>
+{% endif %}
+{% endif %}
 {% endblock %}

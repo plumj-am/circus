@@ -40,8 +40,9 @@
 
 <h2>Builds</h2>
 {% if builds.is_empty() %}
-<p class="empty">No builds for this evaluation.</p>
+<div class="empty">No builds for this evaluation.</div>
 {% else %}
+<div class="table-wrap">
 <table>
   <thead>
     <tr><th>Job</th><th>Status</th><th>System</th><th>Created</th></tr>
@@ -57,5 +58,6 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% endif %}
 {% endblock %}

@@ -3,8 +3,12 @@
 {% block content %}
 <h1>Evaluations</h1>
 {% if evals.is_empty() %}
-<p class="empty">No evaluations yet.</p>
+<div class="empty">
+  <div class="empty-title">No evaluations yet</div>
+  <div class="empty-hint">Evaluations will appear here once a jobset is evaluated.</div>
+</div>
 {% else %}
+<div class="table-wrap">
 <table>
   <thead>
     <tr><th>Commit</th><th>Project</th><th>Jobset</th><th>Status</th><th>Time</th></tr>
@@ -21,7 +25,8 @@
     {% endfor %}
   </tbody>
 </table>
-{% endif %}
+</div>
+{% if total_pages > 1 %}
 <div class="pagination">
   {% if has_prev %}
   <a href="/evaluations?offset={{ prev_offset }}&limit={{ limit }}">&laquo; Previous</a>
@@ -31,4 +36,6 @@
   <a href="/evaluations?offset={{ next_offset }}&limit={{ limit }}">Next &raquo;</a>
   {% endif %}
 </div>
+{% endif %}
+{% endif %}
 {% endblock %}

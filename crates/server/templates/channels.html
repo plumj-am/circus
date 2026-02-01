@@ -3,8 +3,12 @@
 {% block content %}
 <h1>Channels</h1>
 {% if channels.is_empty() %}
-<p class="empty">No channels configured.</p>
+<div class="empty">
+  <div class="empty-title">No channels configured</div>
+  <div class="empty-hint">Channels track successful evaluations for stable release tracking.</div>
+</div>
 {% else %}
+<div class="table-wrap">
 <table>
   <thead>
     <tr><th>Name</th><th>Current Evaluation</th><th>Updated</th></tr>
@@ -26,5 +30,6 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% endif %}
 {% endblock %}

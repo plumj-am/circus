@@ -25,7 +25,7 @@
 <p><strong>Created:</strong> {{ project.created_at.format("%Y-%m-%d %H:%M") }}</p>
 
 {% if is_admin %}
-<div style="margin-top: 0.5rem;">
+<div class="action-bar">
   <button class="btn btn-danger btn-small" onclick="deleteProject()">Delete Project</button>
 </div>
 {% endif %}
@@ -56,8 +56,14 @@
 {% endif %}
 
 {% if jobsets.is_empty() %}
-<p class="empty">No jobsets configured.</p>
+<div class="empty">
+  <div class="empty-title">No jobsets configured</div>
+  {% if is_admin %}
+  <div class="empty-hint">Add a jobset above to start evaluating this project.</div>
+  {% endif %}
+</div>
 {% else %}
+<div class="table-wrap">
 <table>
   <thead>
     <tr><th>Name</th><th>Expression</th><th>Flake</th><th>Enabled</th><th>Interval</th></tr>
@@ -74,12 +80,14 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% endif %}
 
 <h2>Recent Evaluations</h2>
 {% if recent_evals.is_empty() %}
-<p class="empty">No evaluations yet.</p>
+<div class="empty">No evaluations yet for this project.</div>
 {% else %}
+<div class="table-wrap">
 <table>
   <thead>
     <tr><th>Commit</th><th>Status</th><th>Time</th></tr>
@@ -94,6 +102,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% endif %}
 {% endblock %}
 {% block scripts %}
@@ -112,21 +121,27 @@ document.getElementById('create-jobset-form')?.addEventListener('submit', async 
         flake_mode: document.getElementById('js-flake').checked,
       }),
     });
-    if (res.ok) {
-      window.location.reload();
-    } else {
-      const err = await res.json();
-      msg.innerHTML = '<div class="flash-message flash-error">' + (err.error || 'Error') + '</div>';
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || err.message || 'Unknown error');
     }
-  } catch(e) {
-    msg.innerHTML = '<div class="flash-message flash-error">Request failed</div>';
+    window.location.reload();
+  } catch(err) {
+    showError(msg, err.message);
   }
 });
 async function deleteProject() {
   if (!confirm('Delete this project and all its data?')) return;
-  const res = await fetch('/api/v1/projects/{{ project.id }}', { method: 'DELETE' });
-  if (res.ok) window.location.href = '/projects';
-  else alert('Failed to delete project');
+  try {
+    const res = await fetch('/api/v1/projects/{{ project.id }}', { method: 'DELETE' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || err.message || 'Failed to delete project');
+    }
+    window.location.href = '/projects';
+  } catch(err) {
+    alert(escapeHtml(err.message));
+  }
 }
 </script>
 {% endif %}

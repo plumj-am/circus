@@ -11,8 +11,12 @@
 
 <h2>Running ({{ running_count }})</h2>
 {% if running_builds.is_empty() %}
-<p class="empty">No builds currently running.</p>
+<div class="empty">
+  <div class="empty-title">No builds currently running</div>
+  <div class="empty-hint">Running builds will appear here when the queue runner picks them up.</div>
+</div>
 {% else %}
+<div class="table-wrap">
 <table>
   <thead>
     <tr><th>Job</th><th>System</th><th>Started</th></tr>
@@ -27,12 +31,17 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% endif %}
 
 <h2>Pending ({{ pending_count }})</h2>
 {% if pending_builds.is_empty() %}
-<p class="empty">No builds pending.</p>
+<div class="empty">
+  <div class="empty-title">No builds pending</div>
+  <div class="empty-hint">Pending builds appear after an evaluation discovers new derivations to build.</div>
+</div>
 {% else %}
+<div class="table-wrap">
 <table>
   <thead>
     <tr><th>Job</th><th>System</th><th>Created</th></tr>
@@ -47,5 +56,6 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% endif %}
 {% endblock %}

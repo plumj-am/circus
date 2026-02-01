@@ -1,19 +1,24 @@
 {% extends "base.html" %}
 {% block title %}Login - FC CI{% endblock %}
 {% block content %}
-<h1>Login</h1>
-<div class="form-card">
-  {% match error %}
-    {% when Some with (msg) %}
-    <div class="flash-message flash-error">{{ msg }}</div>
-    {% when None %}
-  {% endmatch %}
-  <form method="POST" action="/login">
-    <div class="form-group">
-      <label for="api_key">API Key</label>
-      <input type="password" id="api_key" name="api_key" placeholder="fc_..." required>
+<div class="login-container">
+  <div class="login-card">
+    <h1>FC CI</h1>
+    <p class="login-subtitle">Sign in with your API key</p>
+    {% match error %}
+      {% when Some with (msg) %}
+      <div class="flash-message flash-error">{{ msg }}</div>
+      {% when None %}
+    {% endmatch %}
+    <div class="form-card login-form">
+      <form method="POST" action="/login">
+        <div class="form-group">
+          <label for="api_key">API Key</label>
+          <input type="password" id="api_key" name="api_key" placeholder="fc_..." required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-full">Sign in</button>
+      </form>
     </div>
-    <button type="submit" class="btn">Login</button>
-  </form>
+  </div>
 </div>
 {% endblock %}

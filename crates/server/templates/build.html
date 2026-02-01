@@ -55,8 +55,9 @@
 
 <h2>Build Steps</h2>
 {% if steps.is_empty() %}
-<p class="empty">No steps recorded.</p>
+<div class="empty">No steps recorded.</div>
 {% else %}
+<div class="table-wrap">
 <table>
   <thead>
     <tr><th>#</th><th>Command</th><th>Exit</th><th>Started</th><th>Completed</th></tr>
@@ -73,12 +74,14 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% endif %}
 
 <h2>Build Products</h2>
 {% if products.is_empty() %}
-<p class="empty">No products recorded.</p>
+<div class="empty">No products recorded.</div>
 {% else %}
+<div class="table-wrap">
 <table>
   <thead>
     <tr><th>Name</th><th>Path</th><th>Size</th></tr>
@@ -93,5 +96,6 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% endif %}
 {% endblock %}
