@@ -64,6 +64,8 @@ async fn test_e2e_project_eval_build_flow() {
             enabled: Some(true),
             flake_mode: Some(true),
             check_interval: Some(300),
+            branch: None,
+            scheduling_shares: None,
         },
     )
     .await

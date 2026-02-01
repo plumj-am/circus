@@ -775,3 +775,219 @@ async fn test_create_project_validation_accepts_valid() {
 
     assert_eq!(response.status(), StatusCode::OK);
 }
+
+// ---- Error handling tests ----
+
+#[tokio::test]
+async fn test_project_create_with_auth() {
+    let pool = match get_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    // Create an admin API key
+    let mut hasher = sha2::Sha256::new();
+    use sha2::Digest;
+    hasher.update(b"fc_test_project_auth");
+    let key_hash = hex::encode(hasher.finalize());
+    let _ = fc_common::repo::api_keys::upsert(&pool, "test-auth", &key_hash, "admin").await;
+
+    let app = build_app(pool);
+
+    let body = serde_json::json!({
+        "name": "auth-test-project",
+        "repository_url": "https://github.com/test/auth-test"
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer fc_test_project_auth")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["name"], "auth-test-project");
+    assert!(json["id"].as_str().is_some());
+}
+
+#[tokio::test]
+async fn test_project_create_without_auth_rejected() {
+    let pool = match get_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let app = build_app(pool);
+
+    let body = serde_json::json!({
+        "name": "no-auth-project",
+        "repository_url": "https://github.com/test/no-auth"
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_setup_endpoint_creates_project_and_jobsets() {
+    let pool = match get_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    // Create an admin API key
+    let mut hasher = sha2::Sha256::new();
+    use sha2::Digest;
+    hasher.update(b"fc_test_setup_key");
+    let key_hash = hex::encode(hasher.finalize());
+    let _ = fc_common::repo::api_keys::upsert(&pool, "test-setup", &key_hash, "admin").await;
+
+    let app = build_app(pool.clone());
+
+    let body = serde_json::json!({
+        "repository_url": "https://github.com/test/setup-test",
+        "name": "setup-test-project",
+        "description": "Test project from setup endpoint",
+        "jobsets": [
+            {
+                "name": "packages",
+                "nix_expression": "packages",
+                "description": "Packages"
+            },
+            {
+                "name": "checks",
+                "nix_expression": "checks",
+                "description": "Checks"
+            }
+        ]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/setup")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer fc_test_setup_key")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert_eq!(json["project"]["name"], "setup-test-project");
+    assert_eq!(json["jobsets"].as_array().unwrap().len(), 2);
+    assert_eq!(json["jobsets"][0]["name"], "packages");
+    assert_eq!(json["jobsets"][1]["name"], "checks");
+}
+
+#[tokio::test]
+async fn test_security_headers_present() {
+    let pool = match get_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let app = build_app(pool);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response
+            .headers()
+            .get("x-content-type-options")
+            .map(|v| v.to_str().unwrap()),
+        Some("nosniff")
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get("x-frame-options")
+            .map(|v| v.to_str().unwrap()),
+        Some("DENY")
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get("referrer-policy")
+            .map(|v| v.to_str().unwrap()),
+        Some("strict-origin-when-cross-origin")
+    );
+}
+
+#[tokio::test]
+async fn test_static_css_served() {
+    let pool = match get_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let app = build_app(pool);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/static/style.css")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .map(|v| v.to_str().unwrap()),
+        Some("text/css")
+    );
+
+    let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let css = String::from_utf8_lossy(&body_bytes);
+    assert!(css.contains("--accent"), "CSS should contain design tokens");
+    assert!(
+        css.contains("prefers-color-scheme: dark"),
+        "CSS should have dark mode"
+    );
+}
