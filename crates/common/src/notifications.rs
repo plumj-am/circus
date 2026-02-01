@@ -18,11 +18,10 @@ pub async fn dispatch_build_finished(
     }
 
     // 2. GitHub commit status
-    if let Some(ref token) = config.github_token {
-        if project.repository_url.contains("github.com") {
+    if let Some(ref token) = config.github_token
+        && project.repository_url.contains("github.com") {
             set_github_status(token, &project.repository_url, commit_hash, build).await;
         }
-    }
 
     // 3. Gitea/Forgejo commit status
     if let (Some(url), Some(token)) = (&config.gitea_url, &config.gitea_token) {
@@ -30,11 +29,10 @@ pub async fn dispatch_build_finished(
     }
 
     // 4. Email notification
-    if let Some(ref email_config) = config.email {
-        if !email_config.on_failure_only || build.status == BuildStatus::Failed {
+    if let Some(ref email_config) = config.email
+        && (!email_config.on_failure_only || build.status == BuildStatus::Failed) {
             send_email_notification(email_config, build, project).await;
         }
-    }
 }
 
 async fn run_command_notification(cmd: &str, build: &Build, project: &Project) {

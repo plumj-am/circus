@@ -27,8 +27,8 @@ pub fn cleanup_old_roots(roots_dir: &Path, max_age: Duration) -> std::io::Result
             Err(_) => continue,
         };
 
-        if let Ok(age) = now.duration_since(modified) {
-            if age > max_age {
+        if let Ok(age) = now.duration_since(modified)
+            && age > max_age {
                 if let Err(e) = std::fs::remove_file(entry.path()) {
                     warn!(
                         "Failed to remove old GC root {}: {e}",
@@ -38,7 +38,6 @@ pub fn cleanup_old_roots(roots_dir: &Path, max_age: Duration) -> std::io::Result
                     count += 1;
                 }
             }
-        }
     }
 
     Ok(count)
