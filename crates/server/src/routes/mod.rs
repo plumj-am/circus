@@ -14,111 +14,115 @@ pub mod projects;
 pub mod search;
 pub mod webhooks;
 
-use std::net::IpAddr;
-use std::sync::Arc;
-use std::time::Instant;
+use std::{net::IpAddr, sync::Arc, time::Instant};
 
-use axum::Router;
-use axum::extract::ConnectInfo;
-use axum::http::{HeaderValue, Request, StatusCode};
-use axum::middleware::{self, Next};
-use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::{
+  Router,
+  body::Body,
+  extract::ConnectInfo,
+  http::{HeaderValue, Request, StatusCode, header},
+  middleware::{self, Next},
+  response::{IntoResponse, Response},
+  routing::get,
+};
 use dashmap::DashMap;
 use fc_common::config::ServerConfig;
-use tower_http::cors::{AllowOrigin, CorsLayer};
-use tower_http::limit::RequestBodyLimitLayer;
-use tower_http::set_header::SetResponseHeaderLayer;
-use tower_http::trace::TraceLayer;
+use tower_http::{
+  cors::{AllowOrigin, CorsLayer},
+  limit::RequestBodyLimitLayer,
+  set_header::SetResponseHeaderLayer,
+  trace::TraceLayer,
+};
 
-use axum::body::Body;
-use axum::http::header;
-
-use crate::auth_middleware::{extract_session, require_api_key};
-use crate::state::AppState;
+use crate::{
+  auth_middleware::{extract_session, require_api_key},
+  state::AppState,
+};
 
 static STYLE_CSS: &str = include_str!("../../static/style.css");
 
 struct RateLimitState {
-    requests: DashMap<IpAddr, Vec<Instant>>,
-    _rps: u64,
-    burst: u32,
-    last_cleanup: std::sync::atomic::AtomicU64,
+  requests:     DashMap<IpAddr, Vec<Instant>>,
+  _rps:         u64,
+  burst:        u32,
+  last_cleanup: std::sync::atomic::AtomicU64,
 }
 
 async fn rate_limit_middleware(
-    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
-    request: Request<axum::body::Body>,
-    next: Next,
+  ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+  request: Request<axum::body::Body>,
+  next: Next,
 ) -> Response {
-    let state = request.extensions().get::<Arc<RateLimitState>>().cloned();
+  let state = request.extensions().get::<Arc<RateLimitState>>().cloned();
 
-    if let Some(rl) = state {
-        let ip = addr.ip();
-        let now = Instant::now();
-        let window = std::time::Duration::from_secs(1);
+  if let Some(rl) = state {
+    let ip = addr.ip();
+    let now = Instant::now();
+    let window = std::time::Duration::from_secs(1);
 
-        // Periodic cleanup of stale entries (every 60 seconds)
-        let now_secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let last = rl.last_cleanup.load(std::sync::atomic::Ordering::Relaxed);
-        if now_secs - last > 60
-            && rl
-                .last_cleanup
-                .compare_exchange(
-                    last,
-                    now_secs,
-                    std::sync::atomic::Ordering::SeqCst,
-                    std::sync::atomic::Ordering::Relaxed,
-                )
-                .is_ok()
-            {
-                rl.requests.retain(|_, v| {
-                    v.retain(|t| now.duration_since(*t) < std::time::Duration::from_secs(10));
-                    !v.is_empty()
-                });
-            }
-
-        let mut entry = rl.requests.entry(ip).or_default();
-        entry.retain(|t| now.duration_since(*t) < window);
-
-        if entry.len() >= rl.burst as usize {
-            return StatusCode::TOO_MANY_REQUESTS.into_response();
-        }
-
-        entry.push(now);
-        drop(entry);
+    // Periodic cleanup of stale entries (every 60 seconds)
+    let now_secs = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .unwrap_or_default()
+      .as_secs();
+    let last = rl.last_cleanup.load(std::sync::atomic::Ordering::Relaxed);
+    if now_secs - last > 60
+      && rl
+        .last_cleanup
+        .compare_exchange(
+          last,
+          now_secs,
+          std::sync::atomic::Ordering::SeqCst,
+          std::sync::atomic::Ordering::Relaxed,
+        )
+        .is_ok()
+    {
+      rl.requests.retain(|_, v| {
+        v.retain(|t| {
+          now.duration_since(*t) < std::time::Duration::from_secs(10)
+        });
+        !v.is_empty()
+      });
     }
 
-    next.run(request).await
+    let mut entry = rl.requests.entry(ip).or_default();
+    entry.retain(|t| now.duration_since(*t) < window);
+
+    if entry.len() >= rl.burst as usize {
+      return StatusCode::TOO_MANY_REQUESTS.into_response();
+    }
+
+    entry.push(now);
+    drop(entry);
+  }
+
+  next.run(request).await
 }
 
 async fn serve_style_css() -> Response {
-    Response::builder()
-        .header(header::CONTENT_TYPE, "text/css")
-        .header(header::CACHE_CONTROL, "public, max-age=3600")
-        .body(Body::from(STYLE_CSS))
-        .unwrap()
-        .into_response()
+  Response::builder()
+    .header(header::CONTENT_TYPE, "text/css")
+    .header(header::CACHE_CONTROL, "public, max-age=3600")
+    .body(Body::from(STYLE_CSS))
+    .unwrap()
+    .into_response()
 }
 
 pub fn router(state: AppState, config: &ServerConfig) -> Router {
-    let cors_layer = if config.cors_permissive {
-        CorsLayer::permissive()
-    } else if config.allowed_origins.is_empty() {
-        CorsLayer::new()
-    } else {
-        let origins: Vec<HeaderValue> = config
-            .allowed_origins
-            .iter()
-            .filter_map(|o| o.parse().ok())
-            .collect();
-        CorsLayer::new().allow_origin(AllowOrigin::list(origins))
-    };
+  let cors_layer = if config.cors_permissive {
+    CorsLayer::permissive()
+  } else if config.allowed_origins.is_empty() {
+    CorsLayer::new()
+  } else {
+    let origins: Vec<HeaderValue> = config
+      .allowed_origins
+      .iter()
+      .filter_map(|o| o.parse().ok())
+      .collect();
+    CorsLayer::new().allow_origin(AllowOrigin::list(origins))
+  };
 
-    let mut app = Router::new()
+  let mut app = Router::new()
         // Static assets
         .route("/static/style.css", get(serve_style_css))
         // Dashboard routes with session extraction middleware
@@ -169,18 +173,20 @@ pub fn router(state: AppState, config: &ServerConfig) -> Router {
             HeaderValue::from_static("strict-origin-when-cross-origin"),
         ));
 
-    // Add rate limiting if configured
-    if let (Some(rps), Some(burst)) = (config.rate_limit_rps, config.rate_limit_burst) {
-        let rl_state = Arc::new(RateLimitState {
-            requests: DashMap::new(),
-            _rps: rps,
-            burst,
-            last_cleanup: std::sync::atomic::AtomicU64::new(0),
-        });
-        app = app
-            .layer(axum::Extension(rl_state))
-            .layer(middleware::from_fn(rate_limit_middleware));
-    }
+  // Add rate limiting if configured
+  if let (Some(rps), Some(burst)) =
+    (config.rate_limit_rps, config.rate_limit_burst)
+  {
+    let rl_state = Arc::new(RateLimitState {
+      requests: DashMap::new(),
+      _rps: rps,
+      burst,
+      last_cleanup: std::sync::atomic::AtomicU64::new(0),
+    });
+    app = app
+      .layer(axum::Extension(rl_state))
+      .layer(middleware::from_fn(rate_limit_middleware));
+  }
 
-    app.with_state(state)
+  app.with_state(state)
 }

@@ -1,19 +1,17 @@
-use std::sync::Arc;
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
 use dashmap::DashMap;
-use fc_common::config::Config;
-use fc_common::models::ApiKey;
+use fc_common::{config::Config, models::ApiKey};
 use sqlx::PgPool;
 
 pub struct SessionData {
-    pub api_key: ApiKey,
-    pub created_at: Instant,
+  pub api_key:    ApiKey,
+  pub created_at: Instant,
 }
 
 #[derive(Clone)]
 pub struct AppState {
-    pub pool: PgPool,
-    pub config: Config,
-    pub sessions: Arc<DashMap<String, SessionData>>,
+  pub pool:     PgPool,
+  pub config:   Config,
+  pub sessions: Arc<DashMap<String, SessionData>>,
 }

@@ -5,64 +5,64 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 pub struct LogStorage {
-    log_dir: PathBuf,
+  log_dir: PathBuf,
 }
 
 impl LogStorage {
-    pub fn new(log_dir: PathBuf) -> std::io::Result<Self> {
-        std::fs::create_dir_all(&log_dir)?;
-        Ok(Self { log_dir })
-    }
+  pub fn new(log_dir: PathBuf) -> std::io::Result<Self> {
+    std::fs::create_dir_all(&log_dir)?;
+    Ok(Self { log_dir })
+  }
 
-    /// Returns the filesystem path where a build's log should be stored
-    pub fn log_path(&self, build_id: &Uuid) -> PathBuf {
-        self.log_dir.join(format!("{}.log", build_id))
-    }
+  /// Returns the filesystem path where a build's log should be stored
+  pub fn log_path(&self, build_id: &Uuid) -> PathBuf {
+    self.log_dir.join(format!("{}.log", build_id))
+  }
 
-    /// Returns the filesystem path for an active (in-progress) build log
-    pub fn log_path_for_active(&self, build_id: &Uuid) -> PathBuf {
-        self.log_dir.join(format!("{}.active.log", build_id))
-    }
+  /// Returns the filesystem path for an active (in-progress) build log
+  pub fn log_path_for_active(&self, build_id: &Uuid) -> PathBuf {
+    self.log_dir.join(format!("{}.active.log", build_id))
+  }
 
-    /// Write build log content to file
-    pub fn write_log(
-        &self,
-        build_id: &Uuid,
-        stdout: &str,
-        stderr: &str,
-    ) -> std::io::Result<PathBuf> {
-        let path = self.log_path(build_id);
-        let mut content = String::new();
-        if !stdout.is_empty() {
-            content.push_str(stdout);
-        }
-        if !stderr.is_empty() {
-            if !content.is_empty() {
-                content.push('\n');
-            }
-            content.push_str(stderr);
-        }
-        std::fs::write(&path, &content)?;
-        tracing::debug!(build_id = %build_id, path = %path.display(), "Wrote build log");
-        Ok(path)
+  /// Write build log content to file
+  pub fn write_log(
+    &self,
+    build_id: &Uuid,
+    stdout: &str,
+    stderr: &str,
+  ) -> std::io::Result<PathBuf> {
+    let path = self.log_path(build_id);
+    let mut content = String::new();
+    if !stdout.is_empty() {
+      content.push_str(stdout);
     }
+    if !stderr.is_empty() {
+      if !content.is_empty() {
+        content.push('\n');
+      }
+      content.push_str(stderr);
+    }
+    std::fs::write(&path, &content)?;
+    tracing::debug!(build_id = %build_id, path = %path.display(), "Wrote build log");
+    Ok(path)
+  }
 
-    /// Read a build log from disk. Returns None if the file doesn't exist.
-    pub fn read_log(&self, build_id: &Uuid) -> std::io::Result<Option<String>> {
-        let path = self.log_path(build_id);
-        if !path.exists() {
-            return Ok(None);
-        }
-        let content = std::fs::read_to_string(&path)?;
-        Ok(Some(content))
+  /// Read a build log from disk. Returns None if the file doesn't exist.
+  pub fn read_log(&self, build_id: &Uuid) -> std::io::Result<Option<String>> {
+    let path = self.log_path(build_id);
+    if !path.exists() {
+      return Ok(None);
     }
+    let content = std::fs::read_to_string(&path)?;
+    Ok(Some(content))
+  }
 
-    /// Delete a build log
-    pub fn delete_log(&self, build_id: &Uuid) -> std::io::Result<()> {
-        let path = self.log_path(build_id);
-        if path.exists() {
-            std::fs::remove_file(&path)?;
-        }
-        Ok(())
+  /// Delete a build log
+  pub fn delete_log(&self, build_id: &Uuid) -> std::io::Result<()> {
+    let path = self.log_path(build_id);
+    if path.exists() {
+      std::fs::remove_file(&path)?;
     }
+    Ok(())
+  }
 }

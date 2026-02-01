@@ -1,9 +1,9 @@
 [package]
-name = "fc-migrate-cli"
-version.workspace = true
-edition.workspace = true
-authors.workspace = true
-license.workspace = true
+name                 = "fc-migrate-cli"
+version.workspace    = true
+edition.workspace    = true
+authors.workspace    = true
+license.workspace    = true
 repository.workspace = true
 
 [[bin]]
@@ -11,8 +11,8 @@ name = "fc-migrate"
 path = "src/main.rs"
 
 [dependencies]
-fc-common = { path = "../common" }
-clap.workspace = true
-anyhow.workspace = true
+anyhow.workspace             = true
+clap.workspace               = true
+fc-common                    = { path = "../common" }
+tokio.workspace              = true
 tracing-subscriber.workspace = true
-tokio.workspace = true

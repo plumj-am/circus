@@ -1,25 +1,25 @@
 [package]
-name = "fc-queue-runner"
-version.workspace = true
-edition.workspace = true
-authors.workspace = true
-license.workspace = true
+name                 = "fc-queue-runner"
+version.workspace    = true
+edition.workspace    = true
+authors.workspace    = true
+license.workspace    = true
 repository.workspace = true
 
 [dependencies]
-tokio.workspace = true
-sqlx.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-uuid.workspace = true
-chrono.workspace = true
-tracing.workspace = true
+anyhow.workspace             = true
+chrono.workspace             = true
+clap.workspace               = true
+config.workspace             = true
+serde.workspace              = true
+serde_json.workspace         = true
+sqlx.workspace               = true
+thiserror.workspace          = true
+tokio.workspace              = true
+tokio-util.workspace         = true
+tracing.workspace            = true
 tracing-subscriber.workspace = true
-anyhow.workspace = true
-thiserror.workspace = true
-clap.workspace = true
-config.workspace = true
-tokio-util.workspace = true
+uuid.workspace               = true
 
 # Our crates
 fc-common.workspace = true

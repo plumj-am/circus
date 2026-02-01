@@ -1,111 +1,125 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::error::{CiError, Result};
-use crate::models::{CreateProject, Project, UpdateProject};
+use crate::{
+  error::{CiError, Result},
+  models::{CreateProject, Project, UpdateProject},
+};
 
 pub async fn create(pool: &PgPool, input: CreateProject) -> Result<Project> {
-    sqlx::query_as::<_, Project>(
-        "INSERT INTO projects (name, description, repository_url) VALUES ($1, $2, $3) RETURNING *",
-    )
-    .bind(&input.name)
-    .bind(&input.description)
-    .bind(&input.repository_url)
-    .fetch_one(pool)
-    .await
-    .map_err(|e| match &e {
-        sqlx::Error::Database(db_err) if db_err.is_unique_violation() => {
-            CiError::Conflict(format!("Project '{}' already exists", input.name))
-        }
-        _ => CiError::Database(e),
-    })
+  sqlx::query_as::<_, Project>(
+    "INSERT INTO projects (name, description, repository_url) VALUES ($1, $2, \
+     $3) RETURNING *",
+  )
+  .bind(&input.name)
+  .bind(&input.description)
+  .bind(&input.repository_url)
+  .fetch_one(pool)
+  .await
+  .map_err(|e| {
+    match &e {
+      sqlx::Error::Database(db_err) if db_err.is_unique_violation() => {
+        CiError::Conflict(format!("Project '{}' already exists", input.name))
+      },
+      _ => CiError::Database(e),
+    }
+  })
 }
 
 pub async fn get(pool: &PgPool, id: Uuid) -> Result<Project> {
-    sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1")
-        .bind(id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| CiError::NotFound(format!("Project {id} not found")))
+  sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1")
+    .bind(id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| CiError::NotFound(format!("Project {id} not found")))
 }
 
 pub async fn get_by_name(pool: &PgPool, name: &str) -> Result<Project> {
-    sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE name = $1")
-        .bind(name)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| CiError::NotFound(format!("Project '{name}' not found")))
+  sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE name = $1")
+    .bind(name)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| CiError::NotFound(format!("Project '{name}' not found")))
 }
 
-pub async fn list(pool: &PgPool, limit: i64, offset: i64) -> Result<Vec<Project>> {
-    sqlx::query_as::<_, Project>(
-        "SELECT * FROM projects ORDER BY created_at DESC LIMIT $1 OFFSET $2",
-    )
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(pool)
-    .await
-    .map_err(CiError::Database)
+pub async fn list(
+  pool: &PgPool,
+  limit: i64,
+  offset: i64,
+) -> Result<Vec<Project>> {
+  sqlx::query_as::<_, Project>(
+    "SELECT * FROM projects ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+  )
+  .bind(limit)
+  .bind(offset)
+  .fetch_all(pool)
+  .await
+  .map_err(CiError::Database)
 }
 
 pub async fn count(pool: &PgPool) -> Result<i64> {
-    let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM projects")
-        .fetch_one(pool)
-        .await
-        .map_err(CiError::Database)?;
-    Ok(row.0)
-}
-
-pub async fn update(pool: &PgPool, id: Uuid, input: UpdateProject) -> Result<Project> {
-    // Build dynamic update — only set provided fields
-    let existing = get(pool, id).await?;
-
-    let name = input.name.unwrap_or(existing.name);
-    let description = input.description.or(existing.description);
-    let repository_url = input.repository_url.unwrap_or(existing.repository_url);
-
-    sqlx::query_as::<_, Project>(
-        "UPDATE projects SET name = $1, description = $2, repository_url = $3 WHERE id = $4 RETURNING *",
-    )
-    .bind(&name)
-    .bind(&description)
-    .bind(&repository_url)
-    .bind(id)
+  let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM projects")
     .fetch_one(pool)
     .await
-    .map_err(|e| match &e {
-        sqlx::Error::Database(db_err) if db_err.is_unique_violation() => {
-            CiError::Conflict(format!("Project '{name}' already exists"))
-        }
-        _ => CiError::Database(e),
-    })
+    .map_err(CiError::Database)?;
+  Ok(row.0)
+}
+
+pub async fn update(
+  pool: &PgPool,
+  id: Uuid,
+  input: UpdateProject,
+) -> Result<Project> {
+  // Build dynamic update — only set provided fields
+  let existing = get(pool, id).await?;
+
+  let name = input.name.unwrap_or(existing.name);
+  let description = input.description.or(existing.description);
+  let repository_url = input.repository_url.unwrap_or(existing.repository_url);
+
+  sqlx::query_as::<_, Project>(
+    "UPDATE projects SET name = $1, description = $2, repository_url = $3 \
+     WHERE id = $4 RETURNING *",
+  )
+  .bind(&name)
+  .bind(&description)
+  .bind(&repository_url)
+  .bind(id)
+  .fetch_one(pool)
+  .await
+  .map_err(|e| {
+    match &e {
+      sqlx::Error::Database(db_err) if db_err.is_unique_violation() => {
+        CiError::Conflict(format!("Project '{name}' already exists"))
+      },
+      _ => CiError::Database(e),
+    }
+  })
 }
 
 pub async fn upsert(pool: &PgPool, input: CreateProject) -> Result<Project> {
-    sqlx::query_as::<_, Project>(
-        "INSERT INTO projects (name, description, repository_url) VALUES ($1, $2, $3) \
-         ON CONFLICT (name) DO UPDATE SET \
-         description = EXCLUDED.description, \
-         repository_url = EXCLUDED.repository_url \
-         RETURNING *",
-    )
-    .bind(&input.name)
-    .bind(&input.description)
-    .bind(&input.repository_url)
-    .fetch_one(pool)
-    .await
-    .map_err(CiError::Database)
+  sqlx::query_as::<_, Project>(
+    "INSERT INTO projects (name, description, repository_url) VALUES ($1, $2, \
+     $3) ON CONFLICT (name) DO UPDATE SET description = EXCLUDED.description, \
+     repository_url = EXCLUDED.repository_url RETURNING *",
+  )
+  .bind(&input.name)
+  .bind(&input.description)
+  .bind(&input.repository_url)
+  .fetch_one(pool)
+  .await
+  .map_err(CiError::Database)
 }
 
 pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
-    let result = sqlx::query("DELETE FROM projects WHERE id = $1")
-        .bind(id)
-        .execute(pool)
-        .await?;
+  let result = sqlx::query("DELETE FROM projects WHERE id = $1")
+    .bind(id)
+    .execute(pool)
+    .await?;
 
-    if result.rows_affected() == 0 {
-        return Err(CiError::NotFound(format!("Project {id} not found")));
-    }
+  if result.rows_affected() == 0 {
+    return Err(CiError::NotFound(format!("Project {id} not found")));
+  }
 
-    Ok(())
+  Ok(())
 }
