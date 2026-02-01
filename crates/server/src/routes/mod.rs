@@ -23,14 +23,21 @@ use axum::extract::ConnectInfo;
 use axum::http::{HeaderValue, Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
+use axum::routing::get;
 use dashmap::DashMap;
 use fc_common::config::ServerConfig;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
+
+use axum::body::Body;
+use axum::http::header;
 
 use crate::auth_middleware::{extract_session, require_api_key};
 use crate::state::AppState;
+
+static STYLE_CSS: &str = include_str!("../../static/style.css");
 
 struct RateLimitState {
     requests: DashMap<IpAddr, Vec<Instant>>,
@@ -57,8 +64,8 @@ async fn rate_limit_middleware(
             .unwrap_or_default()
             .as_secs();
         let last = rl.last_cleanup.load(std::sync::atomic::Ordering::Relaxed);
-        if now_secs - last > 60 {
-            if rl
+        if now_secs - last > 60
+            && rl
                 .last_cleanup
                 .compare_exchange(
                     last,
@@ -73,7 +80,6 @@ async fn rate_limit_middleware(
                     !v.is_empty()
                 });
             }
-        }
 
         let mut entry = rl.requests.entry(ip).or_default();
         entry.retain(|t| now.duration_since(*t) < window);
@@ -87,6 +93,15 @@ async fn rate_limit_middleware(
     }
 
     next.run(request).await
+}
+
+async fn serve_style_css() -> Response {
+    Response::builder()
+        .header(header::CONTENT_TYPE, "text/css")
+        .header(header::CACHE_CONTROL, "public, max-age=3600")
+        .body(Body::from(STYLE_CSS))
+        .unwrap()
+        .into_response()
 }
 
 pub fn router(state: AppState, config: &ServerConfig) -> Router {
@@ -104,6 +119,8 @@ pub fn router(state: AppState, config: &ServerConfig) -> Router {
     };
 
     let mut app = Router::new()
+        // Static assets
+        .route("/static/style.css", get(serve_style_css))
         // Dashboard routes with session extraction middleware
         .merge(
             dashboard::router(state.clone()).route_layer(middleware::from_fn_with_state(
@@ -137,7 +154,20 @@ pub fn router(state: AppState, config: &ServerConfig) -> Router {
         )
         .layer(TraceLayer::new_for_http())
         .layer(cors_layer)
-        .layer(RequestBodyLimitLayer::new(config.max_body_size));
+        .layer(RequestBodyLimitLayer::new(config.max_body_size))
+        // Security headers
+        .layer(SetResponseHeaderLayer::overriding(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ));
 
     // Add rate limiting if configured
     if let (Some(rps), Some(burst)) = (config.rate_limit_rps, config.rate_limit_burst) {
