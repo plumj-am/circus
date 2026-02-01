@@ -20,4 +20,21 @@ anyhow.workspace = true
 thiserror.workspace = true
 clap.workspace = true
 config.workspace = true
-fc-common = { path = "../common" }
+tower-http.workspace = true
+tower.workspace = true
+sha2.workspace = true
+hex.workspace = true
+hmac.workspace = true
+tokio-util.workspace = true
+async-stream.workspace = true
+futures.workspace = true
+axum-extra.workspace = true
+dashmap.workspace = true
+askama.workspace = true
+askama_axum.workspace = true
+
+# Our crates
+fc-common.workspace = true
+
+[dev-dependencies]
+tower.workspace = true

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Projects - FC CI{% endblock %}
+{% block auth %}
+{% if !auth_name.is_empty() %}
+<span class="auth-user">{{ auth_name }}</span>
+<form method="POST" action="/logout"><button type="submit">Logout</button></form>
+{% else %}
+<a href="/login">Login</a>
+{% endif %}
+{% endblock %}
+{% block content %}
+<h1>Projects</h1>
+
+{% if is_admin %}
+<details>
+  <summary>New Project</summary>
+  <div class="form-card">
+    <form id="create-project-form">
+      <div class="form-group">
+        <label for="project-name">Name</label>
+        <input type="text" id="project-name" required>
+      </div>
+      <div class="form-group">
+        <label for="project-repo">Repository URL</label>
+        <input type="url" id="project-repo" required>
+      </div>
+      <div class="form-group">
+        <label for="project-desc">Description</label>
+        <textarea id="project-desc"></textarea>
+      </div>
+      <button type="submit" class="btn">Create Project</button>
+    </form>
+    <div id="project-msg"></div>
+  </div>
+</details>
+{% endif %}
+
+{% if projects.is_empty() %}
+<p class="empty">No projects yet.</p>
+{% else %}
+<table>
+  <thead>
+    <tr><th>Name</th><th>Repository</th><th>Created</th></tr>
+  </thead>
+  <tbody>
+    {% for p in projects %}
+    <tr>
+      <td><a href="/project/{{ p.id }}">{{ p.name }}</a></td>
+      <td>{{ p.repository_url }}</td>
+      <td>{{ p.created_at.format("%Y-%m-%d %H:%M") }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+<div class="pagination">
+  {% if has_prev %}
+  <a href="/projects?offset={{ prev_offset }}&limit={{ limit }}">&laquo; Previous</a>
+  {% endif %}
+  <span>Page {{ page }} of {{ total_pages }}</span>
+  {% if has_next %}
+  <a href="/projects?offset={{ next_offset }}&limit={{ limit }}">Next &raquo;</a>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+{% if is_admin %}
+<script>
+document.getElementById('create-project-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const msg = document.getElementById('project-msg');
+  try {
+    const res = await fetch('/api/v1/projects', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        name: document.getElementById('project-name').value,
+        repository_url: document.getElementById('project-repo').value,
+        description: document.getElementById('project-desc').value || null,
+      }),
+    });
+    if (res.ok) {
+      window.location.reload();
+    } else {
+      const err = await res.json();
+      msg.innerHTML = '<div class="flash-message flash-error">' + (err.error || 'Error') + '</div>';
+    }
+  } catch(e) {
+    msg.innerHTML = '<div class="flash-message flash-error">Request failed</div>';
+  }
+});
+</script>
+{% endif %}
+{% endblock %}

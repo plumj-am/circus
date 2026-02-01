@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}{{ jobset.name }} - FC CI{% endblock %}
+{% block breadcrumbs %}
+<nav class="breadcrumbs">
+  <a href="/">Home</a> <span class="sep">/</span>
+  <a href="/project/{{ project.id }}">{{ project.name }}</a> <span class="sep">/</span>
+  <span class="current">{{ jobset.name }}</span>
+</nav>
+{% endblock %}
+{% block content %}
+<h1>{{ jobset.name }}</h1>
+
+<dl class="detail-grid">
+  <dt>Expression</dt>
+  <dd><code>{{ jobset.nix_expression }}</code></dd>
+  <dt>Flake mode</dt>
+  <dd>{% if jobset.flake_mode %}Yes{% else %}No{% endif %}</dd>
+  <dt>Enabled</dt>
+  <dd>{% if jobset.enabled %}Yes{% else %}No{% endif %}</dd>
+  <dt>Check interval</dt>
+  <dd>{{ jobset.check_interval }}s</dd>
+</dl>
+
+{% if !eval_summaries.is_empty() %}
+<h2>Latest Evaluation</h2>
+{% let latest = eval_summaries[0] %}
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-value">{{ latest.succeeded }}</div>
+    <div class="stat-label">Succeeded</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ latest.failed }}</div>
+    <div class="stat-label">Failed</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ latest.pending }}</div>
+    <div class="stat-label">Pending</div>
+  </div>
+</div>
+{% endif %}
+
+<h2>Recent Evaluations</h2>
+{% if eval_summaries.is_empty() %}
+<p class="empty">No evaluations yet.</p>
+{% else %}
+<table>
+  <thead>
+    <tr><th>Commit</th><th>Status</th><th>Succeeded</th><th>Failed</th><th>Pending</th><th>Time</th></tr>
+  </thead>
+  <tbody>
+    {% for e in eval_summaries %}
+    <tr>
+      <td><a href="/evaluation/{{ e.id }}">{{ e.commit_short }}</a></td>
+      <td><span class="badge badge-{{ e.status_class }}">{{ e.status_text }}</span></td>
+      <td>{{ e.succeeded }}</td>
+      <td>{{ e.failed }}</td>
+      <td>{{ e.pending }}</td>
+      <td>{{ e.time }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

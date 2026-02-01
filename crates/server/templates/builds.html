@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Builds - FC CI{% endblock %}
+{% block content %}
+<h1>Builds</h1>
+
+<form method="get" action="/builds" class="filter-form">
+  <label>Status: <select name="status">
+    <option value="">All</option>
+    <option value="pending" {% if filter_status == "pending" %}selected{% endif %}>Pending</option>
+    <option value="running" {% if filter_status == "running" %}selected{% endif %}>Running</option>
+    <option value="completed" {% if filter_status == "completed" %}selected{% endif %}>Completed</option>
+    <option value="failed" {% if filter_status == "failed" %}selected{% endif %}>Failed</option>
+  </select></label>
+  <label>System: <input type="text" name="system" value="{{ filter_system }}" placeholder="e.g. x86_64-linux"></label>
+  <label>Job: <input type="text" name="job_name" value="{{ filter_job }}" placeholder="job name"></label>
+  <button type="submit">Filter</button>
+</form>
+
+{% if builds.is_empty() %}
+<p class="empty">No builds match filters.</p>
+{% else %}
+<table>
+  <thead>
+    <tr><th>Job</th><th>Status</th><th>System</th><th>Created</th></tr>
+  </thead>
+  <tbody>
+    {% for b in builds %}
+    <tr>
+      <td><a href="/build/{{ b.id }}">{{ b.job_name }}</a></td>
+      <td><span class="badge badge-{{ b.status_class }}">{{ b.status_text }}</span></td>
+      <td>{{ b.system }}</td>
+      <td>{{ b.created_at }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+<div class="pagination">
+  {% if has_prev %}
+  <a href="/builds?offset={{ prev_offset }}&limit={{ limit }}&status={{ filter_status }}&system={{ filter_system }}&job_name={{ filter_job }}">&laquo; Previous</a>
+  {% endif %}
+  <span>Page {{ page }} of {{ total_pages }}</span>
+  {% if has_next %}
+  <a href="/builds?offset={{ next_offset }}&limit={{ limit }}&status={{ filter_status }}&system={{ filter_system }}&job_name={{ filter_job }}">Next &raquo;</a>
+  {% endif %}
+</div>
+{% endblock %}

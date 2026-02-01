@@ -1,0 +1,156 @@
+pub mod admin;
+pub mod auth;
+pub mod badges;
+pub mod builds;
+pub mod cache;
+pub mod channels;
+pub mod dashboard;
+pub mod evaluations;
+pub mod health;
+pub mod jobsets;
+pub mod logs;
+pub mod metrics;
+pub mod projects;
+pub mod search;
+pub mod webhooks;
+
+use std::net::IpAddr;
+use std::sync::Arc;
+use std::time::Instant;
+
+use axum::Router;
+use axum::extract::ConnectInfo;
+use axum::http::{HeaderValue, Request, StatusCode};
+use axum::middleware::{self, Next};
+use axum::response::{IntoResponse, Response};
+use dashmap::DashMap;
+use fc_common::config::ServerConfig;
+use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::limit::RequestBodyLimitLayer;
+use tower_http::trace::TraceLayer;
+
+use crate::auth_middleware::{extract_session, require_api_key};
+use crate::state::AppState;
+
+struct RateLimitState {
+    requests: DashMap<IpAddr, Vec<Instant>>,
+    _rps: u64,
+    burst: u32,
+    last_cleanup: std::sync::atomic::AtomicU64,
+}
+
+async fn rate_limit_middleware(
+    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+    request: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
+    let state = request.extensions().get::<Arc<RateLimitState>>().cloned();
+
+    if let Some(rl) = state {
+        let ip = addr.ip();
+        let now = Instant::now();
+        let window = std::time::Duration::from_secs(1);
+
+        // Periodic cleanup of stale entries (every 60 seconds)
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let last = rl.last_cleanup.load(std::sync::atomic::Ordering::Relaxed);
+        if now_secs - last > 60 {
+            if rl
+                .last_cleanup
+                .compare_exchange(
+                    last,
+                    now_secs,
+                    std::sync::atomic::Ordering::SeqCst,
+                    std::sync::atomic::Ordering::Relaxed,
+                )
+                .is_ok()
+            {
+                rl.requests.retain(|_, v| {
+                    v.retain(|t| now.duration_since(*t) < std::time::Duration::from_secs(10));
+                    !v.is_empty()
+                });
+            }
+        }
+
+        let mut entry = rl.requests.entry(ip).or_default();
+        entry.retain(|t| now.duration_since(*t) < window);
+
+        if entry.len() >= rl.burst as usize {
+            return StatusCode::TOO_MANY_REQUESTS.into_response();
+        }
+
+        entry.push(now);
+        drop(entry);
+    }
+
+    next.run(request).await
+}
+
+pub fn router(state: AppState, config: &ServerConfig) -> Router {
+    let cors_layer = if config.cors_permissive {
+        CorsLayer::permissive()
+    } else if config.allowed_origins.is_empty() {
+        CorsLayer::new()
+    } else {
+        let origins: Vec<HeaderValue> = config
+            .allowed_origins
+            .iter()
+            .filter_map(|o| o.parse().ok())
+            .collect();
+        CorsLayer::new().allow_origin(AllowOrigin::list(origins))
+    };
+
+    let mut app = Router::new()
+        // Dashboard routes with session extraction middleware
+        .merge(
+            dashboard::router(state.clone()).route_layer(middleware::from_fn_with_state(
+                state.clone(),
+                extract_session,
+            )),
+        )
+        .merge(health::router())
+        .merge(cache::router())
+        .merge(metrics::router())
+        // Webhooks use their own HMAC auth, outside the API key gate
+        .merge(webhooks::router())
+        // API routes with Bearer token auth
+        .nest(
+            "/api/v1",
+            Router::new()
+                .merge(projects::router())
+                .merge(jobsets::router())
+                .merge(evaluations::router())
+                .merge(builds::router())
+                .merge(logs::router())
+                .merge(auth::router())
+                .merge(search::router())
+                .merge(badges::router())
+                .merge(channels::router())
+                .merge(admin::router())
+                .route_layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    require_api_key,
+                )),
+        )
+        .layer(TraceLayer::new_for_http())
+        .layer(cors_layer)
+        .layer(RequestBodyLimitLayer::new(config.max_body_size));
+
+    // Add rate limiting if configured
+    if let (Some(rps), Some(burst)) = (config.rate_limit_rps, config.rate_limit_burst) {
+        let rl_state = Arc::new(RateLimitState {
+            requests: DashMap::new(),
+            _rps: rps,
+            burst,
+            last_cleanup: std::sync::atomic::AtomicU64::new(0),
+        });
+        app = app
+            .layer(axum::Extension(rl_state))
+            .layer(middleware::from_fn(rate_limit_middleware));
+    }
+
+    app.with_state(state)
+}

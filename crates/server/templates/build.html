@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Build {{ build.job_name }} - FC CI{% endblock %}
+{% block breadcrumbs %}
+<nav class="breadcrumbs">
+  <a href="/">Home</a> <span class="sep">/</span>
+  <a href="/project/{{ project_id }}">{{ project_name }}</a> <span class="sep">/</span>
+  <a href="/jobset/{{ jobset_id }}">{{ jobset_name }}</a> <span class="sep">/</span>
+  <a href="/evaluation/{{ eval_id }}">{{ eval_commit_short }}</a> <span class="sep">/</span>
+  <span class="current">{{ build.job_name }}</span>
+</nav>
+{% endblock %}
+{% block content %}
+<h1>Build: {{ build.job_name }}</h1>
+
+<dl class="detail-grid">
+  <dt>Status</dt>
+  <dd><span class="badge badge-{{ build.status_class }}">{{ build.status_text }}</span></dd>
+  <dt>System</dt>
+  <dd>{{ build.system }}</dd>
+  <dt>Derivation</dt>
+  <dd><code>{{ build.drv_path }}</code></dd>
+  <dt>Created</dt>
+  <dd>{{ build.created_at }}</dd>
+  {% if !build.started_at.is_empty() %}
+  <dt>Started</dt>
+  <dd>{{ build.started_at }}</dd>
+  {% endif %}
+  {% if !build.completed_at.is_empty() %}
+  <dt>Completed</dt>
+  <dd>{{ build.completed_at }}</dd>
+  {% endif %}
+  {% if !build.duration.is_empty() %}
+  <dt>Duration</dt>
+  <dd>{{ build.duration }}</dd>
+  {% endif %}
+  <dt>Priority</dt>
+  <dd>{{ build.priority }}</dd>
+  <dt>Signed</dt>
+  <dd>{% if build.signed %}Yes{% else %}No{% endif %}</dd>
+  {% if build.is_aggregate %}
+  <dt>Aggregate</dt>
+  <dd>Yes</dd>
+  {% endif %}
+</dl>
+
+{% if !build.output_path.is_empty() %}
+<p><strong>Output:</strong> <code>{{ build.output_path }}</code></p>
+{% endif %}
+{% if !build.error_message.is_empty() %}
+<p><strong>Error:</strong> {{ build.error_message }}</p>
+{% endif %}
+{% if !build.log_url.is_empty() %}
+<p><a href="{{ build.log_url }}">View log</a></p>
+{% endif %}
+
+<h2>Build Steps</h2>
+{% if steps.is_empty() %}
+<p class="empty">No steps recorded.</p>
+{% else %}
+<table>
+  <thead>
+    <tr><th>#</th><th>Command</th><th>Exit</th><th>Started</th><th>Completed</th></tr>
+  </thead>
+  <tbody>
+    {% for s in steps %}
+    <tr>
+      <td>{{ s.step_number }}</td>
+      <td><code>{{ s.command }}</code></td>
+      <td>{% match s.exit_code %}{% when Some with (0) %}<span class="step-success">0</span>{% when Some with (code) %}<span class="step-failure">{{ code }}</span>{% when None %}-{% endmatch %}</td>
+      <td>{{ s.started_at.format("%H:%M:%S") }}</td>
+      <td>{% match s.completed_at %}{% when Some with (t) %}{{ t.format("%H:%M:%S") }}{% when None %}-{% endmatch %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h2>Build Products</h2>
+{% if products.is_empty() %}
+<p class="empty">No products recorded.</p>
+{% else %}
+<table>
+  <thead>
+    <tr><th>Name</th><th>Path</th><th>Size</th></tr>
+  </thead>
+  <tbody>
+    {% for p in products %}
+    <tr>
+      <td>{{ p.name }}</td>
+      <td><code>{{ p.path }}</code></td>
+      <td>{% match p.file_size %}{% when Some with (sz) %}{{ sz }} bytes{% when None %}-{% endmatch %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

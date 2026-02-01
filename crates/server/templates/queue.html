@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Queue - FC CI{% endblock %}
+{% block breadcrumbs %}
+<nav class="breadcrumbs">
+  <a href="/">Home</a> <span class="sep">/</span>
+  <span class="current">Queue</span>
+</nav>
+{% endblock %}
+{% block content %}
+<h1>Build Queue</h1>
+
+<h2>Running ({{ running_count }})</h2>
+{% if running_builds.is_empty() %}
+<p class="empty">No builds currently running.</p>
+{% else %}
+<table>
+  <thead>
+    <tr><th>Job</th><th>System</th><th>Started</th></tr>
+  </thead>
+  <tbody>
+    {% for b in running_builds %}
+    <tr>
+      <td><a href="/build/{{ b.id }}">{{ b.job_name }}</a></td>
+      <td>{{ b.system }}</td>
+      <td>{{ b.created_at }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h2>Pending ({{ pending_count }})</h2>
+{% if pending_builds.is_empty() %}
+<p class="empty">No builds pending.</p>
+{% else %}
+<table>
+  <thead>
+    <tr><th>Job</th><th>System</th><th>Created</th></tr>
+  </thead>
+  <tbody>
+    {% for b in pending_builds %}
+    <tr>
+      <td><a href="/build/{{ b.id }}">{{ b.job_name }}</a></td>
+      <td>{{ b.system }}</td>
+      <td>{{ b.created_at }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

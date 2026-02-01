@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Channels - FC CI{% endblock %}
+{% block content %}
+<h1>Channels</h1>
+{% if channels.is_empty() %}
+<p class="empty">No channels configured.</p>
+{% else %}
+<table>
+  <thead>
+    <tr><th>Name</th><th>Current Evaluation</th><th>Updated</th></tr>
+  </thead>
+  <tbody>
+    {% for c in channels %}
+    <tr>
+      <td>{{ c.name }}</td>
+      <td>
+        {% match c.current_evaluation_id %}
+          {% when Some with (eval_id) %}
+          <a href="/evaluation/{{ eval_id }}">{{ eval_id }}</a>
+          {% when None %}
+          -
+        {% endmatch %}
+      </td>
+      <td>{{ c.updated_at.format("%Y-%m-%d %H:%M") }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

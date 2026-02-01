@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block title %}Admin - FC CI{% endblock %}
+{% block auth %}
+{% if !auth_name.is_empty() %}
+<span class="auth-user">{{ auth_name }}</span>
+<form method="POST" action="/logout"><button type="submit">Logout</button></form>
+{% else %}
+<a href="/login">Login</a>
+{% endif %}
+{% endblock %}
+{% block content %}
+<h1>Administration</h1>
+
+<h2>System Status</h2>
+<div class="stats-grid">
+  <div class="stat-card"><div class="stat-value">{{ status.projects_count }}</div><div class="stat-label">Projects</div></div>
+  <div class="stat-card"><div class="stat-value">{{ status.jobsets_count }}</div><div class="stat-label">Jobsets</div></div>
+  <div class="stat-card"><div class="stat-value">{{ status.evaluations_count }}</div><div class="stat-label">Evaluations</div></div>
+  <div class="stat-card"><div class="stat-value">{{ status.builds_pending }}</div><div class="stat-label">Pending</div></div>
+  <div class="stat-card"><div class="stat-value">{{ status.builds_running }}</div><div class="stat-label">Running</div></div>
+  <div class="stat-card"><div class="stat-value">{{ status.builds_completed }}</div><div class="stat-label">Completed</div></div>
+  <div class="stat-card"><div class="stat-value">{{ status.builds_failed }}</div><div class="stat-label">Failed</div></div>
+  <div class="stat-card"><div class="stat-value">{{ status.channels_count }}</div><div class="stat-label">Channels</div></div>
+</div>
+
+{% if is_admin %}
+<h2>API Keys</h2>
+<details>
+  <summary>Create API Key</summary>
+  <div class="form-card">
+    <form id="create-key-form">
+      <div class="form-group">
+        <label for="key-name">Name</label>
+        <input type="text" id="key-name" required>
+      </div>
+      <div class="form-group">
+        <label for="key-role">Role</label>
+        <select id="key-role">
+          <option value="admin">admin</option>
+          <option value="read-only" selected>read-only</option>
+          <option value="create-projects">create-projects</option>
+          <option value="eval-jobset">eval-jobset</option>
+          <option value="cancel-build">cancel-build</option>
+          <option value="restart-jobs">restart-jobs</option>
+          <option value="bump-to-front">bump-to-front</option>
+        </select>
+      </div>
+      <button type="submit" class="btn">Create Key</button>
+    </form>
+    <div id="key-msg"></div>
+  </div>
+</details>
+{% if api_keys.is_empty() %}
+<p class="empty">No API keys.</p>
+{% else %}
+<table>
+  <thead>
+    <tr><th>Name</th><th>Role</th><th>Created</th><th>Last Used</th>{% if is_admin %}<th>Actions</th>{% endif %}</tr>
+  </thead>
+  <tbody>
+    {% for k in api_keys %}
+    <tr>
+      <td>{{ k.name }}</td>
+      <td><span class="badge badge-pending">{{ k.role }}</span></td>
+      <td>{{ k.created_at }}</td>
+      <td>{{ k.last_used_at }}</td>
+      {% if is_admin %}
+      <td><button class="btn btn-danger btn-small" onclick="deleteKey('{{ k.id }}')">Delete</button></td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endif %}
+
+<h2>Remote Builders</h2>
+{% if is_admin %}
+<details>
+  <summary>Add Remote Builder</summary>
+  <div class="form-card">
+    <form id="create-builder-form">
+      <div class="form-group">
+        <label for="builder-name">Name</label>
+        <input type="text" id="builder-name" required>
+      </div>
+      <div class="form-group">
+        <label for="builder-ssh">SSH URI</label>
+        <input type="text" id="builder-ssh" placeholder="ssh://builder@host" required>
+      </div>
+      <div class="form-group">
+        <label for="builder-systems">Systems (comma-separated)</label>
+        <input type="text" id="builder-systems" value="x86_64-linux" required>
+      </div>
+      <div class="form-group">
+        <label for="builder-maxjobs">Max Jobs</label>
+        <input type="number" id="builder-maxjobs" value="4">
+      </div>
+      <button type="submit" class="btn">Add Builder</button>
+    </form>
+    <div id="builder-msg"></div>
+  </div>
+</details>
+{% endif %}
+{% if builders.is_empty() %}
+<p class="empty">No remote builders configured.</p>
+{% else %}
+<table>
+  <thead>
+    <tr><th>Name</th><th>SSH URI</th><th>Systems</th><th>Max Jobs</th><th>Enabled</th>{% if is_admin %}<th>Actions</th>{% endif %}</tr>
+  </thead>
+  <tbody>
+    {% for b in builders %}
+    <tr>
+      <td>{{ b.name }}</td>
+      <td>{{ b.ssh_uri }}</td>
+      <td>{{ b.systems.join(", ") }}</td>
+      <td>{{ b.max_jobs }}</td>
+      <td>{% if b.enabled %}Yes{% else %}No{% endif %}</td>
+      {% if is_admin %}
+      <td>
+        <button class="btn btn-small" onclick="toggleBuilder('{{ b.id }}', {{ !b.enabled }})">{% if b.enabled %}Disable{% else %}Enable{% endif %}</button>
+        <button class="btn btn-danger btn-small" onclick="deleteBuilder('{{ b.id }}')">Delete</button>
+      </td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+{% if is_admin %}
+<script>
+document.getElementById('create-key-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const msg = document.getElementById('key-msg');
+  try {
+    const res = await fetch('/api/v1/api-keys', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        name: document.getElementById('key-name').value,
+        role: document.getElementById('key-role').value,
+      }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      msg.innerHTML = '<div class="flash-message flash-success">Key created: <code>' + data.key + '</code><br>Copy this now, it will not be shown again.</div>';
+      setTimeout(() => window.location.reload(), 5000);
+    } else {
+      msg.innerHTML = '<div class="flash-message flash-error">' + (data.error || 'Error') + '</div>';
+    }
+  } catch(e) {
+    msg.innerHTML = '<div class="flash-message flash-error">Request failed</div>';
+  }
+});
+async function deleteKey(id) {
+  if (!confirm('Delete this API key?')) return;
+  const res = await fetch('/api/v1/api-keys/' + id, { method: 'DELETE' });
+  if (res.ok) window.location.reload();
+  else alert('Failed to delete key');
+}
+document.getElementById('create-builder-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const msg = document.getElementById('builder-msg');
+  try {
+    const res = await fetch('/api/v1/admin/builders', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        name: document.getElementById('builder-name').value,
+        ssh_uri: document.getElementById('builder-ssh').value,
+        systems: document.getElementById('builder-systems').value.split(',').map(s => s.trim()),
+        max_jobs: parseInt(document.getElementById('builder-maxjobs').value) || 4,
+      }),
+    });
+    if (res.ok) {
+      window.location.reload();
+    } else {
+      const data = await res.json();
+      msg.innerHTML = '<div class="flash-message flash-error">' + (data.error || 'Error') + '</div>';
+    }
+  } catch(e) {
+    msg.innerHTML = '<div class="flash-message flash-error">Request failed</div>';
+  }
+});
+async function toggleBuilder(id, enable) {
+  const res = await fetch('/api/v1/admin/builders/' + id, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ enabled: enable }),
+  });
+  if (res.ok) window.location.reload();
+  else alert('Failed to update builder');
+}
+async function deleteBuilder(id) {
+  if (!confirm('Delete this builder?')) return;
+  const res = await fetch('/api/v1/admin/builders/' + id, { method: 'DELETE' });
+  if (res.ok) window.location.reload();
+  else alert('Failed to delete builder');
+}
+</script>
+{% endif %}
+{% endblock %}
