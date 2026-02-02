@@ -4,15 +4,16 @@ use axum::{
   middleware::Next,
   response::Response,
 };
-use fc_common::models::ApiKey;
+use fc_common::models::{ApiKey, User};
 use sha2::{Digest, Sha256};
 
 use crate::state::AppState;
 
 /// Extract and validate an API key from the Authorization header or session
 /// cookie. Keys use the format: `Bearer fc_xxxx`. Session cookies use
-/// `fc_session=<id>`. Write endpoints (POST/PUT/DELETE/PATCH) require a valid
-/// key. Read endpoints (GET/HEAD/OPTIONS) try to extract optionally (for
+/// `fc_session=<id>` for API keys or `fc_user_session=<id>` for users.
+/// Write endpoints (POST/PUT/DELETE/PATCH) require a valid key.
+/// Read endpoints (GET/HEAD/OPTIONS) try to extract optionally (for
 /// dashboard admin UI).
 pub async fn require_api_key(
   State(state): State<AppState>,
@@ -24,6 +25,7 @@ pub async fn require_api_key(
     || method == axum::http::Method::HEAD
     || method == axum::http::Method::OPTIONS;
 
+  // Try Bearer token first (API key auth)
   let auth_header = request
     .headers()
     .get("authorization")
@@ -34,7 +36,6 @@ pub async fn require_api_key(
     .as_deref()
     .and_then(|h| h.strip_prefix("Bearer "));
 
-  // Try Bearer token first
   if let Some(token) = token {
     let mut hasher = Sha256::new();
     hasher.update(token.as_bytes());
@@ -43,29 +44,74 @@ pub async fn require_api_key(
     if let Ok(Some(api_key)) =
       fc_common::repo::api_keys::get_by_hash(&state.pool, &key_hash).await
     {
+      // Update last used timestamp asynchronously
       let pool = state.pool.clone();
       let key_id = api_key.id;
       tokio::spawn(async move {
-        let _ = fc_common::repo::api_keys::touch_last_used(&pool, key_id).await;
+        if let Err(e) =
+          fc_common::repo::api_keys::touch_last_used(&pool, key_id).await
+        {
+          tracing::warn!(error = %e, "Failed to update API key last_used timestamp");
+        }
       });
 
-      request.extensions_mut().insert(api_key);
+      request.extensions_mut().insert(api_key.clone());
+      request.extensions_mut().insert(crate::state::SessionData {
+        api_key:    Some(api_key),
+        user:       None,
+        created_at: std::time::Instant::now(),
+      });
       return Ok(next.run(request).await);
     }
   }
 
-  // Fall back to session cookie (so dashboard JS fetches work)
+  // Fall back to session cookie
   if let Some(cookie_header) = request
     .headers()
     .get("cookie")
     .and_then(|v| v.to_str().ok())
-    && let Some(session_id) = parse_cookie(cookie_header, "fc_session")
-    && let Some(session) = state.sessions.get(&session_id)
-    && session.created_at.elapsed()
-      < std::time::Duration::from_secs(24 * 60 * 60)
   {
-    request.extensions_mut().insert(session.api_key.clone());
-    return Ok(next.run(request).await);
+    // Try user session first (new fc_user_session cookie)
+    if let Some(session_id) = parse_cookie(cookie_header, "fc_user_session") {
+      if let Some(session) = state.sessions.get(&session_id) {
+        // Check session expiry (24 hours)
+        if session.created_at.elapsed()
+          < std::time::Duration::from_secs(24 * 60 * 60)
+        {
+          // Insert both user and session data
+          if let Some(ref user) = session.user {
+            request.extensions_mut().insert(user.clone());
+          }
+          if let Some(ref api_key) = session.api_key {
+            request.extensions_mut().insert(api_key.clone());
+          }
+          return Ok(next.run(request).await);
+        } else {
+          // Expired, remove it
+          drop(session);
+          state.sessions.remove(&session_id);
+        }
+      }
+    }
+
+    // Try legacy API key session (fc_session cookie)
+    if let Some(session_id) = parse_cookie(cookie_header, "fc_session") {
+      if let Some(session) = state.sessions.get(&session_id) {
+        // Check session expiry (24 hours)
+        if session.created_at.elapsed()
+          < std::time::Duration::from_secs(24 * 60 * 60)
+        {
+          if let Some(ref api_key) = session.api_key {
+            request.extensions_mut().insert(api_key.clone());
+          }
+          return Ok(next.run(request).await);
+        } else {
+          // Expired, remove it
+          drop(session);
+          state.sessions.remove(&session_id);
+        }
+      }
+    }
   }
 
   // No valid auth found
@@ -87,11 +133,29 @@ impl FromRequestParts<AppState> for RequireAdmin {
     parts: &mut Parts,
     _state: &AppState,
   ) -> Result<Self, Self::Rejection> {
+    // Check for user first (new auth)
+    if let Some(user) = parts.extensions.get::<User>() {
+      if user.role == "admin" {
+        // Create a synthetic API key for compatibility
+        return Ok(RequireAdmin(ApiKey {
+          id:           user.id,
+          name:         user.username.clone(),
+          key_hash:     String::new(),
+          role:         user.role.clone(),
+          created_at:   user.created_at,
+          last_used_at: user.last_login_at,
+          user_id:      Some(user.id),
+        }));
+      }
+    }
+
+    // Fall back to API key
     let key = parts
       .extensions
       .get::<ApiKey>()
       .cloned()
       .ok_or(StatusCode::UNAUTHORIZED)?;
+
     if key.role == "admin" {
       Ok(RequireAdmin(key))
     } else {
@@ -101,21 +165,36 @@ impl FromRequestParts<AppState> for RequireAdmin {
 }
 
 /// Extractor that requires one of the specified roles (admin always passes).
-/// Use as: `_auth: RequireRole<"cancel-build", "restart-jobs">`
-///
-/// Since const generics with strings aren't stable, use the helper function
-/// instead.
-pub struct RequireRoles(pub ApiKey);
+/// Use as: `RequireRoles::check(&extensions, &["cancel-build",
+/// "restart-jobs"])`
+pub struct RequireRoles;
 
 impl RequireRoles {
   pub fn check(
     extensions: &axum::http::Extensions,
     allowed: &[&str],
   ) -> Result<ApiKey, StatusCode> {
+    // Check for user first
+    if let Some(user) = extensions.get::<User>() {
+      if user.role == "admin" || allowed.contains(&user.role.as_str()) {
+        return Ok(ApiKey {
+          id:           user.id,
+          name:         user.username.clone(),
+          key_hash:     String::new(),
+          role:         user.role.clone(),
+          created_at:   user.created_at,
+          last_used_at: user.last_login_at,
+          user_id:      Some(user.id),
+        });
+      }
+    }
+
+    // Fall back to API key
     let key = extensions
       .get::<ApiKey>()
       .cloned()
       .ok_or(StatusCode::UNAUTHORIZED)?;
+
     if key.role == "admin" || allowed.contains(&key.role.as_str()) {
       Ok(key)
     } else {
@@ -125,30 +204,59 @@ impl RequireRoles {
 }
 
 /// Session extraction middleware for dashboard routes.
-/// Reads `fc_session` cookie and inserts ApiKey into extensions if valid.
+/// Reads `fc_user_session` or `fc_session` cookie and inserts User/ApiKey into
+/// extensions if valid.
 pub async fn extract_session(
   State(state): State<AppState>,
   mut request: Request,
   next: Next,
 ) -> Response {
-  if let Some(cookie_header) = request
+  // Extract cookie header first, then clone to end the borrow
+  let cookie_header = request
     .headers()
     .get("cookie")
     .and_then(|v| v.to_str().ok())
-    && let Some(session_id) = parse_cookie(cookie_header, "fc_session")
-    && let Some(session) = state.sessions.get(&session_id)
-  {
-    // Check session expiry (24 hours)
-    if session.created_at.elapsed()
-      < std::time::Duration::from_secs(24 * 60 * 60)
-    {
-      request.extensions_mut().insert(session.api_key.clone());
-    } else {
-      // Expired, remove it
-      drop(session);
-      state.sessions.remove(&session_id);
+    .map(|s| s.to_string());
+
+  if let Some(cookie_header) = cookie_header {
+    // Try user session first
+    if let Some(session_id) = parse_cookie(&cookie_header, "fc_user_session") {
+      if let Some(session) = state.sessions.get(&session_id) {
+        // Check session expiry
+        if session.created_at.elapsed()
+          < std::time::Duration::from_secs(24 * 60 * 60)
+        {
+          if let Some(ref user) = session.user {
+            request.extensions_mut().insert(user.clone());
+          }
+          if let Some(ref api_key) = session.api_key {
+            request.extensions_mut().insert(api_key.clone());
+          }
+        } else {
+          drop(session);
+          state.sessions.remove(&session_id);
+        }
+      }
+    }
+
+    // Try legacy API key session
+    if let Some(session_id) = parse_cookie(&cookie_header, "fc_session") {
+      if let Some(session) = state.sessions.get(&session_id) {
+        // Check session expiry
+        if session.created_at.elapsed()
+          < std::time::Duration::from_secs(24 * 60 * 60)
+        {
+          if let Some(ref api_key) = session.api_key {
+            request.extensions_mut().insert(api_key.clone());
+          }
+        } else {
+          drop(session);
+          state.sessions.remove(&session_id);
+        }
+      }
     }
   }
+
   next.run(request).await
 }
 

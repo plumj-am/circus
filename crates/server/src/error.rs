@@ -81,6 +81,14 @@ impl IntoResponse for ApiError {
           format!("IO error: {e}"),
         )
       },
+      CiError::Internal(msg) => {
+        tracing::error!(message = %msg, "Internal error in API handler");
+        (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          "INTERNAL_ERROR",
+          msg.clone(),
+        )
+      },
     };
 
     if status.is_server_error() {
