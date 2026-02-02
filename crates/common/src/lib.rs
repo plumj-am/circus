@@ -13,8 +13,10 @@ pub mod repo;
 
 pub mod bootstrap;
 pub mod nix_probe;
+pub mod roles;
 pub mod tracing_init;
 pub mod validate;
+pub mod validation;
 
 pub use config::*;
 pub use database::*;
@@ -23,3 +25,4 @@ pub use migrate::*;
 pub use models::*;
 pub use tracing_init::init_tracing;
 pub use validate::Validate;
+pub use validation::*;

@@ -42,6 +42,9 @@ pub enum CiError {
 
   #[error("Forbidden: {0}")]
   Forbidden(String),
+
+  #[error("Internal error: {0}")]
+  Internal(String),
 }
 
 pub type Result<T> = std::result::Result<T, CiError>;
