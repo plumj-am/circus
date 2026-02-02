@@ -12,6 +12,7 @@ pub mod logs;
 pub mod metrics;
 pub mod projects;
 pub mod search;
+pub mod users;
 pub mod webhooks;
 
 use std::{net::IpAddr, sync::Arc, time::Instant};
@@ -126,11 +127,24 @@ pub fn router(state: AppState, config: &ServerConfig) -> Router {
         // Static assets
         .route("/static/style.css", get(serve_style_css))
         // Dashboard routes with session extraction middleware
-        .merge(
-            dashboard::router(state.clone()).route_layer(middleware::from_fn_with_state(
-                state.clone(),
-                extract_session,
-            )),
+.nest(
+            "/api/v1",
+            Router::new()
+                .merge(projects::router())
+                .merge(jobsets::router())
+                .merge(evaluations::router())
+                .merge(builds::router())
+                .merge(logs::router())
+                .merge(auth::router())
+                .merge(users::router())
+                .merge(search::router())
+                .merge(badges::router())
+                .merge(channels::router())
+                .merge(admin::router())
+                .route_layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    require_api_key,
+                )),
         )
         .merge(health::router())
         .merge(cache::router())

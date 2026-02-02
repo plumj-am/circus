@@ -1026,61 +1026,124 @@ async fn login_page() -> Html<String> {
 
 #[derive(serde::Deserialize)]
 struct LoginForm {
-  api_key: String,
+  username: Option<String>,
+  api_key:  Option<String>,
+  password: Option<String>,
 }
 
 async fn login_action(
   State(state): State<AppState>,
   Form(form): Form<LoginForm>,
 ) -> Response {
-  let token = form.api_key.trim();
-  if token.is_empty() {
-    let tmpl = LoginTemplate {
-      error: Some("API key is required".to_string()),
+  // Try username/password authentication first
+  if let (Some(username), Some(password)) =
+    (form.username.as_ref(), form.password.as_ref())
+  {
+    let creds = fc_common::models::LoginCredentials {
+      username: username.clone(),
+      password: password.clone(),
     };
-    return Html(
-      tmpl
-        .render()
-        .unwrap_or_else(|e| format!("Template error: {e}")),
-    )
-    .into_response();
+
+    match fc_common::repo::users::authenticate(&state.pool, &creds).await {
+      Ok(user) => {
+        let session_id = Uuid::new_v4().to_string();
+        state
+          .sessions
+          .insert(session_id.clone(), crate::state::SessionData {
+            api_key:    None,
+            user:       Some(user),
+            created_at: std::time::Instant::now(),
+          });
+
+        let cookie = format!(
+          "fc_user_session={}; HttpOnly; SameSite=Strict; Path=/; \
+           Max-Age=86400",
+          session_id
+        );
+        return (
+          [(axum::http::header::SET_COOKIE, cookie)],
+          Redirect::to("/"),
+        )
+          .into_response();
+      },
+      Err(_) => {
+        let tmpl = LoginTemplate {
+          error: Some("Invalid username or password".to_string()),
+        };
+        return Html(
+          tmpl
+            .render()
+            .unwrap_or_else(|e| format!("Template error: {e}")),
+        )
+        .into_response();
+      },
+    }
   }
 
-  let mut hasher = Sha256::new();
-  hasher.update(token.as_bytes());
-  let key_hash = hex::encode(hasher.finalize());
-
-  match fc_common::repo::api_keys::get_by_hash(&state.pool, &key_hash).await {
-    Ok(Some(api_key)) => {
-      let session_id = Uuid::new_v4().to_string();
-      state
-        .sessions
-        .insert(session_id.clone(), crate::state::SessionData {
-          api_key,
-          created_at: std::time::Instant::now(),
-        });
-
-      let cookie = format!(
-        "fc_session={}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400",
-        session_id
-      );
-      (
-        [(axum::http::header::SET_COOKIE, cookie)],
-        Redirect::to("/"),
-      )
-        .into_response()
-    },
-    _ => {
+  // Fall back to API key authentication
+  if let Some(token) = form.api_key.as_ref() {
+    let token = token.trim();
+    if token.is_empty() {
       let tmpl = LoginTemplate {
-        error: Some("Invalid API key".to_string()),
+        error: Some("API key is required".to_string()),
       };
-      Html(
+      return Html(
         tmpl
           .render()
           .unwrap_or_else(|e| format!("Template error: {e}")),
       )
-      .into_response()
-    },
+      .into_response();
+    }
+
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    let key_hash = hex::encode(hasher.finalize());
+
+    match fc_common::repo::api_keys::get_by_hash(&state.pool, &key_hash).await {
+      Ok(Some(api_key)) => {
+        let session_id = Uuid::new_v4().to_string();
+        state
+          .sessions
+          .insert(session_id.clone(), crate::state::SessionData {
+            api_key:    Some(api_key),
+            user:       None,
+            created_at: std::time::Instant::now(),
+          });
+
+        let cookie = format!(
+          "fc_session={}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400",
+          session_id
+        );
+        (
+          [(axum::http::header::SET_COOKIE, cookie)],
+          Redirect::to("/"),
+        )
+          .into_response()
+      },
+      _ => {
+        let tmpl = LoginTemplate {
+          error: Some("Invalid API key".to_string()),
+        };
+        Html(
+          tmpl
+            .render()
+            .unwrap_or_else(|e| format!("Template error: {e}")),
+        )
+        .into_response()
+      },
+    }
+  } else {
+    let tmpl = LoginTemplate {
+      error: Some(
+        "Please provide either username/password or API key".to_string(),
+      ),
+    };
+    Html(
+      tmpl
+        .render()
+        .unwrap_or_else(|e| format!("Template error: {e}")),
+    )
+    .into_response()
   }
 }
 
@@ -1088,12 +1151,31 @@ async fn logout_action(
   State(state): State<AppState>,
   request: axum::extract::Request,
 ) -> Response {
-  // Remove server-side session
+  // Remove server-side session for both cookie types
   if let Some(cookie_header) = request
     .headers()
     .get("cookie")
     .and_then(|v| v.to_str().ok())
-    && let Some(session_id) = cookie_header
+  {
+    // Check for user session
+    if let Some(session_id) = cookie_header
+      .split(';')
+      .filter_map(|pair| {
+        let pair = pair.trim();
+        let (k, v) = pair.split_once('=')?;
+        if k.trim() == "fc_user_session" {
+          Some(v.trim().to_string())
+        } else {
+          None
+        }
+      })
+      .next()
+    {
+      state.sessions.remove(&session_id);
+    }
+
+    // Check for legacy API key session
+    if let Some(session_id) = cookie_header
       .split(';')
       .filter_map(|pair| {
         let pair = pair.trim();
@@ -1105,13 +1187,21 @@ async fn logout_action(
         }
       })
       .next()
-  {
-    state.sessions.remove(&session_id);
+    {
+      state.sessions.remove(&session_id);
+    }
   }
 
-  let cookie = "fc_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0";
+  // Clear both cookies
+  let cookies = [
+    "fc_user_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
+    "fc_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
+  ];
   (
-    [(axum::http::header::SET_COOKIE, cookie.to_string())],
+    [
+      (axum::http::header::SET_COOKIE, cookies[0].to_string()),
+      (axum::http::header::SET_COOKIE, cookies[1].to_string()),
+    ],
     Redirect::to("/"),
   )
     .into_response()
