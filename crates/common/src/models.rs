@@ -156,6 +156,7 @@ pub struct ApiKey {
   pub name:         String,
   pub key_hash:     String,
   pub role:         String,
+  pub user_id:      Option<Uuid>,
   pub created_at:   DateTime<Utc>,
   pub last_used_at: Option<DateTime<Utc>>,
 }
@@ -221,6 +222,66 @@ pub struct RemoteBuilder {
   pub public_host_key:    Option<String>,
   pub ssh_key_file:       Option<String>,
   pub created_at:         DateTime<Utc>,
+}
+
+// --- User Management ---
+
+/// User account for authentication and personalization
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct User {
+  pub id:               Uuid,
+  pub username:         String,
+  pub email:            String,
+  pub full_name:        Option<String>,
+  pub password_hash:    Option<String>,
+  pub user_type:        UserType,
+  pub role:             String,
+  pub enabled:          bool,
+  pub email_verified:   bool,
+  pub public_dashboard: bool,
+  pub created_at:       DateTime<Utc>,
+  pub updated_at:       DateTime<Utc>,
+  pub last_login_at:    Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "text", rename_all = "lowercase")]
+pub enum UserType {
+  Local,
+  Github,
+  Google,
+}
+
+/// Starred job for personalized dashboard
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct StarredJob {
+  pub id:         Uuid,
+  pub user_id:    Uuid,
+  pub project_id: Uuid,
+  pub jobset_id:  Option<Uuid>,
+  pub job_name:   String,
+  pub created_at: DateTime<Utc>,
+}
+
+/// Project membership for per-project permissions
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ProjectMember {
+  pub id:         Uuid,
+  pub project_id: Uuid,
+  pub user_id:    Uuid,
+  pub role:       String,
+  pub created_at: DateTime<Utc>,
+}
+
+/// User session for persistent authentication
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct UserSession {
+  pub id:                 Uuid,
+  pub user_id:            Uuid,
+  pub session_token_hash: String,
+  pub expires_at:         DateTime<Utc>,
+  pub created_at:         DateTime<Utc>,
+  pub last_used_at:       Option<DateTime<Utc>>,
 }
 
 // --- Pagination ---
@@ -398,4 +459,49 @@ pub struct SystemStatus {
   pub builds_failed:     i64,
   pub remote_builders:   i64,
   pub channels_count:    i64,
+}
+
+// --- User DTOs ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateUser {
+  pub username:  String,
+  pub email:     String,
+  pub full_name: Option<String>,
+  pub password:  String,
+  pub role:      Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateUser {
+  pub email:            Option<String>,
+  pub full_name:        Option<String>,
+  pub password:         Option<String>,
+  pub role:             Option<String>,
+  pub enabled:          Option<bool>,
+  pub public_dashboard: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoginCredentials {
+  pub username: String,
+  pub password: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateStarredJob {
+  pub project_id: Uuid,
+  pub jobset_id:  Option<Uuid>,
+  pub job_name:   String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateProjectMember {
+  pub user_id: Uuid,
+  pub role:    String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateProjectMember {
+  pub role: Option<String>,
 }
