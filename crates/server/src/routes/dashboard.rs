@@ -1207,8 +1207,7 @@ async fn logout_action(
     .into_response()
 }
 
-pub fn router(state: AppState) -> Router<AppState> {
-  let _ = state; // used by middleware layer in mod.rs
+pub fn router() -> Router<AppState> {
   Router::new()
     .route("/login", get(login_page).post(login_action))
     .route("/logout", axum::routing::post(logout_action))

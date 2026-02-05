@@ -126,8 +126,13 @@ pub fn router(state: AppState, config: &ServerConfig) -> Router {
   let mut app = Router::new()
         // Static assets
         .route("/static/style.css", get(serve_style_css))
-        // Dashboard routes with session extraction middleware
-.nest(
+        // Dashboard routes (SSR templates) with session extraction
+        .merge(dashboard::router().route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            extract_session,
+        )))
+        // API routes
+        .nest(
             "/api/v1",
             Router::new()
                 .merge(projects::router())
@@ -151,25 +156,6 @@ pub fn router(state: AppState, config: &ServerConfig) -> Router {
         .merge(metrics::router())
         // Webhooks use their own HMAC auth, outside the API key gate
         .merge(webhooks::router())
-        // API routes with Bearer token auth
-        .nest(
-            "/api/v1",
-            Router::new()
-                .merge(projects::router())
-                .merge(jobsets::router())
-                .merge(evaluations::router())
-                .merge(builds::router())
-                .merge(logs::router())
-                .merge(auth::router())
-                .merge(search::router())
-                .merge(badges::router())
-                .merge(channels::router())
-                .merge(admin::router())
-                .route_layer(middleware::from_fn_with_state(
-                    state.clone(),
-                    require_api_key,
-                )),
-        )
         .layer(TraceLayer::new_for_http())
         .layer(cors_layer)
         .layer(RequestBodyLimitLayer::new(config.max_body_size))
