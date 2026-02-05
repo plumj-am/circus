@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::{
   error::{CiError, Result},
   models::{CreateProjectMember, ProjectMember, UpdateProjectMember},
-  roles::{VALID_PROJECT_ROLES, has_project_permission},
+  roles::VALID_PROJECT_ROLES,
   validation::validate_role,
 };
 

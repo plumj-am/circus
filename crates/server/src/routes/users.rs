@@ -11,12 +11,11 @@ use fc_common::{
   models::{
     CreateStarredJob,
     CreateUser,
-    LoginCredentials,
     PaginationParams,
     UpdateUser,
     User,
   },
-  repo::{self, api_keys},
+  repo::{self},
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -175,7 +174,6 @@ async fn delete_user(
 // --- Current User Handlers ---
 
 async fn get_current_user(
-  State(state): State<AppState>,
   extensions: axum::http::Extensions,
 ) -> Result<Json<UserResponse>, ApiError> {
   // Try to get user from extensions first

@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::{
   error::{CiError, Result},
   models::{CreateUser, LoginCredentials, UpdateUser, User},
-  roles::{ROLE_READ_ONLY, VALID_ROLES, is_valid_role},
+  roles::{ROLE_READ_ONLY, VALID_ROLES},
   validation::{
     validate_email,
     validate_full_name,

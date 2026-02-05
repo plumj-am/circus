@@ -72,8 +72,8 @@ pub async fn require_api_key(
     .and_then(|v| v.to_str().ok())
   {
     // Try user session first (new fc_user_session cookie)
-    if let Some(session_id) = parse_cookie(cookie_header, "fc_user_session") {
-      if let Some(session) = state.sessions.get(&session_id) {
+    if let Some(session_id) = parse_cookie(cookie_header, "fc_user_session")
+      && let Some(session) = state.sessions.get(&session_id) {
         // Check session expiry (24 hours)
         if session.created_at.elapsed()
           < std::time::Duration::from_secs(24 * 60 * 60)
@@ -92,11 +92,10 @@ pub async fn require_api_key(
           state.sessions.remove(&session_id);
         }
       }
-    }
 
     // Try legacy API key session (fc_session cookie)
-    if let Some(session_id) = parse_cookie(cookie_header, "fc_session") {
-      if let Some(session) = state.sessions.get(&session_id) {
+    if let Some(session_id) = parse_cookie(cookie_header, "fc_session")
+      && let Some(session) = state.sessions.get(&session_id) {
         // Check session expiry (24 hours)
         if session.created_at.elapsed()
           < std::time::Duration::from_secs(24 * 60 * 60)
@@ -111,7 +110,6 @@ pub async fn require_api_key(
           state.sessions.remove(&session_id);
         }
       }
-    }
   }
 
   // No valid auth found
@@ -134,8 +132,8 @@ impl FromRequestParts<AppState> for RequireAdmin {
     _state: &AppState,
   ) -> Result<Self, Self::Rejection> {
     // Check for user first (new auth)
-    if let Some(user) = parts.extensions.get::<User>() {
-      if user.role == "admin" {
+    if let Some(user) = parts.extensions.get::<User>()
+      && user.role == "admin" {
         // Create a synthetic API key for compatibility
         return Ok(RequireAdmin(ApiKey {
           id:           user.id,
@@ -147,7 +145,6 @@ impl FromRequestParts<AppState> for RequireAdmin {
           user_id:      Some(user.id),
         }));
       }
-    }
 
     // Fall back to API key
     let key = parts
@@ -175,8 +172,8 @@ impl RequireRoles {
     allowed: &[&str],
   ) -> Result<ApiKey, StatusCode> {
     // Check for user first
-    if let Some(user) = extensions.get::<User>() {
-      if user.role == "admin" || allowed.contains(&user.role.as_str()) {
+    if let Some(user) = extensions.get::<User>()
+      && (user.role == "admin" || allowed.contains(&user.role.as_str())) {
         return Ok(ApiKey {
           id:           user.id,
           name:         user.username.clone(),
@@ -187,7 +184,6 @@ impl RequireRoles {
           user_id:      Some(user.id),
         });
       }
-    }
 
     // Fall back to API key
     let key = extensions
@@ -220,8 +216,8 @@ pub async fn extract_session(
 
   if let Some(cookie_header) = cookie_header {
     // Try user session first
-    if let Some(session_id) = parse_cookie(&cookie_header, "fc_user_session") {
-      if let Some(session) = state.sessions.get(&session_id) {
+    if let Some(session_id) = parse_cookie(&cookie_header, "fc_user_session")
+      && let Some(session) = state.sessions.get(&session_id) {
         // Check session expiry
         if session.created_at.elapsed()
           < std::time::Duration::from_secs(24 * 60 * 60)
@@ -237,11 +233,10 @@ pub async fn extract_session(
           state.sessions.remove(&session_id);
         }
       }
-    }
 
     // Try legacy API key session
-    if let Some(session_id) = parse_cookie(&cookie_header, "fc_session") {
-      if let Some(session) = state.sessions.get(&session_id) {
+    if let Some(session_id) = parse_cookie(&cookie_header, "fc_session")
+      && let Some(session) = state.sessions.get(&session_id) {
         // Check session expiry
         if session.created_at.elapsed()
           < std::time::Duration::from_secs(24 * 60 * 60)
@@ -254,7 +249,6 @@ pub async fn extract_session(
           state.sessions.remove(&session_id);
         }
       }
-    }
   }
 
   next.run(request).await

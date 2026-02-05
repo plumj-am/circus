@@ -41,6 +41,24 @@ fn build_app(pool: sqlx::PgPool) -> axum::Router {
   fc_server::routes::router(state, &server_config)
 }
 
+#[tokio::test]
+async fn test_router_no_duplicate_routes() {
+  let pool = match get_pool().await {
+    Some(p) => p,
+    None => return,
+  };
+
+  let config = fc_common::config::Config::default();
+  let server_config = config.server.clone();
+  let state = fc_server::state::AppState {
+    pool,
+    config,
+    sessions: std::sync::Arc::new(dashmap::DashMap::new()),
+  };
+
+  let _app = fc_server::routes::router(state, &server_config);
+}
+
 fn build_app_with_config(
   pool: sqlx::PgPool,
   config: fc_common::config::Config,

@@ -11,8 +11,9 @@ name = "fc-migrate"
 path = "src/main.rs"
 
 [dependencies]
+fc-common.workspace = true
+
 anyhow.workspace             = true
 clap.workspace               = true
-fc-common                    = { path = "../common" }
 tokio.workspace              = true
 tracing-subscriber.workspace = true
