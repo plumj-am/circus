@@ -142,11 +142,22 @@ pub async fn list_for_project(
 }
 
 pub async fn get_stats(pool: &PgPool) -> Result<BuildStats> {
-  sqlx::query_as::<_, BuildStats>("SELECT * FROM build_stats")
+  match sqlx::query_as::<_, BuildStats>("SELECT * FROM build_stats")
     .fetch_optional(pool)
     .await
-    .map_err(CiError::Database)
-    .map(|opt| opt.unwrap_or_default())
+  {
+    Ok(Some(stats)) => Ok(stats),
+    Ok(None) => {
+      tracing::warn!(
+        "build_stats view returned no rows, returning default stats"
+      );
+      Ok(BuildStats::default())
+    },
+    Err(e) => {
+      tracing::error!(error = %e, "Failed to fetch build stats");
+      Err(CiError::Database(e))
+    },
+  }
 }
 
 /// Reset builds that were left in 'running' state (orphaned by a crashed

@@ -30,6 +30,7 @@ pub struct WorkerPool {
 }
 
 impl WorkerPool {
+  #[allow(clippy::too_many_arguments)]
   pub fn new(
     db_pool: PgPool,
     workers: usize,
@@ -277,6 +278,7 @@ async fn try_remote_build(
 }
 
 #[tracing::instrument(skip(pool, build, work_dir, log_config, gc_config, notifications_config, signing_config, cache_upload_config), fields(build_id = %build.id, job = %build.job_name))]
+#[allow(clippy::too_many_arguments)]
 async fn run_build(
   pool: &PgPool,
   build: &Build,

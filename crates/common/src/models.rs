@@ -294,7 +294,7 @@ pub struct PaginationParams {
 
 impl PaginationParams {
   pub fn limit(&self) -> i64 {
-    self.limit.unwrap_or(50).min(200).max(1)
+    self.limit.unwrap_or(50).clamp(1, 200)
   }
 
   pub fn offset(&self) -> i64 {

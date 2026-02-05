@@ -87,28 +87,29 @@ async fn evaluate_jobset(
       "Starting evaluation cycle"
   );
 
-  if let Err(e) = check_disk_space(&work_dir) {
-    tracing::warn!(
-      jobset = %jobset.name,
-      "Disk space check failed: {}. Proceeding anyway...",
-      e
-    );
-  }
-
-  if let Ok(info) = check_disk_space(&work_dir) {
-    if info.is_critical() {
-      tracing::error!(
-        jobset = %jobset.name,
-        "CRITICAL: Less than 1GB disk space available. {}",
-        info.summary()
-      );
-    } else if info.is_low() {
+  match check_disk_space(&work_dir) {
+    Ok(info) => {
+      if info.is_critical() {
+        tracing::error!(
+          jobset = %jobset.name,
+          "CRITICAL: Less than 1GB disk space available. {}",
+          info.summary()
+        );
+      } else if info.is_low() {
+        tracing::warn!(
+          jobset = %jobset.name,
+          "LOW: Less than 5GB disk space available. {}",
+          info.summary()
+        );
+      }
+    },
+    Err(e) => {
       tracing::warn!(
         jobset = %jobset.name,
-        "LOW: Less than 5GB disk space available. {}",
-        info.summary()
+        "Disk space check failed: {}. Proceeding anyway...",
+        e
       );
-    }
+    },
   }
 
   // Clone/fetch in a blocking task (git2 is sync) with timeout
