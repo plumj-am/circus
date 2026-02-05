@@ -33,10 +33,45 @@ impl IntoResponse for ApiError {
         (StatusCode::FORBIDDEN, "FORBIDDEN", msg.clone())
       },
       CiError::NixEval(msg) => {
+        let is_disk_full =
+          msg.to_lowercase().contains("no space left on device")
+            || msg.to_lowercase().contains("disk full")
+            || msg.to_lowercase().contains("enospc")
+            || msg.to_lowercase().contains("cannot create directory")
+            || msg.to_lowercase().contains("sqlite");
+
+        if is_disk_full {
+          (
+            StatusCode::INSUFFICIENT_STORAGE,
+            "DISK_FULL",
+            format!(
+              "{}\n\nDISK SPACE ISSUE DETECTED:\nThe server has run out of \
+               disk space. Please free up space:\n- Run `nix-collect-garbage \
+               -d` to clean the Nix store\n- Clear the evaluator work \
+               directory: `rm -rf /tmp/fc-evaluator/*`\n- Clear build logs if \
+               configured",
+              msg
+            ),
+          )
+        } else {
+          (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "NIX_EVAL_ERROR",
+            msg.clone(),
+          )
+        }
+      },
+      CiError::DiskSpace(msg) => {
         (
-          StatusCode::UNPROCESSABLE_ENTITY,
-          "NIX_EVAL_ERROR",
-          msg.clone(),
+          StatusCode::INSUFFICIENT_STORAGE,
+          "DISK_FULL",
+          format!(
+            "{}\n\nDISK SPACE ISSUE:\nThe server is running low on disk \
+             space. Please free up space:\n- Run `nix-collect-garbage -d` to \
+             clean the Nix store\n- Clear the evaluator work directory\n- \
+             Clear build logs if configured",
+            msg
+          ),
         )
       },
       CiError::Build(msg) => {
@@ -51,11 +86,24 @@ impl IntoResponse for ApiError {
       },
       CiError::Database(e) => {
         tracing::error!(error = %e, "Database error in API handler");
-        (
-          StatusCode::INTERNAL_SERVER_ERROR,
-          "DATABASE_ERROR",
-          "Internal database error".to_string(),
-        )
+
+        if e.to_string().contains("disk") || e.to_string().contains("space") {
+          (
+            StatusCode::INSUFFICIENT_STORAGE,
+            "DISK_FULL",
+            format!(
+              "Database error: {}\n\nDISK SPACE ISSUE:\nThe server is running \
+               low on disk space.",
+              e
+            ),
+          )
+        } else {
+          (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DATABASE_ERROR",
+            "Internal database error".to_string(),
+          )
+        }
       },
       CiError::Git(e) => {
         tracing::error!(error = %e, "Git error in API handler");
@@ -75,23 +123,59 @@ impl IntoResponse for ApiError {
       },
       CiError::Io(e) => {
         tracing::error!(error = %e, "IO error in API handler");
-        (
-          StatusCode::INTERNAL_SERVER_ERROR,
-          "IO_ERROR",
-          format!("IO error: {e}"),
-        )
+
+        let msg = e.to_string();
+        if msg.contains("No space left on device")
+          || msg.contains("disk full")
+          || msg.contains("ENOSPC")
+        {
+          (
+            StatusCode::INSUFFICIENT_STORAGE,
+            "DISK_FULL",
+            format!(
+              "IO error: {}\n\nDISK SPACE ISSUE DETECTED:\nThe server has run \
+               out of disk space. Please free up space:\n- Run \
+               `nix-collect-garbage -d` to clean the Nix store\n- Clear the \
+               evaluator work directory: `rm -rf /tmp/fc-evaluator/*`\n- \
+               Clear build logs if configured",
+              msg
+            ),
+          )
+        } else {
+          (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "IO_ERROR",
+            format!("IO error: {e}"),
+          )
+        }
       },
       CiError::Internal(msg) => {
         tracing::error!(message = %msg, "Internal error in API handler");
-        (
-          StatusCode::INTERNAL_SERVER_ERROR,
-          "INTERNAL_ERROR",
-          msg.clone(),
-        )
+
+        if msg.to_lowercase().contains("disk")
+          || msg.to_lowercase().contains("space")
+          || msg.to_lowercase().contains("storage")
+        {
+          (
+            StatusCode::INSUFFICIENT_STORAGE,
+            "DISK_FULL",
+            format!(
+              "{}\n\nDISK SPACE ISSUE:\nThe server is running low on disk \
+               space. Please free up space.",
+              msg
+            ),
+          )
+        } else {
+          (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            msg.clone(),
+          )
+        }
       },
     };
 
-    if status.is_server_error() {
+    if status.is_server_error() || status == StatusCode::INSUFFICIENT_STORAGE {
       tracing::warn!(
           status = %status,
           code = code,
