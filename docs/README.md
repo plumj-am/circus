@@ -6,11 +6,10 @@ FC, also known as "feely-CI" or a CI with feelings, is a Rust-based continuous
 integration system designed to replace Hydra on all of our systems, for
 performant and declarative CI needs.
 
-Heavily work in progress. See the [design document] for a higher-level overview
-of this project. Documentation is still scattered, and may not reflect the
-latest state of the project until it is deemed complete. Please create an issue
-if you notice and obvious inaccuracy. While I not guarantee a quick response,
-I'd appreciate the heads-up. PRs are also very welcome.
+Heavily work in progress. Documentation is still scattered, and may not reflect
+the latest state of the project until it is deemed complete. Please create an
+issue if you notice and obvious inaccuracy. While I not guarantee a quick
+response, I'd appreciate the heads-up. PRs are also very welcome.
 
 ## Architecture
 
@@ -33,6 +32,9 @@ flowchart LR
     C --> D[Queue Runner<br/>(claims builds atomically,<br/>runs nix build)]
     D --> E[BuildSteps<br/>and BuildProducts]
 ```
+
+See the [design document] for more details on the architecture, similarities and
+differences with Hydra. For feedback and questions, head to the issues tab.
 
 ## Development
 
@@ -367,7 +369,15 @@ Ensure the PostgreSQL server on the head node allows connections from builder
 machines via `pg_hba.conf` (the NixOS `services.postgresql` module handles this
 with `authentication` settings).
 
-## API Key Bootstrapping
+## Authentication
+
+FC supports two authentication methods:
+
+1. **API Keys** - Bearer token authentication for API access
+2. **User Accounts** - Username/password with session cookies for dashboard
+   access
+
+### API Key Bootstrapping
 
 FC uses SHA-256 hashed API keys stored in the `api_keys` table. To create the
 first admin key after initial deployment:
@@ -387,6 +397,51 @@ $ echo "Admin API key: $FC_KEY"
 
 Subsequent keys can be created via the API or the admin dashboard using this
 initial admin key.
+
+### User Management
+
+FC supports user accounts for dashboard access. Users can authenticate with
+username/password and get a session cookie.
+
+#### Creating Users
+
+Users can be created via the API using an admin API key:
+
+```bash
+# Create a new user
+curl -X POST http://localhost:3000/api/v1/users \
+  -H 'Authorization: Bearer fc_demo_admin_key' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "username": "developer",
+    "email": "dev@example.com",
+    "password": "secure-password-here",
+    "role": "admin"
+  }'
+```
+
+#### User Roles
+
+Users can have roles that control their access level:
+
+| Role        | Description                          |
+| ----------- | ------------------------------------ |
+| `admin`     | Full access to all endpoints         |
+| `read-only` | Read-only access (GET requests only) |
+| `custom`    | See role-based permissions below     |
+
+Users inherit permissions from their role. The role can be set to any string for
+custom permission schemes.
+
+### Dashboard Login
+
+The dashboard supports both authentication methods:
+
+- **API Key Login**: Enter your API key on the login page for a session cookie
+- **Username/Password**: Log in with user credentials for persistent sessions
+
+Session cookies are valid for 24 hours and allow access to admin features
+without re-entering credentials.
 
 ### Roles
 
@@ -465,48 +520,60 @@ in the `Authorization` header. Read operations (GET) are public.
 
 <!--markdownlint-disable MD013 -->
 
-| Method | Endpoint                               | Auth                  | Description                       |
-| ------ | -------------------------------------- | --------------------- | --------------------------------- |
-| GET    | `/health`                              | -                     | Health check with database status |
-| GET    | `/metrics`                             | -                     | Prometheus metrics                |
-| GET    | `/api/v1/projects`                     | -                     | List projects (paginated)         |
-| POST   | `/api/v1/projects`                     | admin/create-projects | Create project                    |
-| GET    | `/api/v1/projects/{id}`                | -                     | Get project details               |
-| PUT    | `/api/v1/projects/{id}`                | admin                 | Update project                    |
-| DELETE | `/api/v1/projects/{id}`                | admin                 | Delete project (cascades)         |
-| GET    | `/api/v1/projects/{id}/jobsets`        | -                     | List project jobsets              |
-| POST   | `/api/v1/projects/{id}/jobsets`        | admin/create-projects | Create jobset                     |
-| GET    | `/api/v1/projects/{pid}/jobsets/{id}`  | -                     | Get jobset                        |
-| PUT    | `/api/v1/projects/{pid}/jobsets/{id}`  | admin                 | Update jobset                     |
-| DELETE | `/api/v1/projects/{pid}/jobsets/{id}`  | admin                 | Delete jobset                     |
-| GET    | `/api/v1/evaluations`                  | -                     | List evaluations (filtered)       |
-| GET    | `/api/v1/evaluations/{id}`             | -                     | Get evaluation details            |
-| POST   | `/api/v1/evaluations/trigger`          | admin/eval-jobset     | Trigger evaluation                |
-| GET    | `/api/v1/builds`                       | -                     | List builds (filtered)            |
-| GET    | `/api/v1/builds/{id}`                  | -                     | Get build details                 |
-| POST   | `/api/v1/builds/{id}/cancel`           | admin/cancel-build    | Cancel build                      |
-| POST   | `/api/v1/builds/{id}/restart`          | admin/restart-jobs    | Restart build                     |
-| POST   | `/api/v1/builds/{id}/bump`             | admin/bump-to-front   | Bump priority                     |
-| GET    | `/api/v1/builds/stats`                 | -                     | Build statistics                  |
-| GET    | `/api/v1/builds/recent`                | -                     | Recent builds                     |
-| GET    | `/api/v1/channels`                     | -                     | List channels                     |
-| POST   | `/api/v1/channels`                     | admin                 | Create channel                    |
-| DELETE | `/api/v1/channels/{id}`                | admin                 | Delete channel                    |
-| POST   | `/api/v1/channels/{id}/promote/{eval}` | admin                 | Promote evaluation                |
-| GET    | `/api/v1/api-keys`                     | admin                 | List API keys                     |
-| POST   | `/api/v1/api-keys`                     | admin                 | Create API key                    |
-| DELETE | `/api/v1/api-keys/{id}`                | admin                 | Delete API key                    |
-| GET    | `/api/v1/admin/builders`               | -                     | List remote builders              |
-| POST   | `/api/v1/admin/builders`               | admin                 | Create remote builder             |
-| PUT    | `/api/v1/admin/builders/{id}`          | admin                 | Update remote builder             |
-| DELETE | `/api/v1/admin/builders/{id}`          | admin                 | Delete remote builder             |
-| GET    | `/api/v1/admin/system`                 | admin                 | System status                     |
-| GET    | `/api/v1/search?q=`                    | -                     | Search projects and builds        |
-| POST   | `/api/v1/webhooks/{pid}/github`        | HMAC                  | GitHub webhook                    |
-| POST   | `/api/v1/webhooks/{pid}/gitea`         | HMAC                  | Gitea/Forgejo webhook             |
-| GET    | `/nix-cache/nix-cache-info`            | -                     | Binary cache info                 |
-| GET    | `/nix-cache/{hash}.narinfo`            | -                     | NAR info lookup                   |
-| GET    | `/nix-cache/nar/{hash}.nar.zst`        | -                     | NAR download (zstd)               |
+| Method | Endpoint                               | Auth                  | Description                        |
+| ------ | -------------------------------------- | --------------------- | ---------------------------------- |
+| GET    | `/health`                              | -                     | Health check with database status  |
+| GET    | `/metrics`                             | -                     | Prometheus metrics                 |
+| GET    | `/api/v1/projects`                     | -                     | List projects (paginated)          |
+| POST   | `/api/v1/projects`                     | admin/create-projects | Create project                     |
+| GET    | `/api/v1/projects/{id}`                | -                     | Get project details                |
+| PUT    | `/api/v1/projects/{id}`                | admin                 | Update project                     |
+| DELETE | `/api/v1/projects/{id}`                | admin                 | Delete project (cascades)          |
+| GET    | `/api/v1/projects/{id}/jobsets`        | -                     | List project jobsets               |
+| POST   | `/api/v1/projects/{id}/jobsets`        | admin/create-projects | Create jobset                      |
+| GET    | `/api/v1/projects/{pid}/jobsets/{id}`  | -                     | Get jobset                         |
+| PUT    | `/api/v1/projects/{pid}/jobsets/{id}`  | admin                 | Update jobset                      |
+| DELETE | `/api/v1/projects/{pid}/jobsets/{id}`  | admin                 | Delete jobset                      |
+| GET    | `/api/v1/evaluations`                  | -                     | List evaluations (filtered)        |
+| GET    | `/api/v1/evaluations/{id}`             | -                     | Get evaluation details             |
+| POST   | `/api/v1/evaluations/trigger`          | admin/eval-jobset     | Trigger evaluation                 |
+| GET    | `/api/v1/builds`                       | -                     | List builds (filtered)             |
+| GET    | `/api/v1/builds/{id}`                  | -                     | Get build details                  |
+| POST   | `/api/v1/builds/{id}/cancel`           | admin/cancel-build    | Cancel build                       |
+| POST   | `/api/v1/builds/{id}/restart`          | admin/restart-jobs    | Restart build                      |
+| POST   | `/api/v1/builds/{id}/bump`             | admin/bump-to-front   | Bump priority                      |
+| GET    | `/api/v1/builds/stats`                 | -                     | Build statistics                   |
+| GET    | `/api/v1/builds/recent`                | -                     | Recent builds                      |
+| GET    | `/api/v1/channels`                     | -                     | List channels                      |
+| POST   | `/api/v1/channels`                     | admin                 | Create channel                     |
+| DELETE | `/api/v1/channels/{id}`                | admin                 | Delete channel                     |
+| POST   | `/api/v1/channels/{id}/promote/{eval}` | admin                 | Promote evaluation                 |
+| GET    | `/api/v1/api-keys`                     | admin                 | List API keys                      |
+| POST   | `/api/v1/api-keys`                     | admin                 | Create API key                     |
+| DELETE | `/api/v1/api-keys/{id}`                | admin                 | Delete API key                     |
+| GET    | `/api/v1/admin/builders`               | -                     | List remote builders               |
+| POST   | `/api/v1/admin/builders`               | admin                 | Create remote builder              |
+| PUT    | `/api/v1/admin/builders/{id}`          | admin                 | Update remote builder              |
+| DELETE | `/api/v1/admin/builders/{id}`          | admin                 | Delete remote builder              |
+| GET    | `/api/v1/admin/system`                 | admin                 | System status                      |
+| GET    | `/api/v1/users`                        | admin                 | List users                         |
+| POST   | `/api/v1/users`                        | admin                 | Create user                        |
+| GET    | `/api/v1/users/{id}`                   | admin                 | Get user details                   |
+| PUT    | `/api/v1/users/{id}`                   | admin                 | Update user                        |
+| DELETE | `/api/v1/users/{id}`                   | admin                 | Delete user                        |
+| GET    | `/api/v1/me`                           | user/api key          | Get current user                   |
+| PUT    | `/api/v1/me`                           | user                  | Update current user                |
+| POST   | `/api/v1/me/password`                  | user                  | Change password                    |
+| GET    | `/api/v1/me/starred-jobs`              | user                  | List starred jobs                  |
+| POST   | `/api/v1/me/starred-jobs`              | user                  | Star a job                         |
+| DELETE | `/api/v1/me/starred-jobs/{id}`         | user                  | Unstar a job                       |
+| GET    | `/api/v1/search?q=`                    | -                     | Search projects and builds         |
+| GET    | `/api/v1/search/quick?q=`              | -                     | Quick search (backward compatible) |
+| POST   | `/api/v1/webhooks/{pid}/github`        | HMAC                  | GitHub webhook                     |
+| POST   | `/api/v1/webhooks/{pid}/gitea`         | HMAC                  | Gitea/Forgejo webhook              |
+| GET    | `/nix-cache/nix-cache-info`            | -                     | Binary cache info                  |
+| GET    | `/nix-cache/{hash}.narinfo`            | -                     | NAR info lookup                    |
+| GET    | `/nix-cache/nar/{hash}.nar.zst`        | -                     | NAR download (zstd)                |
 
 <!--markdownlint-enable MD013 -->
 
@@ -521,5 +588,8 @@ The web dashboard is available at the root URL (`/`). Pages include:
 - `/builds` - Build listing with status/system/job filters
 - `/queue` - Current queue (pending + running builds)
 - `/channels` - Channel listing
-- `/admin` - System status, API key management, remote builder management
-- `/login` - Cookie-based session login using API key
+- `/admin` - System status, API key management, remote builder management, user
+  management
+- `/login` - Session-based login supporting both username/password and API key
+  authentication
+- `/logout` - Log out and clear session
