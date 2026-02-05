@@ -8,13 +8,7 @@ use axum::{
   routing::get,
 };
 use fc_common::{
-  models::{
-    CreateStarredJob,
-    CreateUser,
-    PaginationParams,
-    UpdateUser,
-    User,
-  },
+  models::{CreateStarredJob, CreateUser, PaginationParams, UpdateUser, User},
   repo::{self},
 };
 use serde::{Deserialize, Serialize};

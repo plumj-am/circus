@@ -435,7 +435,7 @@ async fn projects_page(
   Query(params): Query<PageParams>,
   extensions: Extensions,
 ) -> Html<String> {
-  let limit = params.limit.unwrap_or(50).min(200).max(1);
+  let limit = params.limit.unwrap_or(50).clamp(1, 200);
   let offset = params.offset.unwrap_or(0).max(0);
   let items = fc_common::repo::projects::list(&state.pool, limit, offset)
     .await
@@ -602,7 +602,7 @@ async fn evaluations_page(
   State(state): State<AppState>,
   Query(params): Query<PageParams>,
 ) -> Html<String> {
-  let limit = params.limit.unwrap_or(50).min(200).max(1);
+  let limit = params.limit.unwrap_or(50).clamp(1, 200);
   let offset = params.offset.unwrap_or(0).max(0);
   let items = fc_common::repo::evaluations::list_filtered(
     &state.pool,
@@ -760,7 +760,7 @@ async fn builds_page(
   State(state): State<AppState>,
   Query(params): Query<BuildFilterParams>,
 ) -> Html<String> {
-  let limit = params.limit.unwrap_or(50).min(200).max(1);
+  let limit = params.limit.unwrap_or(50).clamp(1, 200);
   let offset = params.offset.unwrap_or(0).max(0);
   let items = fc_common::repo::builds::list_filtered(
     &state.pool,
