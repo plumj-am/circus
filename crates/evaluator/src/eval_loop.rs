@@ -2,6 +2,7 @@ use std::{collections::HashMap, time::Duration};
 
 use fc_common::{
   config::EvaluatorConfig,
+  error::check_disk_space,
   models::{CreateBuild, CreateEvaluation, EvaluationStatus, JobsetInput},
   repo,
 };
@@ -44,6 +45,22 @@ async fn run_cycle(
               jobset_name = %jobset.name,
               "Failed to evaluate jobset: {e}"
           );
+
+          let msg = e.to_string().to_lowercase();
+          if msg.contains("no space left on device")
+            || msg.contains("disk full")
+            || msg.contains("enospc")
+            || msg.contains("cannot create")
+            || msg.contains("sqlite")
+          {
+            tracing::error!(
+              "DISK SPACE ISSUE DETECTED: Evaluation failed due to disk space \
+               problems. Please free up space on the server:\n- Run \
+               `nix-collect-garbage -d` to clean the Nix store\n- Clear \
+               /tmp/fc-evaluator directory\n- Check build logs directory if \
+               configured"
+            );
+          }
         }
       }
     })
@@ -63,6 +80,36 @@ async fn evaluate_jobset(
   let work_dir = config.work_dir.clone();
   let project_name = jobset.project_name.clone();
   let branch = jobset.branch.clone();
+
+  tracing::info!(
+      jobset = %jobset.name,
+      project = %project_name,
+      "Starting evaluation cycle"
+  );
+
+  if let Err(e) = check_disk_space(&work_dir) {
+    tracing::warn!(
+      jobset = %jobset.name,
+      "Disk space check failed: {}. Proceeding anyway...",
+      e
+    );
+  }
+
+  if let Ok(info) = check_disk_space(&work_dir) {
+    if info.is_critical() {
+      tracing::error!(
+        jobset = %jobset.name,
+        "CRITICAL: Less than 1GB disk space available. {}",
+        info.summary()
+      );
+    } else if info.is_low() {
+      tracing::warn!(
+        jobset = %jobset.name,
+        "LOW: Less than 5GB disk space available. {}",
+        info.summary()
+      );
+    }
+  }
 
   // Clone/fetch in a blocking task (git2 is sync) with timeout
   let (repo_path, commit_hash) = tokio::time::timeout(
