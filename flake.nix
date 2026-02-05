@@ -103,6 +103,7 @@
         name = "fc";
         inputsFrom = [self.packages.${system}.fc-server];
 
+        strictDeps = true;
         packages = with pkgs; [
           postgresql
           pkg-config
@@ -110,6 +111,8 @@
 
           taplo
           (rustfmt.override {asNightly = true;})
+          clippy
+          cargo-nextest
         ];
       };
     });
