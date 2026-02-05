@@ -39,6 +39,10 @@ pub struct Evaluation {
   pub status:          EvaluationStatus,
   pub error_message:   Option<String>,
   pub inputs_hash:     Option<String>,
+  pub pr_number:       Option<i32>,
+  pub pr_head_branch:  Option<String>,
+  pub pr_base_branch:  Option<String>,
+  pub pr_action:       Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::Type)]
@@ -360,8 +364,12 @@ pub struct UpdateJobset {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateEvaluation {
-  pub jobset_id:   Uuid,
-  pub commit_hash: String,
+  pub jobset_id:      Uuid,
+  pub commit_hash:    String,
+  pub pr_number:      Option<i32>,
+  pub pr_head_branch: Option<String>,
+  pub pr_base_branch: Option<String>,
+  pub pr_action:      Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

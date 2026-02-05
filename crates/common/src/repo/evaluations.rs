@@ -11,11 +11,16 @@ pub async fn create(
   input: CreateEvaluation,
 ) -> Result<Evaluation> {
   sqlx::query_as::<_, Evaluation>(
-    "INSERT INTO evaluations (jobset_id, commit_hash, status) VALUES ($1, $2, \
-     'pending') RETURNING *",
+    "INSERT INTO evaluations (jobset_id, commit_hash, status, pr_number, \
+     pr_head_branch, pr_base_branch, pr_action) VALUES ($1, $2, 'pending', \
+     $3, $4, $5, $6) RETURNING *",
   )
   .bind(input.jobset_id)
   .bind(&input.commit_hash)
+  .bind(input.pr_number)
+  .bind(&input.pr_head_branch)
+  .bind(&input.pr_base_branch)
+  .bind(&input.pr_action)
   .fetch_one(pool)
   .await
   .map_err(|e| {
