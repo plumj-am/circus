@@ -154,13 +154,14 @@ pub struct CacheUploadConfig {
   pub store_uri: Option<String>,
 }
 
-/// Declarative project/jobset/api-key definitions.
+/// Declarative project/jobset/api-key/user definitions.
 /// These are upserted on server startup, enabling fully declarative operation.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct DeclarativeConfig {
   pub projects: Vec<DeclarativeProject>,
   pub api_keys: Vec<DeclarativeApiKey>,
+  pub users:    Vec<DeclarativeUser>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -192,11 +193,31 @@ pub struct DeclarativeApiKey {
   pub role: String,
 }
 
-fn default_true() -> bool {
+/// Declarative user definition for configuration-driven user management.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeclarativeUser {
+  pub username:      String,
+  pub email:         String,
+  pub full_name:     Option<String>,
+  /// Password provided inline (for dev/testing only).
+  pub password:      Option<String>,
+  /// Path to a file containing the password (for production use with secrets).
+  pub password_file: Option<String>,
+  #[serde(default = "default_user_role")]
+  pub role:          String,
+  #[serde(default = "default_true")]
+  pub enabled:       bool,
+}
+
+fn default_user_role() -> String {
+  "read-only".to_string()
+}
+
+const fn default_true() -> bool {
   true
 }
 
-fn default_check_interval() -> i32 {
+const fn default_check_interval() -> i32 {
   60
 }
 
@@ -531,6 +552,7 @@ mod tests {
         key:  "fc_test".to_string(),
         role: "admin".to_string(),
       }],
+      users:    vec![],
     };
 
     let json = serde_json::to_string(&config).unwrap();
