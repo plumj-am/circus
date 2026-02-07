@@ -81,8 +81,12 @@ async fn test_e2e_project_eval_build_flow() {
 
   // 4. Create an evaluation
   let eval = fc_common::repo::evaluations::create(&pool, CreateEvaluation {
-    jobset_id:   jobset.id,
-    commit_hash: "e2e0000000000000000000000000000000000000".to_string(),
+    jobset_id:      jobset.id,
+    commit_hash:    "e2e0000000000000000000000000000000000000".to_string(),
+    pr_number:      None,
+    pr_head_branch: None,
+    pr_base_branch: None,
+    pr_action:      None,
   })
   .await
   .expect("create evaluation");
@@ -274,6 +278,7 @@ async fn test_e2e_project_eval_build_flow() {
     pool: pool.clone(),
     config,
     sessions: std::sync::Arc::new(dashmap::DashMap::new()),
+    http_client: reqwest::Client::new(),
   };
   let app = fc_server::routes::router(state, &server_config);
 
