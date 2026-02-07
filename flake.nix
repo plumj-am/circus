@@ -94,6 +94,7 @@
         packages = with pkgs; [
           pkg-config
           openssl
+          postgresql_18
 
           taplo
           (rustfmt.override {asNightly = true;})
