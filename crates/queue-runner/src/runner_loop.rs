@@ -1,6 +1,9 @@
 use std::{sync::Arc, time::Duration};
 
-use fc_common::{models::BuildStatus, repo};
+use fc_common::{
+  models::{BuildStatus, JobsetState},
+  repo,
+};
 use sqlx::PgPool;
 
 use crate::worker::WorkerPool;
@@ -115,6 +118,54 @@ pub async fn run(
               );
               continue;
             },
+          }
+
+          // One-at-a-time scheduling: check if jobset allows concurrent builds
+          // First, get the evaluation to find the jobset
+          let eval =
+            match repo::evaluations::get(&pool, build.evaluation_id).await {
+              Ok(eval) => eval,
+              Err(e) => {
+                tracing::error!(
+                    build_id = %build.id,
+                    evaluation_id = %build.evaluation_id,
+                    "Failed to get evaluation for one-at-a-time check: {e}"
+                );
+                continue;
+              },
+            };
+
+          let jobset = match repo::jobsets::get(&pool, eval.jobset_id).await {
+            Ok(jobset) => jobset,
+            Err(e) => {
+              tracing::error!(
+                  build_id = %build.id,
+                  jobset_id = %eval.jobset_id,
+                  "Failed to get jobset for one-at-a-time check: {e}"
+              );
+              continue;
+            },
+          };
+
+          if jobset.state == JobsetState::OneAtATime {
+            match repo::jobsets::has_running_builds(&pool, jobset.id).await {
+              Ok(true) => {
+                tracing::debug!(
+                    build_id = %build.id,
+                    jobset = %jobset.name,
+                    "One-at-a-time: skipping, another build is running"
+                );
+                continue;
+              },
+              Ok(false) => {},
+              Err(e) => {
+                tracing::error!(
+                    build_id = %build.id,
+                    "Failed to check running builds: {e}"
+                );
+                continue;
+              },
+            }
           }
 
           worker_pool.dispatch(build);
