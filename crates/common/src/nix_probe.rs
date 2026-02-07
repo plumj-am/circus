@@ -423,7 +423,7 @@ mod tests {
 
   #[test]
   fn test_suggested_jobset_ordering() {
-    let mut jobsets = vec![
+    let mut jobsets = [
       SuggestedJobset {
         name:           "packages".to_string(),
         nix_expression: "packages".to_string(),

@@ -172,8 +172,12 @@ async fn evaluate_jobset(
 
   // Create evaluation record
   let eval = repo::evaluations::create(pool, CreateEvaluation {
-    jobset_id:   jobset.id,
-    commit_hash: commit_hash.clone(),
+    jobset_id:      jobset.id,
+    commit_hash:    commit_hash.clone(),
+    pr_number:      None,
+    pr_head_branch: None,
+    pr_base_branch: None,
+    pr_action:      None,
   })
   .await?;
 
