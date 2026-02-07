@@ -21,6 +21,8 @@ pub struct Config {
   pub tracing:       TracingConfig,
   #[serde(default)]
   pub declarative:   DeclarativeConfig,
+  #[serde(default)]
+  pub oauth:         OAuthConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,6 +84,29 @@ pub struct LogConfig {
   pub compress: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct OAuthConfig {
+  pub github: Option<GitHubOAuthConfig>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct GitHubOAuthConfig {
+  pub client_id:     String,
+  pub client_secret: String,
+  pub redirect_uri:  String,
+}
+
+impl std::fmt::Debug for GitHubOAuthConfig {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("GitHubOAuthConfig")
+      .field("client_id", &self.client_id)
+      .field("client_secret", &"[REDACTED]")
+      .field("redirect_uri", &self.redirect_uri)
+      .finish()
+  }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 #[derive(Default)]
@@ -90,6 +115,8 @@ pub struct NotificationsConfig {
   pub github_token: Option<String>,
   pub gitea_url:    Option<String>,
   pub gitea_token:  Option<String>,
+  pub gitlab_url:   Option<String>,
+  pub gitlab_token: Option<String>,
   pub email:        Option<EmailConfig>,
 }
 
