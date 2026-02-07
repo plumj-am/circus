@@ -13,7 +13,7 @@ authors      = [ "NotAShelf <raf@notashelf.dev" ]
 edition      = "2024"
 license      = "MPL-2.0"
 repository   = "https://gitub.com/feel-co/fc"
-rust-version = "1.91.1"
+rust-version = "1.95.0"                           # nightly
 version      = "0.2.0-dev"
 
 [workspace.dependencies]
@@ -64,3 +64,8 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = [ "env-filter", "json" ] }
 urlencoding = "2.1.3"
 uuid = { version = "1.18.1", features = [ "v4", "serde" ] }
+
+[profile.release]
+lto       = true
+opt-level = "z"
+strip     = true
