@@ -6,12 +6,14 @@ use regex::Regex;
 
 /// Validate that a path is a valid nix store path.
 /// Rejects path traversal, overly long paths, and non-store paths.
+#[must_use] 
 pub fn is_valid_store_path(path: &str) -> bool {
   path.starts_with("/nix/store/") && !path.contains("..") && path.len() < 512
 }
 
 /// Validate that a string is a valid nix store hash (32 lowercase alphanumeric
 /// chars).
+#[must_use] 
 pub fn is_valid_nix_hash(hash: &str) -> bool {
   hash.len() == 32
     && hash
@@ -144,7 +146,7 @@ fn validate_forge_type(forge_type: &str) -> Result<(), String> {
 
 // --- Implementations ---
 
-use crate::models::*;
+use crate::models::{CreateProject, UpdateProject, CreateJobset, UpdateJobset, CreateEvaluation, CreateBuild, CreateChannel, UpdateChannel, CreateRemoteBuilder, UpdateRemoteBuilder, CreateWebhookConfig};
 
 impl Validate for CreateProject {
   fn validate(&self) -> Result<(), String> {
@@ -478,6 +480,7 @@ mod tests {
       check_interval:    Some(300),
       branch:            None,
       scheduling_shares: None,
+      state:             None,
     };
     assert!(j.validate().is_ok());
   }
@@ -493,6 +496,7 @@ mod tests {
       check_interval:    Some(5),
       branch:            None,
       scheduling_shares: None,
+      state:             None,
     };
     assert!(j.validate().is_err());
   }

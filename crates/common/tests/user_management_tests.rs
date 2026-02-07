@@ -363,6 +363,7 @@ async fn test_starred_jobs_crud() {
     check_interval:    None,
     branch:            None,
     scheduling_shares: None,
+    state:             None,
   })
   .await
   .expect("create jobset");
@@ -473,6 +474,7 @@ async fn test_starred_jobs_delete_by_job() {
     check_interval:    None,
     branch:            None,
     scheduling_shares: None,
+    state:             None,
   })
   .await
   .expect("create jobset");

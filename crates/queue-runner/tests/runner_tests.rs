@@ -144,6 +144,7 @@ async fn test_atomic_build_claiming() {
       check_interval:    None,
       branch:            None,
       scheduling_shares: None,
+      state:             None,
     })
     .await
     .expect("create jobset");
@@ -235,6 +236,7 @@ async fn test_orphan_build_reset() {
       check_interval:    None,
       branch:            None,
       scheduling_shares: None,
+      state:             None,
     })
     .await
     .expect("create jobset");

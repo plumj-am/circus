@@ -63,6 +63,7 @@ async fn test_e2e_project_eval_build_flow() {
     check_interval:    Some(300),
     branch:            None,
     scheduling_shares: None,
+    state:             None,
   })
   .await
   .expect("create jobset");
