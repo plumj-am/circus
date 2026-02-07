@@ -15,10 +15,23 @@
   <dd><code>{{ jobset.nix_expression }}</code></dd>
   <dt>Flake mode</dt>
   <dd>{% if jobset.flake_mode %}Yes{% else %}No{% endif %}</dd>
-  <dt>Enabled</dt>
-  <dd>{% if jobset.enabled %}Yes{% else %}No{% endif %}</dd>
+  <dt>State</dt>
+  <dd>
+    {% match jobset.state %}
+      {% when fc_common::models::JobsetState::Disabled %}
+        <span class="badge badge-cancelled">Disabled</span>
+      {% when fc_common::models::JobsetState::Enabled %}
+        <span class="badge badge-completed">Enabled</span>
+      {% when fc_common::models::JobsetState::OneShot %}
+        <span class="badge badge-pending">One-Shot</span>
+      {% when fc_common::models::JobsetState::OneAtATime %}
+        <span class="badge badge-running">One-at-a-Time</span>
+    {% endmatch %}
+  </dd>
   <dt>Check interval</dt>
   <dd>{{ jobset.check_interval }}s</dd>
+  <dt>Last checked</dt>
+  <dd>{% if let Some(t) = jobset.last_checked_at %}{{ t.format("%Y-%m-%d %H:%M:%S") }}{% else %}Never{% endif %}</dd>
 </dl>
 
 {% if !eval_summaries.is_empty() %}

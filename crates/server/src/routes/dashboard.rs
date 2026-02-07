@@ -7,7 +7,7 @@ use axum::{
   response::{Html, IntoResponse, Redirect, Response},
   routing::get,
 };
-use fc_common::models::*;
+use fc_common::models::{Build, Evaluation, BuildStatus, EvaluationStatus, ApiKey, Project, Jobset, BuildStep, BuildProduct, Channel, SystemStatus, RemoteBuilder};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -72,6 +72,28 @@ struct ApiKeyView {
   role:         String,
   created_at:   String,
   last_used_at: String,
+}
+
+struct UserView {
+  id:            Uuid,
+  username:      String,
+  email:         String,
+  role:          String,
+  user_type:     String,
+  enabled:       bool,
+  last_login_at: String,
+}
+
+struct StarredJobView {
+  id:              Uuid,
+  project_id:      Uuid,
+  project_name:    String,
+  jobset_id:       Option<Uuid>,
+  jobset_name:     String,
+  job_name:        String,
+  status_text:     String,
+  status_class:    String,
+  latest_build_id: Option<Uuid>,
 }
 
 fn format_duration(
@@ -180,8 +202,7 @@ fn eval_badge(s: &EvaluationStatus) -> (String, String) {
 fn is_admin(extensions: &Extensions) -> bool {
   extensions
     .get::<ApiKey>()
-    .map(|k| k.role == "admin")
-    .unwrap_or(false)
+    .is_some_and(|k| k.role == "admin")
 }
 
 fn auth_name(extensions: &Extensions) -> String {
@@ -336,6 +357,31 @@ struct ProjectSetupTemplate {
 #[template(path = "login.html")]
 struct LoginTemplate {
   error: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "users.html")]
+struct UsersTemplate {
+  users:       Vec<UserView>,
+  limit:       i64,
+  has_prev:    bool,
+  has_next:    bool,
+  prev_offset: i64,
+  next_offset: i64,
+  page:        i64,
+  total_pages: i64,
+  is_admin:    bool,
+  auth_name:   String,
+}
+
+#[derive(Template)]
+#[template(path = "starred.html")]
+struct StarredTemplate {
+  starred_jobs: Vec<StarredJobView>,
+  is_logged_in: bool,
+  #[allow(dead_code)]
+  is_admin:     bool,
+  auth_name:    String,
 }
 
 // --- Handlers ---
@@ -626,9 +672,7 @@ async fn evaluations_page(
         Ok(js) => {
           let pname =
             fc_common::repo::projects::get(&state.pool, js.project_id)
-              .await
-              .map(|p| p.name)
-              .unwrap_or_else(|_| "-".to_string());
+              .await.map_or_else(|_| "-".to_string(), |p| p.name);
           (js.name, pname)
         },
         Err(_) => ("-".to_string(), "-".to_string()),
@@ -978,9 +1022,7 @@ async fn admin_page(
         role:         k.role,
         created_at:   k.created_at.format("%Y-%m-%d %H:%M").to_string(),
         last_used_at: k
-          .last_used_at
-          .map(|t| t.format("%Y-%m-%d %H:%M").to_string())
-          .unwrap_or_else(|| "Never".to_string()),
+          .last_used_at.map_or_else(|| "Never".to_string(), |t| t.format("%Y-%m-%d %H:%M").to_string()),
       }
     })
     .collect();
@@ -1044,39 +1086,35 @@ async fn login_action(
       password: password.clone(),
     };
 
-    match fc_common::repo::users::authenticate(&state.pool, &creds).await {
-      Ok(user) => {
-        let session_id = Uuid::new_v4().to_string();
-        state
-          .sessions
-          .insert(session_id.clone(), crate::state::SessionData {
-            api_key:    None,
-            user:       Some(user),
-            created_at: std::time::Instant::now(),
-          });
+    if let Ok(user) = fc_common::repo::users::authenticate(&state.pool, &creds).await {
+      let session_id = Uuid::new_v4().to_string();
+      state
+        .sessions
+        .insert(session_id.clone(), crate::state::SessionData {
+          api_key:    None,
+          user:       Some(user),
+          created_at: std::time::Instant::now(),
+        });
 
-        let cookie = format!(
-          "fc_user_session={}; HttpOnly; SameSite=Strict; Path=/; \
-           Max-Age=86400",
-          session_id
-        );
-        return (
-          [(axum::http::header::SET_COOKIE, cookie)],
-          Redirect::to("/"),
-        )
-          .into_response();
-      },
-      Err(_) => {
-        let tmpl = LoginTemplate {
-          error: Some("Invalid username or password".to_string()),
-        };
-        return Html(
-          tmpl
-            .render()
-            .unwrap_or_else(|e| format!("Template error: {e}")),
-        )
+      let cookie = format!(
+        "fc_user_session={session_id}; HttpOnly; SameSite=Strict; Path=/; \
+         Max-Age=86400"
+      );
+      return (
+        [(axum::http::header::SET_COOKIE, cookie)],
+        Redirect::to("/"),
+      )
         .into_response();
-      },
+    } else {
+      let tmpl = LoginTemplate {
+        error: Some("Invalid username or password".to_string()),
+      };
+      return Html(
+        tmpl
+          .render()
+          .unwrap_or_else(|e| format!("Template error: {e}")),
+      )
+      .into_response();
     }
   }
 
@@ -1099,38 +1137,34 @@ async fn login_action(
     hasher.update(token.as_bytes());
     let key_hash = hex::encode(hasher.finalize());
 
-    match fc_common::repo::api_keys::get_by_hash(&state.pool, &key_hash).await {
-      Ok(Some(api_key)) => {
-        let session_id = Uuid::new_v4().to_string();
-        state
-          .sessions
-          .insert(session_id.clone(), crate::state::SessionData {
-            api_key:    Some(api_key),
-            user:       None,
-            created_at: std::time::Instant::now(),
-          });
+    if let Ok(Some(api_key)) = fc_common::repo::api_keys::get_by_hash(&state.pool, &key_hash).await {
+      let session_id = Uuid::new_v4().to_string();
+      state
+        .sessions
+        .insert(session_id.clone(), crate::state::SessionData {
+          api_key:    Some(api_key),
+          user:       None,
+          created_at: std::time::Instant::now(),
+        });
 
-        let cookie = format!(
-          "fc_session={}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400",
-          session_id
-        );
-        (
-          [(axum::http::header::SET_COOKIE, cookie)],
-          Redirect::to("/"),
-        )
-          .into_response()
-      },
-      _ => {
-        let tmpl = LoginTemplate {
-          error: Some("Invalid API key".to_string()),
-        };
-        Html(
-          tmpl
-            .render()
-            .unwrap_or_else(|e| format!("Template error: {e}")),
-        )
+      let cookie = format!(
+        "fc_session={session_id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400"
+      );
+      (
+        [(axum::http::header::SET_COOKIE, cookie)],
+        Redirect::to("/"),
+      )
         .into_response()
-      },
+    } else {
+      let tmpl = LoginTemplate {
+        error: Some("Invalid API key".to_string()),
+      };
+      Html(
+        tmpl
+          .render()
+          .unwrap_or_else(|e| format!("Template error: {e}")),
+      )
+      .into_response()
     }
   } else {
     let tmpl = LoginTemplate {
@@ -1207,6 +1241,168 @@ async fn logout_action(
     .into_response()
 }
 
+async fn users_page(
+  State(state): State<AppState>,
+  Query(params): Query<PageParams>,
+  extensions: Extensions,
+) -> Result<Html<String>, axum::response::Response> {
+  // Only admins can view user list (contains PII like emails)
+  if !is_admin(&extensions) {
+    return Err(axum::response::Redirect::to("/").into_response());
+  }
+
+  let limit = params.limit.unwrap_or(50).clamp(1, 200);
+  let offset = params.offset.unwrap_or(0).max(0);
+
+  let users_list = fc_common::repo::users::list(&state.pool, limit, offset)
+    .await
+    .unwrap_or_default();
+  let total = fc_common::repo::users::count(&state.pool)
+    .await
+    .unwrap_or(0);
+
+  let users: Vec<UserView> = users_list
+    .into_iter()
+    .map(|u| {
+      let user_type = match u.user_type {
+        fc_common::models::UserType::Local => "Local",
+        fc_common::models::UserType::Github => "GitHub",
+        fc_common::models::UserType::Google => "Google",
+      };
+      UserView {
+        id:            u.id,
+        username:      u.username,
+        email:         u.email,
+        role:          u.role,
+        user_type:     user_type.to_string(),
+        enabled:       u.enabled,
+        last_login_at: u
+          .last_login_at.map_or_else(|| "Never".to_string(), |t| t.format("%Y-%m-%d %H:%M").to_string()),
+      }
+    })
+    .collect();
+
+  let total_pages = (total + limit - 1) / limit.max(1);
+  let page = offset / limit.max(1) + 1;
+
+  let tmpl = UsersTemplate {
+    users,
+    limit,
+    has_prev: offset > 0,
+    has_next: offset + limit < total,
+    prev_offset: (offset - limit).max(0),
+    next_offset: offset + limit,
+    page,
+    total_pages,
+    is_admin: true, // Already checked above
+    auth_name: auth_name(&extensions),
+  };
+  Ok(Html(
+    tmpl
+      .render()
+      .unwrap_or_else(|e| format!("Template error: {e}")),
+  ))
+}
+
+async fn starred_page(
+  State(state): State<AppState>,
+  extensions: Extensions,
+) -> Html<String> {
+  // Check if user is logged in via session
+  let user = extensions.get::<fc_common::models::User>().cloned();
+  let is_logged_in = user.is_some();
+
+  let starred_jobs = if let Some(ref u) = user {
+    let starred =
+      fc_common::repo::starred_jobs::list_for_user(&state.pool, u.id, 100, 0)
+        .await
+        .unwrap_or_default();
+
+    let mut views = Vec::new();
+    for s in starred {
+      // Get project name
+      let project_name =
+        fc_common::repo::projects::get(&state.pool, s.project_id)
+          .await.map_or_else(|_| "-".to_string(), |p| p.name);
+
+      // Get jobset name
+      let jobset_name = if let Some(js_id) = s.jobset_id {
+        fc_common::repo::jobsets::get(&state.pool, js_id)
+          .await.map_or_else(|_| "-".to_string(), |j| j.name)
+      } else {
+        "-".to_string()
+      };
+
+      // Get latest build for this job, filtered by jobset context
+      let (status_text, status_class, latest_build_id) =
+        if let Some(js_id) = s.jobset_id {
+          // Get latest evaluation for this jobset to find relevant builds
+          let evals = fc_common::repo::evaluations::list_filtered(
+            &state.pool,
+            Some(js_id),
+            None,
+            1,
+            0,
+          )
+          .await
+          .unwrap_or_default();
+
+          let builds = if let Some(eval) = evals.first() {
+            fc_common::repo::builds::list_filtered(
+              &state.pool,
+              Some(eval.id),
+              None,
+              None,
+              Some(&s.job_name),
+              1,
+              0,
+            )
+            .await
+            .unwrap_or_default()
+          } else {
+            Vec::new()
+          };
+
+          if let Some(build) = builds.first() {
+            let (text, class) = status_badge(&build.status);
+            (text, class, Some(build.id))
+          } else {
+            ("No builds".to_string(), "pending".to_string(), None)
+          }
+        } else {
+          ("No builds".to_string(), "pending".to_string(), None)
+        };
+
+      views.push(StarredJobView {
+        id: s.id,
+        project_id: s.project_id,
+        project_name,
+        jobset_id: s.jobset_id,
+        jobset_name,
+        job_name: s.job_name,
+        status_text,
+        status_class,
+        latest_build_id,
+      });
+    }
+    views
+  } else {
+    Vec::new()
+  };
+
+  let tmpl = StarredTemplate {
+    starred_jobs,
+    is_logged_in,
+    is_admin: is_admin(&extensions),
+    auth_name: auth_name(&extensions),
+  };
+  Html(
+    tmpl
+      .render()
+      .unwrap_or_else(|e| format!("Template error: {e}")),
+  )
+}
+
 pub fn router() -> Router<AppState> {
   Router::new()
     .route("/login", get(login_page).post(login_action))
@@ -1223,4 +1419,6 @@ pub fn router() -> Router<AppState> {
     .route("/queue", get(queue_page))
     .route("/channels", get(channels_page))
     .route("/admin", get(admin_page))
+    .route("/users", get(users_page))
+    .route("/starred", get(starred_page))
 }

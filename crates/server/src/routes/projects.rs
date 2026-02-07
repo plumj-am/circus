@@ -133,6 +133,7 @@ struct CreateJobsetBody {
   enabled:        Option<bool>,
   flake_mode:     Option<bool>,
   check_interval: Option<i32>,
+  state:          Option<fc_common::models::JobsetState>,
 }
 
 async fn create_project_jobset(
@@ -157,6 +158,7 @@ async fn create_project_jobset(
     check_interval: body.check_interval,
     branch: None,
     scheduling_shares: None,
+    state: body.state,
   };
   input
     .validate()
@@ -243,6 +245,7 @@ async fn setup_project(
       check_interval:    None,
       branch:            None,
       scheduling_shares: None,
+      state:             None,
     };
     input
       .validate()
