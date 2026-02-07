@@ -1,14 +1,16 @@
-# Webhook and PR integration tests
-{
-  pkgs,
-  fc-packages,
-  nixosModule,
-}:
+{pkgs, self}:
 pkgs.testers.nixosTest {
   name = "fc-webhooks";
 
-  nodes.machine = import ./common.nix {inherit pkgs fc-packages nixosModule;};
+  nodes.machine = {
+    imports = [
+      self.nixosModules.fc-ci
+      ../vm-common.nix
+    ];
+    _module.args.self = self;
+  };
 
+  # Webhook and PR integration tests
   testScript = ''
     import hashlib
     import json
@@ -24,7 +26,7 @@ pkgs.testers.nixosTest {
     # Wait for the server to start listening
     machine.wait_until_succeeds("curl -sf http://127.0.0.1:3000/health", timeout=30)
 
-    # ---- Seed an API key for write operations ----
+    # Seed an API key for write operations
     api_token = "fc_testkey123"
     api_hash = hashlib.sha256(api_token.encode()).hexdigest()
     machine.succeed(
@@ -32,7 +34,7 @@ pkgs.testers.nixosTest {
     )
     auth_header = f"-H 'Authorization: Bearer {api_token}'"
 
-    # ---- Create a test project for webhook tests ----
+    # Create a test project for webhook tests
     with subtest("Create test project for webhooks"):
         result = machine.succeed(
             "curl -sf -X POST http://127.0.0.1:3000/api/v1/projects "
@@ -44,7 +46,7 @@ pkgs.testers.nixosTest {
         project_id = result.strip()
         assert len(project_id) == 36, f"Expected UUID, got '{project_id}'"
 
-    # ---- Create a jobset for the project ----
+    # Create a jobset for the project
     with subtest("Create jobset for webhook project"):
         result = machine.succeed(
             f"curl -sf -X POST http://127.0.0.1:3000/api/v1/projects/{project_id}/jobsets "
@@ -56,10 +58,7 @@ pkgs.testers.nixosTest {
         jobset_id = result.strip()
         assert len(jobset_id) == 36, f"Expected UUID, got '{jobset_id}'"
 
-    # ========================================================================
     # GitHub Webhook Tests
-    # ========================================================================
-
     with subtest("GitHub webhook returns 404 when not configured"):
         code = machine.succeed(
             "curl -s -o /dev/null -w '%{http_code}' "
@@ -196,10 +195,7 @@ pkgs.testers.nixosTest {
         )
         assert "draft" in result.lower(), f"Expected draft PR to be skipped, got: {result}"
 
-    # ========================================================================
-    # GitLab Webhook Tests
-    # ========================================================================
-
+    ## GitLab Webhook Tests
     # Create a GitLab project
     with subtest("Create GitLab test project"):
         result = machine.succeed(
@@ -314,10 +310,7 @@ pkgs.testers.nixosTest {
         assert "draft" in result.lower() or "wip" in result.lower(), \
             f"Expected draft MR to be skipped, got: {result}"
 
-    # ========================================================================
     # Gitea/Forgejo Webhook Tests
-    # ========================================================================
-
     with subtest("Create Gitea test project"):
         result = machine.succeed(
             "curl -sf -X POST http://127.0.0.1:3000/api/v1/projects "
@@ -365,10 +358,7 @@ pkgs.testers.nixosTest {
         assert int(count_after) > int(count_before), \
             "Expected new evaluation from Gitea push"
 
-    # ========================================================================
     # OAuth Routes Existence Tests
-    # ========================================================================
-
     with subtest("GitHub OAuth login route exists"):
         # Should redirect or return 404 if not configured
         code = machine.succeed(
@@ -384,10 +374,7 @@ pkgs.testers.nixosTest {
         # Should fail gracefully (no OAuth configured)
         assert code.strip() in ("400", "404", "500"), f"Expected error code, got {code.strip()}"
 
-    # ========================================================================
     # Cleanup
-    # ========================================================================
-
     with subtest("Cleanup test projects"):
         machine.succeed(
             f"curl -sf -X DELETE http://127.0.0.1:3000/api/v1/projects/{project_id} {auth_header}"

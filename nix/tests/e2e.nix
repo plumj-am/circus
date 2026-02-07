@@ -1,14 +1,17 @@
-# End-to-end tests: flake creation, evaluation, queue runner, notification, signing, GC, declarative, webhooks
-{
-  pkgs,
-  fc-packages,
-  nixosModule,
-}:
+{pkgs, self}:
 pkgs.testers.nixosTest {
   name = "fc-e2e";
 
-  nodes.machine = import ./common.nix {inherit pkgs fc-packages nixosModule;};
+  nodes.machine = {
+    imports = [
+      self.nixosModules.fc-ci
+      ../vm-common.nix
+    ];
+    _module.args.self = self;
+  };
 
+  # End-to-end tests: flake creation, evaluation, queue runner, notification,
+  # signing, GC, declarative, webhooks
   testScript = ''
     import hashlib
     import json
@@ -24,7 +27,7 @@ pkgs.testers.nixosTest {
     # Wait for the server to start listening
     machine.wait_until_succeeds("curl -sf http://127.0.0.1:3000/health", timeout=30)
 
-    # ---- Seed an API key for write operations ----
+    # Seed an API key for write operations
     # Token: fc_testkey123 -> SHA-256 hash inserted into api_keys table
     api_token = "fc_testkey123"
     api_hash = hashlib.sha256(api_token.encode()).hexdigest()
@@ -41,11 +44,7 @@ pkgs.testers.nixosTest {
     )
     ro_header = f"-H 'Authorization: Bearer {ro_token}'"
 
-    # ========================================================================
-    # Phase E2E-1: End-to-End Evaluator Integration Test
-    # ========================================================================
-
-    # ---- Create a test flake inside the VM ----
+    # Create a test flake inside the VM
     with subtest("Create bare git repo with test flake"):
         machine.succeed("mkdir -p /var/lib/fc/test-repos")
         machine.succeed("git init --bare /var/lib/fc/test-repos/test-flake.git")
@@ -78,7 +77,7 @@ pkgs.testers.nixosTest {
         # Set ownership for fc user
         machine.succeed("chown -R fc:fc /var/lib/fc/test-repos")
 
-    # ---- Create project + jobset pointing to the local repo via API ----
+    # Create project + jobset pointing to the local repo via API
     with subtest("Create E2E project and jobset via API"):
         result = machine.succeed(
             "curl -sf -X POST http://127.0.0.1:3000/api/v1/projects "
@@ -100,10 +99,10 @@ pkgs.testers.nixosTest {
         e2e_jobset_id = result.strip()
         assert len(e2e_jobset_id) == 36, f"Expected UUID for jobset, got '{e2e_jobset_id}'"
 
-    # ---- Wait for evaluator to pick it up and create an evaluation ----
+    # Wait for evaluator to pick it up and create an evaluation
     with subtest("Evaluator discovers and evaluates the flake"):
-        # The evaluator is already running (started in Phase 1)
-        # Poll for evaluation to appear with status "completed"
+        # The evaluator is already running, poll for evaluation to appear
+        # with status "completed"
         machine.wait_until_succeeds(
             f"curl -sf 'http://127.0.0.1:3000/api/v1/evaluations?jobset_id={e2e_jobset_id}' "
             "| jq -e '.items[] | select(.status==\"completed\")'",
@@ -136,7 +135,7 @@ pkgs.testers.nixosTest {
             f"curl -sf 'http://127.0.0.1:3000/api/v1/builds?evaluation_id={e2e_eval_id}' | jq -r '.items[0].id'"
         ).strip()
 
-    # ---- Test evaluation caching ----
+    # Test evaluation caching
     with subtest("Same commit does not trigger a new evaluation"):
         # Get current evaluation count
         before_count = machine.succeed(
@@ -149,7 +148,7 @@ pkgs.testers.nixosTest {
         ).strip()
         assert before_count == after_count, f"Evaluation count changed from {before_count} to {after_count} (should be cached)"
 
-    # ---- Test new commit triggers new evaluation ----
+    # Test new commit triggers new evaluation
     with subtest("New commit triggers new evaluation"):
         before_count_int = int(machine.succeed(
             f"curl -sf 'http://127.0.0.1:3000/api/v1/evaluations?jobset_id={e2e_jobset_id}' | jq '.items | length'"
@@ -180,10 +179,6 @@ pkgs.testers.nixosTest {
             f"test $(curl -sf 'http://127.0.0.1:3000/api/v1/evaluations?jobset_id={e2e_jobset_id}' | jq '.items | length') -gt {before_count_int}",
             timeout=60
         )
-
-    # ========================================================================
-    # Phase E2E-2: End-to-End Queue Runner Integration Test
-    # ========================================================================
 
     with subtest("Queue runner builds pending derivation"):
         # Poll the E2E build until completed (queue-runner is already running)
@@ -229,10 +224,6 @@ pkgs.testers.nixosTest {
             f"http://127.0.0.1:3000/api/v1/builds/{e2e_build_id}/log"
         ).strip()
         assert code == "200", f"Expected 200 for build log, got {code}"
-
-    # ========================================================================
-    # Phase E2E-3: Jobset Input Management API
-    # ========================================================================
 
     with subtest("Create jobset input via API"):
         result = machine.succeed(
@@ -285,10 +276,6 @@ pkgs.testers.nixosTest {
         ).strip()
         assert code == "403", f"Expected 403 for read-only input delete, got {code}"
 
-    # ========================================================================
-    # Phase E2E-4: Notification Dispatch
-    # ========================================================================
-
     # Notifications are dispatched after builds complete (already tested above).
     # Verify run_command notifications work:
     with subtest("Notification run_command is invoked on build completion"):
@@ -299,10 +286,6 @@ pkgs.testers.nixosTest {
             f"curl -sf http://127.0.0.1:3000/api/v1/builds/{e2e_build_id} | jq -r .status"
         ).strip()
         assert result == "completed", f"Expected completed after notification, got {result}"
-
-    # ========================================================================
-    # Phase E2E-5: Channel Auto-Promotion
-    # ========================================================================
 
     with subtest("Channel auto-promotion after all builds complete"):
         # Create a channel tracking the E2E jobset
@@ -323,10 +306,6 @@ pkgs.testers.nixosTest {
             "| jq -e 'select(.current_evaluation_id != null)'",
             timeout=30
         )
-
-    # ========================================================================
-    # Phase E2E-6: Binary Cache NARinfo Test
-    # ========================================================================
 
     with subtest("Binary cache serves NARinfo for built output"):
         # Get the build output path
@@ -353,10 +332,6 @@ pkgs.testers.nixosTest {
         assert "StorePath:" in narinfo, f"NARinfo missing StorePath: {narinfo}"
         assert "NarHash:" in narinfo, f"NARinfo missing NarHash: {narinfo}"
 
-    # ========================================================================
-    # Phase E2E-7: Build Retry on Failure
-    # ========================================================================
-
     with subtest("Build with invalid drv_path fails and retries"):
         # Insert a build with an invalid drv_path via SQL
         machine.succeed(
@@ -377,10 +352,6 @@ pkgs.testers.nixosTest {
             "curl -sf 'http://127.0.0.1:3000/api/v1/builds?job_name=bad-build' | jq -r '.items[0].status'"
         ).strip()
         assert result == "failed", f"Expected failed for bad build, got '{result}'"
-
-    # ========================================================================
-    # Phase E2E-8: Notification Dispatch (run_command)
-    # ========================================================================
 
     with subtest("Notification run_command invoked on build completion"):
         # Write a notification script
@@ -458,10 +429,6 @@ pkgs.testers.nixosTest {
             f"Expected BUILD_STATUS in notification output, got: {output}"
         assert notify_build_id in output, f"Expected build ID {notify_build_id} in output, got: {output}"
 
-    # ========================================================================
-    # Phase E2E-9: Nix Signing
-    # ========================================================================
-
     with subtest("Generate signing key and configure signing"):
         # Generate a Nix signing key
         machine.succeed("mkdir -p /var/lib/fc/keys")
@@ -537,10 +504,6 @@ pkgs.testers.nixosTest {
         # The verify command should succeed (exit 0) if signatures are valid
         machine.succeed(f"nix store verify --sigs-needed 1 {output_path}")
 
-    # ========================================================================
-    # Phase E2E-10: GC Roots
-    # ========================================================================
-
     with subtest("GC roots are created for build products"):
         # Enable GC in config
         machine.succeed("""
@@ -607,17 +570,13 @@ pkgs.testers.nixosTest {
                         found_root = True
                         break
 
-            # We might have GC roots - this is expected behavior
-            # The key is that the build output exists and is protected from GC
+            # We might have GC roots, this is expected behavior
+            # The key thing is that the build output exists and is protected from GC
             machine.succeed(f"test -e {gc_build_output}")
         else:
             # If no GC roots yet, at least verify the build output exists
             # GC roots might be created asynchronously
             machine.succeed(f"test -e {gc_build_output}")
-
-    # ========================================================================
-    # Phase E2E-11: Declarative In-Repo Config
-    # ========================================================================
 
     with subtest("Declarative .fc.toml in repo auto-creates jobset"):
         # Add .fc.toml to the test repo with a new jobset definition
@@ -640,10 +599,6 @@ pkgs.testers.nixosTest {
             "| jq -e '.items[] | select(.name==\"declarative-checks\")'",
             timeout=60
         )
-
-    # ========================================================================
-    # Phase E2E-12: Webhook Endpoint
-    # ========================================================================
 
     with subtest("Webhook endpoint accepts valid GitHub push"):
         # Create a webhook config via SQL (no REST endpoint for creation)
@@ -697,7 +652,7 @@ pkgs.testers.nixosTest {
         ).strip()
         assert code == "401", f"Expected 401 for invalid webhook signature, got {code}"
 
-    # ---- Cleanup: Delete project ----
+    # Cleanup: Delete project
     with subtest("Delete E2E project"):
         code = machine.succeed(
             "curl -s -o /dev/null -w '%{http_code}' "

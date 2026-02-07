@@ -1,14 +1,16 @@
-# Feature tests: logging, CSS, setup wizard, probe, metrics improvements
-{
-  pkgs,
-  fc-packages,
-  nixosModule,
-}:
+{pkgs, self}:
 pkgs.testers.nixosTest {
   name = "fc-features";
 
-  nodes.machine = import ./common.nix {inherit pkgs fc-packages nixosModule;};
+  nodes.machine = {
+    imports = [
+      self.nixosModules.fc-ci
+      ../vm-common.nix
+    ];
+    _module.args.self = self;
+  };
 
+  # Feature tests: logging, CSS, setup wizard, probe, metrics improvements
   testScript = ''
     import hashlib
 
@@ -23,7 +25,7 @@ pkgs.testers.nixosTest {
     # Wait for the server to start listening
     machine.wait_until_succeeds("curl -sf http://127.0.0.1:3000/health", timeout=30)
 
-    # ---- Seed an API key for write operations ----
+    # Seed an API key for write operations
     # Token: fc_testkey123 -> SHA-256 hash inserted into api_keys table
     api_token = "fc_testkey123"
     api_hash = hashlib.sha256(api_token.encode()).hexdigest()
@@ -40,11 +42,7 @@ pkgs.testers.nixosTest {
     )
     ro_header = f"-H 'Authorization: Bearer {ro_token}'"
 
-    # ========================================================================
-    # Phase 5: New Feature Tests (Structured Logging, Flake Probe, Setup Wizard, Dashboard)
-    # ========================================================================
-
-    # ---- 5A: Structured logging ----
+    # Structured logging ----
     with subtest("Server produces structured log output"):
         # The server should log via tracing with the configured format
         result = machine.succeed("journalctl -u fc-server --no-pager -n 50 2>&1")
@@ -52,7 +50,7 @@ pkgs.testers.nixosTest {
         assert "INFO" in result or "info" in result, \
             "Expected structured log lines with INFO level in journalctl output"
 
-    # ---- 5B: Static CSS serving ----
+    # Static CSS serving ----
     with subtest("Static CSS endpoint returns 200 with correct content type"):
         code = machine.succeed(
             "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/static/style.css"
@@ -63,7 +61,7 @@ pkgs.testers.nixosTest {
         )
         assert "text/css" in ct.lower(), f"Expected text/css, got: {ct}"
 
-    # ---- 5C: Setup wizard page ----
+    # Setup wizard page
     with subtest("Setup wizard page returns 200"):
         code = machine.succeed(
             "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/projects/new"
@@ -92,7 +90,7 @@ pkgs.testers.nixosTest {
             )
             assert '/projects/new' in body, "Projects page should link to /projects/new wizard"
 
-    # ---- 5D: Flake probe endpoint ----
+    # Flake probe endpoint
     with subtest("Probe endpoint exists and requires POST"):
         code = machine.succeed(
             "curl -s -o /dev/null -w '%{http_code}' "
@@ -116,7 +114,7 @@ pkgs.testers.nixosTest {
         assert code.strip() in ("200", "408", "422", "500"), \
             f"Expected 200/408/422/500 for probe of unreachable repo, got {code.strip()}"
 
-    # ---- 5E: Setup endpoint ----
+    # Setup endpoint
     with subtest("Setup endpoint exists and requires POST"):
         code = machine.succeed(
             "curl -s -o /dev/null -w '%{http_code}' "
@@ -157,7 +155,7 @@ pkgs.testers.nixosTest {
         f"{auth_header}"
     )
 
-    # ---- 5F: Dashboard improvements ----
+    # Dashboard improvements
     with subtest("Home page has dashboard-grid two-column layout"):
         body = machine.succeed("curl -sf http://127.0.0.1:3000/")
         assert "dashboard-grid" in body, "Home page should have dashboard-grid class"
@@ -179,7 +177,7 @@ pkgs.testers.nixosTest {
             )
             assert "escapeHtml" in body, "Admin page JS should use escapeHtml"
 
-    # ---- 4R: Metrics reflect actual data ----
+    # Metrics reflect actual data
     with subtest("Metrics fc_projects_total reflects created projects"):
         result = machine.succeed("curl -sf http://127.0.0.1:3000/metrics")
         for line in result.split("\n"):

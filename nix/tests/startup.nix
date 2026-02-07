@@ -1,12 +1,14 @@
-{
-  pkgs,
-  fc-packages,
-  nixosModule,
-}:
+{pkgs, self}:
 pkgs.testers.nixosTest {
   name = "fc-service-startup";
 
-  nodes.machine = import ./common.nix {inherit pkgs fc-packages nixosModule;};
+  nodes.machine = {
+    imports = [
+      self.nixosModules.fc-ci
+      ../vm-common.nix
+    ];
+    _module.args.self = self;
+  };
 
   testScript = ''
     machine.start()

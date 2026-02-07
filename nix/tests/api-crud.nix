@@ -1,14 +1,17 @@
-# API CRUD tests: dashboard content, project/jobset/evaluation/build/channel/builder CRUD, admin endpoints, pagination, search
-{
-  pkgs,
-  fc-packages,
-  nixosModule,
-}:
+{pkgs, self}:
 pkgs.testers.nixosTest {
   name = "fc-api-crud";
 
-  nodes.machine = import ./common.nix {inherit pkgs fc-packages nixosModule;};
+  nodes.machine = {
+    imports = [
+      self.nixosModules.fc-ci
+      ../vm-common.nix
+    ];
+    _module.args.self = self;
+  };
 
+  # API CRUD tests: dashboard content, project/jobset/evaluation/build/channel/builder
+  # CRUD, admin endpoints, pagination, search
   testScript = ''
     import hashlib
     import json
@@ -24,7 +27,7 @@ pkgs.testers.nixosTest {
     # Wait for the server to start listening
     machine.wait_until_succeeds("curl -sf http://127.0.0.1:3000/health", timeout=30)
 
-    # ---- Seed an API key for write operations ----
+    # Seed an API key for write operations
     # Token: fc_testkey123 -> SHA-256 hash inserted into api_keys table
     api_token = "fc_testkey123"
     api_hash = hashlib.sha256(api_token.encode()).hexdigest()
@@ -51,11 +54,7 @@ pkgs.testers.nixosTest {
     )
     project_id = result.strip()
 
-    # ========================================================================
-    # Phase 4: Dashboard Content & Deep Functional Tests
-    # ========================================================================
-
-    # ---- 4A: Dashboard content verification ----
+    #  Dashboard content verification
     with subtest("Home page contains Dashboard heading"):
         body = machine.succeed("curl -sf http://127.0.0.1:3000/")
         assert "Dashboard" in body, "Home page missing 'Dashboard' heading"
@@ -111,7 +110,7 @@ pkgs.testers.nixosTest {
         assert "api_key" in body or "API" in body, "Login page missing API key input"
         assert "<form" in body.lower(), "Login page missing form element"
 
-    # ---- 4B: Dashboard page for specific entities ----
+    # Dashboard page for specific entities
     with subtest("Project detail page renders for existing project"):
         body = machine.succeed(
             f"curl -sf http://127.0.0.1:3000/project/{project_id}"
@@ -126,7 +125,7 @@ pkgs.testers.nixosTest {
         # Should return 200 with "not found" message or similar, not crash
         assert code.strip() == "200", f"Expected 200 for missing project detail, got {code.strip()}"
 
-    # ---- 4C: Project update via PUT ----
+    # Project update via PUT
     with subtest("Update project description via PUT"):
         code = machine.succeed(
             "curl -s -o /dev/null -w '%{http_code}' "
@@ -153,7 +152,7 @@ pkgs.testers.nixosTest {
         )
         assert code.strip() == "403", f"Expected 403 for read-only PUT, got {code.strip()}"
 
-    # ---- 4D: Jobset CRUD ----
+    # Jobset CRUD
     with subtest("Create jobset for test-project"):
         result = machine.succeed(
             f"curl -sf -X POST http://127.0.0.1:3000/api/v1/projects/{project_id}/jobsets "
@@ -177,7 +176,7 @@ pkgs.testers.nixosTest {
         )
         assert "main" in body, "Jobset detail page should show jobset name"
 
-    # ---- 4E: Evaluation trigger and lifecycle ----
+    # Evaluation trigger and lifecycle
     with subtest("Trigger evaluation via API"):
         result = machine.succeed(
             "curl -sf -X POST http://127.0.0.1:3000/api/v1/evaluations/trigger "
@@ -217,7 +216,7 @@ pkgs.testers.nixosTest {
         )
         assert code.strip() == "403", f"Expected 403 for read-only eval trigger, got {code.strip()}"
 
-    # ---- 4E2: Build lifecycle (restart, bump) ----
+    # Build lifecycle (restart, bump)
     # Create a build via SQL since builds are normally created by the evaluator
     with subtest("Create test build via SQL"):
         machine.succeed(
@@ -284,7 +283,7 @@ pkgs.testers.nixosTest {
         )
         assert "cancelled" in result.strip().lower(), f"Expected cancelled, got: {result.strip()}"
 
-    # ---- 4E3: Evaluation comparison ----
+    # Evaluation comparison ----
     with subtest("Trigger second evaluation for comparison"):
         result = machine.succeed(
             "curl -sf -X POST http://127.0.0.1:3000/api/v1/evaluations/trigger "
@@ -318,7 +317,7 @@ pkgs.testers.nixosTest {
         assert len(data["new_jobs"]) >= 1, f"Expected at least 1 new job, got {data['new_jobs']}"
         assert any(j["job_name"] == "new-pkg" for j in data["new_jobs"]), "new-pkg should be in new_jobs"
 
-    # ---- 4F: Channel CRUD lifecycle ----
+    # Channel CRUD lifecycle ----
     with subtest("Create channel via API"):
         result = machine.succeed(
             "curl -sf -X POST http://127.0.0.1:3000/api/v1/channels "
@@ -382,7 +381,7 @@ pkgs.testers.nixosTest {
         )
         assert code.strip() == "200", f"Expected 200 for channel delete, got {code.strip()}"
 
-    # ---- 4G: Remote builder CRUD lifecycle ----
+    # Remote builder CRUD lifecycle
     with subtest("List remote builders"):
         result = machine.succeed(
             "curl -sf http://127.0.0.1:3000/api/v1/admin/builders | jq 'length'"
@@ -456,7 +455,7 @@ pkgs.testers.nixosTest {
         )
         assert code.strip() == "200", f"Expected 200 for builder delete, got {code.strip()}"
 
-    # ---- 4H: Admin system status endpoint ----
+    # Admin system status endpoint
     with subtest("System status endpoint requires admin"):
         code = machine.succeed(
             "curl -s -o /dev/null -w '%{http_code}' "
@@ -473,7 +472,7 @@ pkgs.testers.nixosTest {
         )
         assert int(result.strip()) >= 1, f"Expected at least 1 project in system status, got {result.strip()}"
 
-    # ---- 4I: API key listing ----
+    # API key listing
     with subtest("List API keys requires admin"):
         code = machine.succeed(
             "curl -s -o /dev/null -w '%{http_code}' "
@@ -490,7 +489,7 @@ pkgs.testers.nixosTest {
         )
         assert int(result.strip()) >= 1, f"Expected at least 1 API key, got {result.strip()}"
 
-    # ---- 4J: Badge endpoints ----
+    # Badge endpoints
     with subtest("Badge endpoint returns SVG for unknown project"):
         code = machine.succeed(
             "curl -s -o /dev/null -w '%{http_code}' "
@@ -523,7 +522,7 @@ pkgs.testers.nixosTest {
         )
         assert code.strip() in ("404", "500"), f"Expected 404/500 for latest build, got {code.strip()}"
 
-    # ---- 4K: Pagination tests ----
+    # Pagination tests
     # Re-verify server is healthy before pagination tests
     machine.wait_until_succeeds("curl -sf http://127.0.0.1:3000/health", timeout=15)
 
@@ -555,7 +554,7 @@ pkgs.testers.nixosTest {
         assert "limit" in data, f"Expected paginated response with 'limit' field, got: {result[:300]}"
         assert data["limit"] == 2, f"Expected limit=2, got {data['limit']}"
 
-    # ---- 4L: Build sub-resources ----
+    # Build sub-resources
     with subtest("Build steps endpoint returns empty array for nonexistent build"):
         result = machine.succeed(
             "curl -sf "
@@ -579,7 +578,7 @@ pkgs.testers.nixosTest {
         )
         assert code.strip() == "404", f"Expected 404 for nonexistent build log, got {code.strip()}"
 
-    # ---- 4M: Search functionality ----
+    # Search functionality
     with subtest("Search returns matching projects"):
         result = machine.succeed(
             "curl -sf 'http://127.0.0.1:3000/api/v1/search?q=test-project' | jq '.projects | length'"
@@ -592,7 +591,7 @@ pkgs.testers.nixosTest {
         )
         assert result.strip() == "0", f"Expected 0, got {result.strip()}"
 
-    # ---- 4N: Content-Type verification for API endpoints ----
+    # Content-Type verification for API endpoints
     with subtest("API endpoints return application/json"):
         ct = machine.succeed(
             "curl -s -D - -o /dev/null http://127.0.0.1:3000/api/v1/projects | grep -i content-type"
@@ -611,7 +610,7 @@ pkgs.testers.nixosTest {
         )
         assert "text/plain" in ct.lower() or "text/" in ct.lower(), f"Expected text content type for metrics, got: {ct}"
 
-    # ---- 4O: Session/Cookie auth for dashboard ----
+    # Session/Cookie auth for dashboard
     with subtest("Login with valid API key sets session cookie"):
         result = machine.succeed(
             "curl -s -D - -o /dev/null "
@@ -661,7 +660,7 @@ pkgs.testers.nixosTest {
         assert "Max-Age=0" in result or "max-age=0" in result.lower(), \
             "Logout should set Max-Age=0 to clear cookie"
 
-    # ---- 4P: RBAC with create-projects role ----
+    # RBAC with create-projects role
     cp_token = "fc_createprojects_key"
     cp_hash = hashlib.sha256(cp_token.encode()).hexdigest()
     machine.succeed(
@@ -709,7 +708,7 @@ pkgs.testers.nixosTest {
         )
         assert code.strip() == "403", f"Expected 403 for create-projects system status, got {code.strip()}"
 
-    # ---- 4Q: Additional security tests ----
+    # Additional security tests
     with subtest("DELETE project without auth returns 401"):
         code = machine.succeed(
             "curl -s -o /dev/null -w '%{http_code}' "

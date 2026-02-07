@@ -46,12 +46,7 @@
 
       cargoArtifacts = craneLib.buildDepsOnly commonArgs;
     in {
-      demo-vm = pkgs.callPackage ./nix/demo-vm.nix {
-        nixosModule = self.nixosModules.default;
-        fc-packages = {
-          inherit (self.packages.${system}) fc-common fc-evaluator fc-migrate-cli fc-queue-runner fc-server;
-        };
-      };
+      demo-vm = pkgs.callPackage ./nix/demo-vm.nix {inherit self;};
 
       # FC Packages
       fc-common = pkgs.callPackage ./nix/packages/fc-common.nix {
@@ -77,35 +72,26 @@
 
     checks = forAllSystems (system: let
       pkgs = nixpkgs.legacyPackages.${system};
-      testArgs = {
-        nixosModule = self.nixosModules.default;
-        fc-packages = {
-          inherit (self.packages.${system}) fc-common fc-evaluator fc-migrate-cli fc-queue-runner fc-server;
-        };
-      };
     in {
       # Split VM integration tests
-      service-startup = pkgs.callPackage ./nix/tests/service-startup.nix testArgs;
-      basic-api = pkgs.callPackage ./nix/tests/basic-api.nix testArgs;
-      auth-rbac = pkgs.callPackage ./nix/tests/auth-rbac.nix testArgs;
-      api-crud = pkgs.callPackage ./nix/tests/api-crud.nix testArgs;
-      features = pkgs.callPackage ./nix/tests/features.nix testArgs;
-      e2e = pkgs.callPackage ./nix/tests/e2e.nix testArgs;
-
-      # Legacy monolithic test (for reference, can be removed after split tests pass)
-      vm-test = pkgs.callPackage ./nix/vm-test.nix testArgs;
+      service-startup = pkgs.callPackage ./nix/tests/startup.nix {inherit self;};
+      basic-api = pkgs.callPackage ./nix/tests/basic-api.nix {inherit self;};
+      auth-rbac = pkgs.callPackage ./nix/tests/auth-rbac.nix {inherit self;};
+      api-crud = pkgs.callPackage ./nix/tests/api-crud.nix {inherit self;};
+      features = pkgs.callPackage ./nix/tests/features.nix {inherit self;};
+      webhooks = pkgs.callPackage ./nix/tests/webhooks.nix {inherit self;};
+      e2e = pkgs.callPackage ./nix/tests/e2e.nix {inherit self;};
     });
 
     devShells = forAllSystems (system: let
       pkgs = nixpkgs.legacyPackages.${system};
     in {
       default = pkgs.mkShell {
-        name = "fc";
+        name = "fc-dev";
         inputsFrom = [self.packages.${system}.fc-server];
 
         strictDeps = true;
         packages = with pkgs; [
-          postgresql
           pkg-config
           openssl
 
@@ -116,5 +102,7 @@
         ];
       };
     });
+
+    formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.alejandra);
   };
 }

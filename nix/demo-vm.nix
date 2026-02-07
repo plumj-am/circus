@@ -1,15 +1,15 @@
 {
   pkgs,
-  fc-packages,
-  nixosModule,
+  self,
 }: let
+  fc-packages = self.packages.${pkgs.stdenv.hostPlatform.system};
   nixos = pkgs.nixos ({
     modulesPath,
     pkgs,
     ...
   }: {
     imports = [
-      nixosModule
+      self.nixosModules.fc-ci
       (modulesPath + "/virtualisation/qemu-vm.nix")
     ];
 
@@ -36,6 +36,7 @@
       evaluatorPackage = fc-packages.fc-evaluator;
       queueRunnerPackage = fc-packages.fc-queue-runner;
       migratePackage = fc-packages.fc-migrate-cli;
+
       server.enable = true;
       evaluator.enable = true;
       queueRunner.enable = true;
