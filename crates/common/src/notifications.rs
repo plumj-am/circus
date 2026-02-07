@@ -32,7 +32,13 @@ pub async fn dispatch_build_finished(
       .await;
   }
 
-  // 4. Email notification
+  // 4. GitLab commit status
+  if let (Some(url), Some(token)) = (&config.gitlab_url, &config.gitlab_token) {
+    set_gitlab_status(url, token, &project.repository_url, commit_hash, build)
+      .await;
+  }
+
+  // 5. Email notification
   if let Some(ref email_config) = config.email
     && (!email_config.on_failure_only || build.status == BuildStatus::Failed)
   {
@@ -183,6 +189,67 @@ async fn set_gitea_status(
   }
 }
 
+async fn set_gitlab_status(
+  base_url: &str,
+  token: &str,
+  repo_url: &str,
+  commit: &str,
+  build: &Build,
+) {
+  // Parse project path from URL
+  let project_path = match parse_gitlab_project(repo_url, base_url) {
+    Some(p) => p,
+    None => {
+      warn!("Cannot parse GitLab project from {repo_url}");
+      return;
+    },
+  };
+
+  // GitLab uses different state names
+  let (state, description) = match build.status {
+    BuildStatus::Completed => ("success", "Build succeeded"),
+    BuildStatus::Failed => ("failed", "Build failed"),
+    BuildStatus::Running => ("running", "Build in progress"),
+    BuildStatus::Pending => ("pending", "Build queued"),
+    BuildStatus::Cancelled => ("canceled", "Build cancelled"),
+  };
+
+  // URL-encode the project path for the API
+  let encoded_project = urlencoding::encode(&project_path);
+  let url = format!(
+    "{}/api/v4/projects/{}/statuses/{}",
+    base_url.trim_end_matches('/'),
+    encoded_project,
+    commit
+  );
+
+  let body = serde_json::json!({
+      "state": state,
+      "description": description,
+      "name": format!("fc/{}", build.job_name),
+  });
+
+  let client = reqwest::Client::new();
+  match client
+    .post(&url)
+    .header("PRIVATE-TOKEN", token)
+    .json(&body)
+    .send()
+    .await
+  {
+    Ok(resp) => {
+      if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        warn!("GitLab status API returned {status}: {text}");
+      } else {
+        info!(build_id = %build.id, "Set GitLab commit status: {state}");
+      }
+    },
+    Err(e) => error!("GitLab status API request failed: {e}"),
+  }
+}
+
 fn parse_github_repo(url: &str) -> Option<(String, String)> {
   // Handle https://github.com/owner/repo.git or git@github.com:owner/repo.git
   let url = url.trim_end_matches(".git");
@@ -212,6 +279,23 @@ fn parse_gitea_repo(
     if parts.len() == 2 {
       return Some((parts[0].to_string(), parts[1].to_string()));
     }
+  }
+  None
+}
+
+fn parse_gitlab_project(repo_url: &str, base_url: &str) -> Option<String> {
+  let url = repo_url.trim_end_matches(".git");
+  let base = base_url.trim_end_matches('/');
+  if let Some(rest) = url.strip_prefix(&format!("{base}/")) {
+    return Some(rest.to_string());
+  }
+  // Also try without scheme match (e.g., https vs git@)
+  if let (Some(at_pos), Some(colon_pos)) = (
+    url.find('@'),
+    url.find('@').and_then(|p| url[p..].find(':')),
+  ) {
+    let path = &url[at_pos + colon_pos + 1..];
+    return Some(path.to_string());
   }
   None
 }
@@ -309,5 +393,70 @@ async fn send_email_notification(
         error!(build_id = %build.id, to = to_addr, "Failed to send email: {e}");
       },
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_parse_github_repo_https() {
+    let result = parse_github_repo("https://github.com/owner/repo.git");
+    assert_eq!(result, Some(("owner".to_string(), "repo".to_string())));
+
+    let result = parse_github_repo("https://github.com/owner/repo");
+    assert_eq!(result, Some(("owner".to_string(), "repo".to_string())));
+  }
+
+  #[test]
+  fn test_parse_github_repo_ssh() {
+    let result = parse_github_repo("git@github.com:owner/repo.git");
+    assert_eq!(result, Some(("owner".to_string(), "repo".to_string())));
+  }
+
+  #[test]
+  fn test_parse_github_repo_invalid() {
+    assert_eq!(parse_github_repo("https://gitlab.com/owner/repo"), None);
+    assert_eq!(parse_github_repo("invalid-url"), None);
+  }
+
+  #[test]
+  fn test_parse_gitea_repo() {
+    let result = parse_gitea_repo(
+      "https://gitea.example.com/owner/repo.git",
+      "https://gitea.example.com",
+    );
+    assert_eq!(result, Some(("owner".to_string(), "repo".to_string())));
+
+    let result = parse_gitea_repo(
+      "https://gitea.example.com/owner/repo",
+      "https://gitea.example.com/",
+    );
+    assert_eq!(result, Some(("owner".to_string(), "repo".to_string())));
+  }
+
+  #[test]
+  fn test_parse_gitlab_project() {
+    let result = parse_gitlab_project(
+      "https://gitlab.com/group/subgroup/repo.git",
+      "https://gitlab.com",
+    );
+    assert_eq!(result, Some("group/subgroup/repo".to_string()));
+
+    let result = parse_gitlab_project(
+      "https://gitlab.com/owner/repo",
+      "https://gitlab.com/",
+    );
+    assert_eq!(result, Some("owner/repo".to_string()));
+  }
+
+  #[test]
+  fn test_parse_gitlab_project_ssh() {
+    let result = parse_gitlab_project(
+      "git@gitlab.com:group/repo.git",
+      "https://gitlab.com",
+    );
+    assert_eq!(result, Some("group/repo".to_string()));
   }
 }

@@ -37,6 +37,7 @@ fn build_app(pool: sqlx::PgPool) -> axum::Router {
     pool,
     config,
     sessions: std::sync::Arc::new(dashmap::DashMap::new()),
+    http_client: reqwest::Client::new(),
   };
   fc_server::routes::router(state, &server_config)
 }
@@ -54,6 +55,7 @@ async fn test_router_no_duplicate_routes() {
     pool,
     config,
     sessions: std::sync::Arc::new(dashmap::DashMap::new()),
+    http_client: reqwest::Client::new(),
   };
 
   let _app = fc_server::routes::router(state, &server_config);
@@ -68,6 +70,7 @@ fn build_app_with_config(
     pool,
     config,
     sessions: std::sync::Arc::new(dashmap::DashMap::new()),
+    http_client: reqwest::Client::new(),
   };
   fc_server::routes::router(state, &server_config)
 }
