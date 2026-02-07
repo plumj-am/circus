@@ -60,7 +60,8 @@ impl SessionData {
 
 #[derive(Clone)]
 pub struct AppState {
-  pub pool:     PgPool,
-  pub config:   Config,
-  pub sessions: Arc<DashMap<String, SessionData>>,
+  pub pool:        PgPool,
+  pub config:      Config,
+  pub sessions:    Arc<DashMap<String, SessionData>>,
+  pub http_client: reqwest::Client,
 }

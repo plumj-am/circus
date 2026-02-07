@@ -10,6 +10,7 @@ pub mod health;
 pub mod jobsets;
 pub mod logs;
 pub mod metrics;
+pub mod oauth;
 pub mod projects;
 pub mod search;
 pub mod users;
@@ -156,6 +157,8 @@ pub fn router(state: AppState, config: &ServerConfig) -> Router {
         .merge(metrics::router())
         // Webhooks use their own HMAC auth, outside the API key gate
         .merge(webhooks::router())
+        // OAuth routes use their own auth mechanism
+        .merge(oauth::router())
         .layer(TraceLayer::new_for_http())
         .layer(cors_layer)
         .layer(RequestBodyLimitLayer::new(config.max_body_size))
