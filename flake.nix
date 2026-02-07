@@ -2,12 +2,17 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs?ref=nixpkgs-unstable";
     crane.url = "github:ipetkov/crane";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = {
     nixpkgs,
     crane,
     self,
+    rust-overlay,
     ...
   }: let
     inherit (nixpkgs) lib;
@@ -20,8 +25,16 @@
     };
 
     packages = forAllSystems (system: let
-      pkgs = nixpkgs.legacyPackages.${system};
-      craneLib = crane.mkLib pkgs;
+      pkgs = nixpkgs.legacyPackages.${system}.extend rust-overlay.overlays.default;
+      craneLib = (crane.mkLib pkgs).overrideToolchain (p:
+        # Build tools
+        # We use the rust-overlay to get the stable Rust toolchain for various targets.
+        # This is not exactly necessary, but it allows for compiling for various targets
+        # with the least amount of friction.
+          p.rust-bin.nightly.latest.default.override {
+            extensions = ["rustfmt" "rust-analyzer" "clippy"];
+            targets = [];
+          });
 
       src = let
         fs = lib.fileset;
@@ -97,8 +110,6 @@
           postgresql_18
 
           taplo
-          (rustfmt.override {asNightly = true;})
-          clippy
           cargo-nextest
         ];
       };

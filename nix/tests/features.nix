@@ -1,4 +1,7 @@
-{pkgs, self}:
+{
+  pkgs,
+  self,
+}:
 pkgs.testers.nixosTest {
   name = "fc-features";
 
