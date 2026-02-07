@@ -151,8 +151,12 @@ async fn test_atomic_build_claiming() {
   let eval = fc_common::repo::evaluations::create(
     &pool,
     fc_common::models::CreateEvaluation {
-      jobset_id:   jobset.id,
-      commit_hash: "abcdef1234567890abcdef1234567890abcdef12".to_string(),
+      jobset_id:      jobset.id,
+      commit_hash:    "abcdef1234567890abcdef1234567890abcdef12".to_string(),
+      pr_number:      None,
+      pr_head_branch: None,
+      pr_base_branch: None,
+      pr_action:      None,
     },
   )
   .await
@@ -238,8 +242,12 @@ async fn test_orphan_build_reset() {
   let eval = fc_common::repo::evaluations::create(
     &pool,
     fc_common::models::CreateEvaluation {
-      jobset_id:   jobset.id,
-      commit_hash: "1234567890abcdef1234567890abcdef12345678".to_string(),
+      jobset_id:      jobset.id,
+      commit_hash:    "1234567890abcdef1234567890abcdef12345678".to_string(),
+      pr_number:      None,
+      pr_head_branch: None,
+      pr_base_branch: None,
+      pr_action:      None,
     },
   )
   .await
