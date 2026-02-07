@@ -28,6 +28,8 @@ pub struct Jobset {
   pub scheduling_shares: i32,
   pub created_at:        DateTime<Utc>,
   pub updated_at:        DateTime<Utc>,
+  pub state:             JobsetState,
+  pub last_checked_at:   Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -45,13 +47,50 @@ pub struct Evaluation {
   pub pr_action:       Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "text", rename_all = "lowercase")]
 pub enum EvaluationStatus {
   Pending,
   Running,
   Completed,
   Failed,
+}
+
+/// Jobset scheduling state (Hydra-compatible).
+///
+/// - `Disabled`: Jobset will not be evaluated
+/// - `Enabled`: Normal operation, evaluated according to `check_interval`
+/// - `OneShot`: Evaluated once, then automatically set to Disabled
+/// - `OneAtATime`: Only one build can run at a time for this jobset
+#[derive(
+  Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, Default,
+)]
+#[sqlx(type_name = "text", rename_all = "snake_case")]
+pub enum JobsetState {
+  Disabled,
+  #[default]
+  Enabled,
+  OneShot,
+  OneAtATime,
+}
+
+impl JobsetState {
+  /// Returns true if this jobset state allows evaluation.
+  #[must_use] 
+  pub const fn is_evaluable(&self) -> bool {
+    matches!(self, Self::Enabled | Self::OneShot | Self::OneAtATime)
+  }
+
+  /// Returns the database string representation of this state.
+  #[must_use] 
+  pub const fn as_str(&self) -> &'static str {
+    match self {
+      Self::Disabled => "disabled",
+      Self::Enabled => "enabled",
+      Self::OneShot => "one_shot",
+      Self::OneAtATime => "one_at_a_time",
+    }
+  }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -80,7 +119,7 @@ pub struct Build {
   pub signed:                     bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, PartialEq, Eq)]
 #[sqlx(type_name = "text", rename_all = "lowercase")]
 pub enum BuildStatus {
   Pending,
@@ -138,11 +177,13 @@ pub struct ActiveJobset {
   pub scheduling_shares: i32,
   pub created_at:        DateTime<Utc>,
   pub updated_at:        DateTime<Utc>,
+  pub state:             JobsetState,
+  pub last_checked_at:   Option<DateTime<Utc>>,
   pub project_name:      String,
   pub repository_url:    String,
 }
 
-/// Build statistics from the build_stats view.
+/// Build statistics from the `build_stats` view.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, Default)]
 pub struct BuildStats {
   pub total_builds:         Option<i64>,
@@ -248,7 +289,7 @@ pub struct User {
   pub last_login_at:    Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "text", rename_all = "lowercase")]
 pub enum UserType {
   Local,
@@ -297,10 +338,12 @@ pub struct PaginationParams {
 }
 
 impl PaginationParams {
+  #[must_use] 
   pub fn limit(&self) -> i64 {
     self.limit.unwrap_or(50).clamp(1, 200)
   }
 
+  #[must_use] 
   pub fn offset(&self) -> i64 {
     self.offset.unwrap_or(0).max(0)
   }
@@ -349,6 +392,7 @@ pub struct CreateJobset {
   pub check_interval:    Option<i32>,
   pub branch:            Option<String>,
   pub scheduling_shares: Option<i32>,
+  pub state:             Option<JobsetState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -360,6 +404,7 @@ pub struct UpdateJobset {
   pub check_interval:    Option<i32>,
   pub branch:            Option<String>,
   pub scheduling_shares: Option<i32>,
+  pub state:             Option<JobsetState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

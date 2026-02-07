@@ -3,19 +3,26 @@ use uuid::Uuid;
 
 use crate::{
   error::{CiError, Result},
-  models::{ActiveJobset, CreateJobset, Jobset, UpdateJobset},
+  models::{ActiveJobset, CreateJobset, Jobset, JobsetState, UpdateJobset},
 };
 
 pub async fn create(pool: &PgPool, input: CreateJobset) -> Result<Jobset> {
-  let enabled = input.enabled.unwrap_or(true);
+  let state = input.state.unwrap_or(JobsetState::Enabled);
+  // Sync enabled with state if state was explicitly set, otherwise use
+  // input.enabled
+  let enabled = if input.state.is_some() {
+    state.is_evaluable()
+  } else {
+    input.enabled.unwrap_or_else(|| state.is_evaluable())
+  };
   let flake_mode = input.flake_mode.unwrap_or(true);
   let check_interval = input.check_interval.unwrap_or(60);
   let scheduling_shares = input.scheduling_shares.unwrap_or(100);
 
   sqlx::query_as::<_, Jobset>(
     "INSERT INTO jobsets (project_id, name, nix_expression, enabled, \
-     flake_mode, check_interval, branch, scheduling_shares) VALUES ($1, $2, \
-     $3, $4, $5, $6, $7, $8) RETURNING *",
+     flake_mode, check_interval, branch, scheduling_shares, state) VALUES \
+     ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
   )
   .bind(input.project_id)
   .bind(&input.name)
@@ -25,6 +32,7 @@ pub async fn create(pool: &PgPool, input: CreateJobset) -> Result<Jobset> {
   .bind(check_interval)
   .bind(&input.branch)
   .bind(scheduling_shares)
+  .bind(state.as_str())
   .fetch_one(pool)
   .await
   .map_err(|e| {
@@ -85,7 +93,13 @@ pub async fn update(
 
   let name = input.name.unwrap_or(existing.name);
   let nix_expression = input.nix_expression.unwrap_or(existing.nix_expression);
-  let enabled = input.enabled.unwrap_or(existing.enabled);
+  let state = input.state.unwrap_or(existing.state);
+  // Sync enabled with state if state was explicitly set
+  let enabled = if input.state.is_some() {
+    state.is_evaluable()
+  } else {
+    input.enabled.unwrap_or(existing.enabled)
+  };
   let flake_mode = input.flake_mode.unwrap_or(existing.flake_mode);
   let check_interval = input.check_interval.unwrap_or(existing.check_interval);
   let branch = input.branch.or(existing.branch);
@@ -96,7 +110,7 @@ pub async fn update(
   sqlx::query_as::<_, Jobset>(
     "UPDATE jobsets SET name = $1, nix_expression = $2, enabled = $3, \
      flake_mode = $4, check_interval = $5, branch = $6, scheduling_shares = \
-     $7 WHERE id = $8 RETURNING *",
+     $7, state = $8 WHERE id = $9 RETURNING *",
   )
   .bind(&name)
   .bind(&nix_expression)
@@ -105,6 +119,7 @@ pub async fn update(
   .bind(check_interval)
   .bind(&branch)
   .bind(scheduling_shares)
+  .bind(state.as_str())
   .bind(id)
   .fetch_one(pool)
   .await
@@ -134,19 +149,26 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
 }
 
 pub async fn upsert(pool: &PgPool, input: CreateJobset) -> Result<Jobset> {
-  let enabled = input.enabled.unwrap_or(true);
+  let state = input.state.unwrap_or(JobsetState::Enabled);
+  // Sync enabled with state if state was explicitly set, otherwise use
+  // input.enabled
+  let enabled = if input.state.is_some() {
+    state.is_evaluable()
+  } else {
+    input.enabled.unwrap_or_else(|| state.is_evaluable())
+  };
   let flake_mode = input.flake_mode.unwrap_or(true);
   let check_interval = input.check_interval.unwrap_or(60);
   let scheduling_shares = input.scheduling_shares.unwrap_or(100);
 
   sqlx::query_as::<_, Jobset>(
     "INSERT INTO jobsets (project_id, name, nix_expression, enabled, \
-     flake_mode, check_interval, branch, scheduling_shares) VALUES ($1, $2, \
-     $3, $4, $5, $6, $7, $8) ON CONFLICT (project_id, name) DO UPDATE SET \
-     nix_expression = EXCLUDED.nix_expression, enabled = EXCLUDED.enabled, \
-     flake_mode = EXCLUDED.flake_mode, check_interval = \
+     flake_mode, check_interval, branch, scheduling_shares, state) VALUES \
+     ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (project_id, name) DO \
+     UPDATE SET nix_expression = EXCLUDED.nix_expression, enabled = \
+     EXCLUDED.enabled, flake_mode = EXCLUDED.flake_mode, check_interval = \
      EXCLUDED.check_interval, branch = EXCLUDED.branch, scheduling_shares = \
-     EXCLUDED.scheduling_shares RETURNING *",
+     EXCLUDED.scheduling_shares, state = EXCLUDED.state RETURNING *",
   )
   .bind(input.project_id)
   .bind(&input.name)
@@ -156,6 +178,7 @@ pub async fn upsert(pool: &PgPool, input: CreateJobset) -> Result<Jobset> {
   .bind(check_interval)
   .bind(&input.branch)
   .bind(scheduling_shares)
+  .bind(state.as_str())
   .fetch_one(pool)
   .await
   .map_err(CiError::Database)
@@ -166,4 +189,61 @@ pub async fn list_active(pool: &PgPool) -> Result<Vec<ActiveJobset>> {
     .fetch_all(pool)
     .await
     .map_err(CiError::Database)
+}
+
+/// Mark a one-shot jobset as complete (set state to disabled).
+pub async fn mark_one_shot_complete(pool: &PgPool, id: Uuid) -> Result<()> {
+  sqlx::query(
+    "UPDATE jobsets SET state = 'disabled', enabled = false WHERE id = $1 AND \
+     state = 'one_shot'",
+  )
+  .bind(id)
+  .execute(pool)
+  .await
+  .map_err(CiError::Database)?;
+  Ok(())
+}
+
+/// Update the `last_checked_at` timestamp for a jobset.
+pub async fn update_last_checked(pool: &PgPool, id: Uuid) -> Result<()> {
+  sqlx::query("UPDATE jobsets SET last_checked_at = NOW() WHERE id = $1")
+    .bind(id)
+    .execute(pool)
+    .await
+    .map_err(CiError::Database)?;
+  Ok(())
+}
+
+/// Check if a jobset has any running builds.
+pub async fn has_running_builds(
+  pool: &PgPool,
+  jobset_id: Uuid,
+) -> Result<bool> {
+  let (count,): (i64,) = sqlx::query_as(
+    "SELECT COUNT(*) FROM builds b JOIN evaluations e ON b.evaluation_id = \
+     e.id WHERE e.jobset_id = $1 AND b.status = 'running'",
+  )
+  .bind(jobset_id)
+  .fetch_one(pool)
+  .await
+  .map_err(CiError::Database)?;
+  Ok(count > 0)
+}
+
+/// List jobsets that are due for evaluation based on their `check_interval`.
+/// Returns jobsets where `last_checked_at` is NULL or older than `check_interval`
+/// seconds.
+pub async fn list_due_for_eval(
+  pool: &PgPool,
+  limit: i64,
+) -> Result<Vec<ActiveJobset>> {
+  sqlx::query_as::<_, ActiveJobset>(
+    "SELECT * FROM active_jobsets WHERE last_checked_at IS NULL OR \
+     last_checked_at < NOW() - (check_interval || ' seconds')::interval ORDER \
+     BY last_checked_at NULLS FIRST LIMIT $1",
+  )
+  .bind(limit)
+  .fetch_all(pool)
+  .await
+  .map_err(CiError::Database)
 }
