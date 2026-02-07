@@ -52,7 +52,7 @@ pub async fn get(pool: &PgPool, id: Uuid) -> Result<ProjectMember> {
   .map_err(|e| {
     match e {
       sqlx::Error::RowNotFound => {
-        CiError::NotFound(format!("Project member {} not found", id))
+        CiError::NotFound(format!("Project member {id} not found"))
       },
       _ => CiError::Database(e),
     }
@@ -123,7 +123,7 @@ pub async fn update(
     .map_err(|e| {
       match e {
         sqlx::Error::RowNotFound => {
-          CiError::NotFound(format!("Project member {} not found", id))
+          CiError::NotFound(format!("Project member {id} not found"))
         },
         _ => CiError::Database(e),
       }
@@ -141,8 +141,7 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
     .await?;
   if result.rows_affected() == 0 {
     return Err(CiError::NotFound(format!(
-      "Project member {} not found",
-      id
+      "Project member {id} not found"
     )));
   }
   Ok(())

@@ -270,8 +270,7 @@ async fn github_callback(
     ""
   };
   let clear_state = format!(
-    "fc_oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0{}",
-    secure_flag
+    "fc_oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0{secure_flag}"
   );
   let session_cookie = format!(
     "fc_user_session={}; HttpOnly; SameSite=Lax; Path=/; Max-Age={}{}",

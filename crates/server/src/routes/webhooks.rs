@@ -403,35 +403,32 @@ async fn handle_gitea_push(
   .map_err(ApiError)?;
 
   // Fall back to the other type if not found
-  let webhook_config = match webhook_config {
-    Some(c) => c,
-    None => {
-      let alt = if forge_type == "gitea" {
-        "forgejo"
-      } else {
-        "gitea"
-      };
-      match repo::webhook_configs::get_by_project_and_forge(
-        &state.pool,
-        project_id,
-        alt,
-      )
-      .await
-      .map_err(ApiError)?
-      {
-        Some(c) => c,
-        None => {
-          return Ok((
-            StatusCode::NOT_FOUND,
-            Json(WebhookResponse {
-              accepted: false,
-              message:  "No Gitea/Forgejo webhook configured for this project"
-                .to_string(),
-            }),
-          ));
-        },
-      }
-    },
+  let webhook_config = if let Some(c) = webhook_config { c } else {
+    let alt = if forge_type == "gitea" {
+      "forgejo"
+    } else {
+      "gitea"
+    };
+    match repo::webhook_configs::get_by_project_and_forge(
+      &state.pool,
+      project_id,
+      alt,
+    )
+    .await
+    .map_err(ApiError)?
+    {
+      Some(c) => c,
+      None => {
+        return Ok((
+          StatusCode::NOT_FOUND,
+          Json(WebhookResponse {
+            accepted: false,
+            message:  "No Gitea/Forgejo webhook configured for this project"
+              .to_string(),
+          }),
+        ));
+      },
+    }
   };
 
   // Verify signature if configured

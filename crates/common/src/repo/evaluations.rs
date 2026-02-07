@@ -58,7 +58,7 @@ pub async fn list_for_jobset(
   .map_err(CiError::Database)
 }
 
-/// List evaluations with optional jobset_id and status filters, with
+/// List evaluations with optional `jobset_id` and status filters, with
 /// pagination.
 pub async fn list_filtered(
   pool: &PgPool,
@@ -145,7 +145,7 @@ pub async fn set_inputs_hash(
   Ok(())
 }
 
-/// Check if an evaluation with the same inputs_hash already exists for this
+/// Check if an evaluation with the same `inputs_hash` already exists for this
 /// jobset.
 pub async fn get_by_inputs_hash(
   pool: &PgPool,

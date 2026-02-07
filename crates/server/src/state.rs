@@ -17,6 +17,7 @@ pub struct SessionData {
 
 impl SessionData {
   /// Check if the session has admin role
+  #[must_use] 
   pub fn is_admin(&self) -> bool {
     if let Some(ref user) = self.user {
       user.role == "admin"
@@ -28,6 +29,7 @@ impl SessionData {
   }
 
   /// Check if the session has a specific role
+  #[must_use] 
   pub fn has_role(&self, role: &str) -> bool {
     if self.is_admin() {
       return true;
@@ -42,6 +44,7 @@ impl SessionData {
   }
 
   /// Get the display name for the session (username or api key name)
+  #[must_use] 
   pub fn display_name(&self) -> String {
     if let Some(ref user) = self.user {
       user.username.clone()
@@ -53,7 +56,8 @@ impl SessionData {
   }
 
   /// Check if this is a user session (not just API key)
-  pub fn is_user_session(&self) -> bool {
+  #[must_use] 
+  pub const fn is_user_session(&self) -> bool {
     self.user.is_some()
   }
 }

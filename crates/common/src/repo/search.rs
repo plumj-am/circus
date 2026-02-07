@@ -9,7 +9,7 @@ use crate::{
 };
 
 /// Search entity types
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchEntity {
   Projects,
   Jobsets,
@@ -18,14 +18,14 @@ pub enum SearchEntity {
 }
 
 /// Sort order for search results
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortOrder {
   Asc,
   Desc,
 }
 
 /// Sort field for builds
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuildSortField {
   CreatedAt,
   JobName,
@@ -34,7 +34,7 @@ pub enum BuildSortField {
 }
 
 /// Sort field for projects
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProjectSortField {
   Name,
   CreatedAt,
@@ -42,7 +42,7 @@ pub enum ProjectSortField {
 }
 
 /// Build status filter
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuildStatusFilter {
   Pending,
   Running,
@@ -492,7 +492,7 @@ pub async fn quick_search(
   query: &str,
   limit: i64,
 ) -> Result<(Vec<Project>, Vec<Build>)> {
-  let pattern = format!("%{}%", query);
+  let pattern = format!("%{query}%");
 
   let projects = sqlx::query_as::<_, Project>(
     "SELECT * FROM projects WHERE name ILIKE $1 OR description ILIKE $1 ORDER \

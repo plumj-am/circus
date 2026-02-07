@@ -179,7 +179,7 @@ pub async fn reset_orphaned(
   Ok(result.rows_affected())
 }
 
-/// List builds with optional evaluation_id, status, system, and job_name
+/// List builds with optional `evaluation_id`, status, system, and `job_name`
 /// filters, with pagination.
 pub async fn list_filtered(
   pool: &PgPool,
@@ -305,7 +305,7 @@ pub async fn mark_signed(pool: &PgPool, id: Uuid) -> Result<()> {
 }
 
 /// Batch-fetch completed builds by derivation paths.
-/// Returns a map from drv_path to Build for deduplication.
+/// Returns a map from `drv_path` to Build for deduplication.
 pub async fn get_completed_by_drv_paths(
   pool: &PgPool,
   drv_paths: &[String],
@@ -330,7 +330,7 @@ pub async fn get_completed_by_drv_paths(
   )
 }
 
-/// Set the builder_id for a build.
+/// Set the `builder_id` for a build.
 pub async fn set_builder(
   pool: &PgPool,
   id: Uuid,

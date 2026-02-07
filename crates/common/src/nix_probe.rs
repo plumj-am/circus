@@ -96,7 +96,7 @@ pub async fn probe_flake(
   };
 
   let output =
-    tokio::time::timeout(std::time::Duration::from_secs(60), async {
+    tokio::time::timeout(std::time::Duration::from_mins(1), async {
       tokio::process::Command::new("nix")
         .args([
           "--extra-experimental-features",
@@ -230,7 +230,7 @@ pub async fn probe_flake(
     description: top
       .get("description")
       .and_then(|v| v.as_str())
-      .map(|s| s.to_string()),
+      .map(std::string::ToString::to_string),
     url:         Some(repo_url.to_string()),
   };
 

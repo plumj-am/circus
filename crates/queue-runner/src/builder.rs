@@ -68,7 +68,7 @@ pub async fn run_nix_build_remote(
       buf
     });
 
-    let live_log_path_owned = live_log_path.map(|p| p.to_path_buf());
+    let live_log_path_owned = live_log_path.map(std::path::Path::to_path_buf);
     let stderr_task = tokio::spawn(async move {
       let mut buf = String::new();
       let steps: Vec<SubStep> = Vec::new();
@@ -146,6 +146,7 @@ pub struct SubStep {
 
 /// Parse a single nix internal JSON log line (`@nix {...}`).
 /// Returns `Some(action, drv_path)` if the line contains a derivation action.
+#[must_use] 
 pub fn parse_nix_log_line(line: &str) -> Option<(&'static str, String)> {
   let json_str = line.strip_prefix("@nix ")?.trim();
   let parsed: serde_json::Value = serde_json::from_str(json_str).ok()?;
@@ -209,7 +210,7 @@ pub async fn run_nix_build(
     });
 
     // Read stderr (logs + internal JSON)
-    let live_log_path_owned = live_log_path.map(|p| p.to_path_buf());
+    let live_log_path_owned = live_log_path.map(std::path::Path::to_path_buf);
     let stderr_task = tokio::spawn(async move {
       let mut buf = String::new();
       let mut steps: Vec<SubStep> = Vec::new();

@@ -160,7 +160,7 @@ pub fn validate_full_name(name: &str) -> Result<(), ValidationError> {
     });
   }
 
-  if name.chars().any(|c| c.is_control()) {
+  if name.chars().any(char::is_control) {
     return Err(ValidationError {
       field:   "full_name".to_string(),
       message: "Full name cannot contain control characters".to_string(),

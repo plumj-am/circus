@@ -77,7 +77,7 @@ pub async fn require_api_key(
     {
       // Check session expiry (24 hours)
       if session.created_at.elapsed()
-        < std::time::Duration::from_secs(24 * 60 * 60)
+        < std::time::Duration::from_hours(24)
       {
         // Insert both user and session data
         if let Some(ref user) = session.user {
@@ -87,11 +87,10 @@ pub async fn require_api_key(
           request.extensions_mut().insert(api_key.clone());
         }
         return Ok(next.run(request).await);
-      } else {
-        // Expired, remove it
-        drop(session);
-        state.sessions.remove(&session_id);
       }
+      // Expired, remove it
+      drop(session);
+      state.sessions.remove(&session_id);
     }
 
     // Try legacy API key session (fc_session cookie)
@@ -100,17 +99,16 @@ pub async fn require_api_key(
     {
       // Check session expiry (24 hours)
       if session.created_at.elapsed()
-        < std::time::Duration::from_secs(24 * 60 * 60)
+        < std::time::Duration::from_hours(24)
       {
         if let Some(ref api_key) = session.api_key {
           request.extensions_mut().insert(api_key.clone());
         }
         return Ok(next.run(request).await);
-      } else {
-        // Expired, remove it
-        drop(session);
-        state.sessions.remove(&session_id);
       }
+      // Expired, remove it
+      drop(session);
+      state.sessions.remove(&session_id);
     }
   }
 
@@ -138,7 +136,7 @@ impl FromRequestParts<AppState> for RequireAdmin {
       && user.role == "admin"
     {
       // Create a synthetic API key for compatibility
-      return Ok(RequireAdmin(ApiKey {
+      return Ok(Self(ApiKey {
         id:           user.id,
         name:         user.username.clone(),
         key_hash:     String::new(),
@@ -157,7 +155,7 @@ impl FromRequestParts<AppState> for RequireAdmin {
       .ok_or(StatusCode::UNAUTHORIZED)?;
 
     if key.role == "admin" {
-      Ok(RequireAdmin(key))
+      Ok(Self(key))
     } else {
       Err(StatusCode::FORBIDDEN)
     }
@@ -216,7 +214,7 @@ pub async fn extract_session(
     .headers()
     .get("cookie")
     .and_then(|v| v.to_str().ok())
-    .map(|s| s.to_string());
+    .map(std::string::ToString::to_string);
 
   if let Some(cookie_header) = cookie_header {
     // Try user session first
@@ -225,7 +223,7 @@ pub async fn extract_session(
     {
       // Check session expiry
       if session.created_at.elapsed()
-        < std::time::Duration::from_secs(24 * 60 * 60)
+        < std::time::Duration::from_hours(24)
       {
         if let Some(ref user) = session.user {
           request.extensions_mut().insert(user.clone());
@@ -245,7 +243,7 @@ pub async fn extract_session(
     {
       // Check session expiry
       if session.created_at.elapsed()
-        < std::time::Duration::from_secs(24 * 60 * 60)
+        < std::time::Duration::from_hours(24)
       {
         if let Some(ref api_key) = session.api_key {
           request.extensions_mut().insert(api_key.clone());

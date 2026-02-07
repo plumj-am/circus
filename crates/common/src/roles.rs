@@ -49,16 +49,19 @@ pub const VALID_PROJECT_ROLES: &[&str] = &[
 ];
 
 /// Check if a global role is valid
+#[must_use] 
 pub fn is_valid_role(role: &str) -> bool {
   VALID_ROLES.contains(&role)
 }
 
 /// Check if a project role is valid
+#[must_use] 
 pub fn is_valid_project_role(role: &str) -> bool {
   VALID_PROJECT_ROLES.contains(&role)
 }
 
 /// Get the highest project role (for permission checks)
+#[must_use] 
 pub fn project_role_level(role: &str) -> i32 {
   match role {
     PROJECT_ROLE_ADMIN => 3,
@@ -70,6 +73,7 @@ pub fn project_role_level(role: &str) -> i32 {
 
 /// Check if user has required project permission
 /// Higher level roles automatically have lower level permissions
+#[must_use] 
 pub fn has_project_permission(user_role: &str, required: &str) -> bool {
   let user_level = project_role_level(user_role);
   let required_level = project_role_level(required);

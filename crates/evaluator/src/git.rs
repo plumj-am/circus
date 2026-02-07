@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use fc_common::error::Result;
 use git2::Repository;
 
-/// Clone or fetch a repository. Returns (repo_path, commit_hash).
+/// Clone or fetch a repository. Returns (`repo_path`, `commit_hash`).
 ///
 /// If `branch` is `Some`, resolve `refs/remotes/origin/<branch>` instead of
 /// HEAD.

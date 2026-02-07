@@ -31,6 +31,7 @@ pub struct WorkerPool {
 
 impl WorkerPool {
   #[allow(clippy::too_many_arguments)]
+  #[must_use] 
   pub fn new(
     db_pool: PgPool,
     workers: usize,
@@ -348,7 +349,7 @@ async fn run_build(
   match result {
     Ok(build_result) => {
       // Complete the build step
-      let exit_code = if build_result.success { 0 } else { 1 };
+      let exit_code = i32::from(!build_result.success);
       repo::build_steps::complete(
         pool,
         step.id,
@@ -366,7 +367,7 @@ async fn run_build(
           command:     format!("nix build {}", sub_step.drv_path),
         })
         .await?;
-        let sub_exit = if sub_step.success { 0 } else { 1 };
+        let sub_exit = i32::from(!sub_step.success);
         repo::build_steps::complete(pool, sub.id, sub_exit, None, None).await?;
       }
 
@@ -476,7 +477,7 @@ async fn run_build(
         }
 
         let primary_output =
-          build_result.output_paths.first().map(|s| s.as_str());
+          build_result.output_paths.first().map(std::string::String::as_str);
 
         repo::builds::complete(
           pool,

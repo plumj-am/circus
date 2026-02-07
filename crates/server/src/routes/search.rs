@@ -130,8 +130,8 @@ struct SearchRequest {
   eval_before: Option<DateTime<Utc>>,
 
   // Sorting
-  /// Sort builds by: created_at, job_name, status, priority (default:
-  /// created_at)
+  /// Sort builds by: `created_at`, `job_name`, status, priority (default:
+  /// `created_at`)
   #[serde(rename = "build_sort")]
   build_sort: Option<String>,
 
@@ -139,12 +139,12 @@ struct SearchRequest {
   #[serde(rename = "order")]
   order: Option<String>,
 
-  /// Sort projects by: name, created_at (default: name)
+  /// Sort projects by: name, `created_at` (default: name)
   #[serde(rename = "project_sort")]
   project_sort: Option<String>,
 }
 
-fn default_limit() -> i64 {
+const fn default_limit() -> i64 {
   20
 }
 

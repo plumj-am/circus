@@ -93,12 +93,9 @@ async fn stream_build_log(
           if active_path.exists() { active_path.clone() } else { final_path.clone() }
       };
 
-      let file = match tokio::fs::File::open(&path).await {
-          Ok(f) => f,
-          Err(_) => {
-              yield Ok(Event::default().data("Failed to open log file"));
-              return;
-          }
+      let file = if let Ok(f) = tokio::fs::File::open(&path).await { f } else {
+          yield Ok(Event::default().data("Failed to open log file"));
+          return;
       };
 
       let mut reader = BufReader::new(file);

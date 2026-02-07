@@ -43,7 +43,7 @@ pub async fn get(pool: &PgPool, id: Uuid) -> Result<StarredJob> {
     .map_err(|e| {
       match e {
         sqlx::Error::RowNotFound => {
-          CiError::NotFound(format!("Starred job {} not found", id))
+          CiError::NotFound(format!("Starred job {id} not found"))
         },
         _ => CiError::Database(e),
       }
@@ -107,7 +107,7 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
     .execute(pool)
     .await?;
   if result.rows_affected() == 0 {
-    return Err(CiError::NotFound(format!("Starred job {} not found", id)));
+    return Err(CiError::NotFound(format!("Starred job {id} not found")));
   }
   Ok(())
 }

@@ -51,6 +51,7 @@ pub enum CiError {
 }
 
 impl CiError {
+  #[must_use] 
   pub fn is_disk_full(&self) -> bool {
     let msg = self.to_string().to_lowercase();
     msg.contains("no space left on device")
@@ -78,7 +79,7 @@ pub fn check_disk_space(path: &std::path::Path) -> Result<DiskSpaceInfo> {
     })?;
     let mut statfs: libc::statfs = unsafe { std::mem::zeroed() };
 
-    if unsafe { libc::statfs(cpath.as_ptr(), &mut statfs) } != 0 {
+    if unsafe { libc::statfs(cpath.as_ptr(), &raw mut statfs) } != 0 {
       return Err(CiError::Io(std::io::Error::last_os_error()));
     }
 
@@ -185,16 +186,19 @@ pub struct DiskSpaceInfo {
 
 impl DiskSpaceInfo {
   /// Check if disk space is critically low (less than 1GB available)
+  #[must_use] 
   pub fn is_critical(&self) -> bool {
     self.available_gb < 1.0
   }
 
   /// Check if disk space is low (less than 5GB available)
+  #[must_use] 
   pub fn is_low(&self) -> bool {
     self.available_gb < 5.0
   }
 
   /// Get a human-readable summary
+  #[must_use] 
   pub fn summary(&self) -> String {
     format!(
       "Total: {:.1}GB, Free: {:.1}GB ({:.1}%), Available: {:.1}GB",

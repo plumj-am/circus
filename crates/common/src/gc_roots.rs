@@ -8,7 +8,7 @@ use std::{
 
 use tracing::{info, warn};
 
-/// Remove GC root symlinks with mtime older than max_age. Returns count
+/// Remove GC root symlinks with mtime older than `max_age`. Returns count
 /// removed.
 pub fn cleanup_old_roots(
   roots_dir: &Path,

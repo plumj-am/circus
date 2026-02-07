@@ -72,11 +72,11 @@ async fn run_command_notification(cmd: &str, build: &Build, project: &Project) {
 
   match result {
     Ok(output) => {
-      if !output.status.success() {
+      if output.status.success() {
+        info!(build_id = %build.id, "RunCommand completed successfully");
+      } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         warn!(build_id = %build.id, "RunCommand failed: {stderr}");
-      } else {
-        info!(build_id = %build.id, "RunCommand completed successfully");
       }
     },
     Err(e) => error!(build_id = %build.id, "RunCommand execution failed: {e}"),
@@ -90,12 +90,9 @@ async fn set_github_status(
   build: &Build,
 ) {
   // Parse owner/repo from URL
-  let (owner, repo) = match parse_github_repo(repo_url) {
-    Some(v) => v,
-    None => {
-      warn!("Cannot parse GitHub owner/repo from {repo_url}");
-      return;
-    },
+  let (owner, repo) = if let Some(v) = parse_github_repo(repo_url) { v } else {
+    warn!("Cannot parse GitHub owner/repo from {repo_url}");
+    return;
   };
 
   let (state, description) = match build.status {
@@ -125,12 +122,12 @@ async fn set_github_status(
     .await
   {
     Ok(resp) => {
-      if !resp.status().is_success() {
+      if resp.status().is_success() {
+        info!(build_id = %build.id, "Set GitHub commit status: {state}");
+      } else {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         warn!("GitHub status API returned {status}: {text}");
-      } else {
-        info!(build_id = %build.id, "Set GitHub commit status: {state}");
       }
     },
     Err(e) => error!("GitHub status API request failed: {e}"),
@@ -145,12 +142,9 @@ async fn set_gitea_status(
   build: &Build,
 ) {
   // Parse owner/repo from URL (try to extract from the gitea URL)
-  let (owner, repo) = match parse_gitea_repo(repo_url, base_url) {
-    Some(v) => v,
-    None => {
-      warn!("Cannot parse Gitea owner/repo from {repo_url}");
-      return;
-    },
+  let (owner, repo) = if let Some(v) = parse_gitea_repo(repo_url, base_url) { v } else {
+    warn!("Cannot parse Gitea owner/repo from {repo_url}");
+    return;
   };
 
   let (state, description) = match build.status {
@@ -177,12 +171,12 @@ async fn set_gitea_status(
     .await
   {
     Ok(resp) => {
-      if !resp.status().is_success() {
+      if resp.status().is_success() {
+        info!(build_id = %build.id, "Set Gitea commit status: {state}");
+      } else {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         warn!("Gitea status API returned {status}: {text}");
-      } else {
-        info!(build_id = %build.id, "Set Gitea commit status: {state}");
       }
     },
     Err(e) => error!("Gitea status API request failed: {e}"),
@@ -197,12 +191,9 @@ async fn set_gitlab_status(
   build: &Build,
 ) {
   // Parse project path from URL
-  let project_path = match parse_gitlab_project(repo_url, base_url) {
-    Some(p) => p,
-    None => {
-      warn!("Cannot parse GitLab project from {repo_url}");
-      return;
-    },
+  let project_path = if let Some(p) = parse_gitlab_project(repo_url, base_url) { p } else {
+    warn!("Cannot parse GitLab project from {repo_url}");
+    return;
   };
 
   // GitLab uses different state names
@@ -238,12 +229,12 @@ async fn set_gitlab_status(
     .await
   {
     Ok(resp) => {
-      if !resp.status().is_success() {
+      if resp.status().is_success() {
+        info!(build_id = %build.id, "Set GitLab commit status: {state}");
+      } else {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         warn!("GitLab status API returned {status}: {text}");
-      } else {
-        info!(build_id = %build.id, "Set GitLab commit status: {state}");
       }
     },
     Err(e) => error!("GitLab status API request failed: {e}"),

@@ -186,7 +186,9 @@ async fn compare_evaluations(
   // Jobs in both: compare derivation paths
   for (name, from_build) in &from_map {
     if let Some(to_build) = to_map.get(name) {
-      if from_build.drv_path != to_build.drv_path {
+      if from_build.drv_path == to_build.drv_path {
+        unchanged_count += 1;
+      } else {
         changed_jobs.push(JobChange {
           job_name:   name.to_string(),
           system:     to_build.system.clone(),
@@ -195,8 +197,6 @@ async fn compare_evaluations(
           old_status: format!("{:?}", from_build.status),
           new_status: format!("{:?}", to_build.status),
         });
-      } else {
-        unchanged_count += 1;
       }
     }
   }

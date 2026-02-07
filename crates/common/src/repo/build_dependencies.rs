@@ -45,7 +45,7 @@ pub async fn list_for_build(
 }
 
 /// Batch check if all dependency builds are completed for multiple builds at
-/// once. Returns a map from build_id to whether all deps are completed.
+/// once. Returns a map from `build_id` to whether all deps are completed.
 pub async fn check_deps_for_builds(
   pool: &PgPool,
   build_ids: &[Uuid],

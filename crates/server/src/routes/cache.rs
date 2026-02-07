@@ -10,7 +10,7 @@ use tokio::process::Command;
 
 use crate::{error::ApiError, state::AppState};
 
-/// Serve NARInfo for a store path hash.
+/// Serve `NARInfo` for a store path hash.
 /// GET /nix-cache/{hash}.narinfo
 async fn narinfo(
   State(state): State<AppState>,
@@ -68,7 +68,7 @@ async fn narinfo(
   };
 
   let nar_hash = entry.get("narHash").and_then(|v| v.as_str()).unwrap_or("");
-  let nar_size = entry.get("narSize").and_then(|v| v.as_u64()).unwrap_or(0);
+  let nar_size = entry.get("narSize").and_then(serde_json::Value::as_u64).unwrap_or(0);
   let store_path = entry
     .get("path")
     .and_then(|v| v.as_str())

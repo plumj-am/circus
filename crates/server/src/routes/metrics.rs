@@ -130,7 +130,7 @@ async fn prometheus_metrics(State(state): State<AppState>) -> Response {
   output
     .push_str("\n# HELP fc_evaluations_total Total number of evaluations\n");
   output.push_str("# TYPE fc_evaluations_total gauge\n");
-  output.push_str(&format!("fc_evaluations_total {}\n", eval_count));
+  output.push_str(&format!("fc_evaluations_total {eval_count}\n"));
 
   output.push_str("\n# HELP fc_evaluations_by_status Evaluations by status\n");
   output.push_str("# TYPE fc_evaluations_by_status gauge\n");

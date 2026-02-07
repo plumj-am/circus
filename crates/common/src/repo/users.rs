@@ -29,7 +29,7 @@ pub fn hash_password(password: &str) -> Result<String> {
   argon2
     .hash_password(password.as_bytes(), &salt)
     .map(|h| h.to_string())
-    .map_err(|e| CiError::Internal(format!("Password hashing failed: {}", e)))
+    .map_err(|e| CiError::Internal(format!("Password hashing failed: {e}")))
 }
 
 /// Verify a password against a hash
@@ -37,7 +37,7 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool> {
   use argon2::{Argon2, PasswordHash, PasswordVerifier};
 
   let parsed_hash = PasswordHash::new(hash)
-    .map_err(|e| CiError::Internal(format!("Invalid password hash: {}", e)))?;
+    .map_err(|e| CiError::Internal(format!("Invalid password hash: {e}")))?;
   let argon2 = Argon2::default();
   Ok(
     argon2
@@ -134,7 +134,7 @@ pub async fn get(pool: &PgPool, id: Uuid) -> Result<User> {
     .map_err(|e| {
       match e {
         sqlx::Error::RowNotFound => {
-          CiError::NotFound(format!("User {} not found", id))
+          CiError::NotFound(format!("User {id} not found"))
         },
         _ => CiError::Database(e),
       }
@@ -321,7 +321,7 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
     .execute(pool)
     .await?;
   if result.rows_affected() == 0 {
-    return Err(CiError::NotFound(format!("User {} not found", id)));
+    return Err(CiError::NotFound(format!("User {id} not found")));
   }
   Ok(())
 }
@@ -335,7 +335,7 @@ pub async fn upsert_oauth_user(
   oauth_provider_id: &str,
 ) -> Result<User> {
   // Use provider ID in username to avoid collisions
-  let unique_username = format!("{}_{}", username, oauth_provider_id);
+  let unique_username = format!("{username}_{oauth_provider_id}");
 
   // Check if user exists by OAuth provider ID pattern
   let existing =
@@ -381,7 +381,7 @@ pub async fn upsert_oauth_user(
      VALUES ($1, $2, $3, NULL, 'read-only') RETURNING *",
   )
   .bind(&unique_username)
-  .bind(email.unwrap_or(&format!("{}@oauth.local", unique_username)))
+  .bind(email.unwrap_or(&format!("{unique_username}@oauth.local")))
   .bind(user_type_str)
   .fetch_one(pool)
   .await
@@ -395,7 +395,7 @@ pub async fn upsert_oauth_user(
   })
 }
 
-/// Create a new session for a user. Returns (session_token, session_id).
+/// Create a new session for a user. Returns (`session_token`, `session_id`).
 pub async fn create_session(
   pool: &PgPool,
   user_id: Uuid,

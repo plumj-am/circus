@@ -72,8 +72,8 @@ pub fn parse_eval_output(stdout: &str) -> EvalResult {
 }
 
 /// Evaluate nix expressions and return discovered jobs.
-/// If flake_mode is true, uses nix-eval-jobs with --flake flag.
-/// If flake_mode is false, evaluates a legacy expression file.
+/// If `flake_mode` is true, uses nix-eval-jobs with --flake flag.
+/// If `flake_mode` is false, evaluates a legacy expression file.
 #[tracing::instrument(skip(config, inputs), fields(flake_mode, nix_expression))]
 pub async fn evaluate(
   repo_path: &Path,
@@ -286,7 +286,7 @@ async fn evaluate_with_nix_eval(
           let system = drv_val
             .get("system")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+            .map(std::string::ToString::to_string);
           jobs.push(NixJob {
             name: name.clone(),
             drv_path: drv_path.clone(),
