@@ -57,9 +57,10 @@ async fn main() -> anyhow::Result<()> {
   fc_common::bootstrap::run(db.pool(), &config.declarative).await?;
 
   let state = AppState {
-    pool:     db.pool().clone(),
-    config:   config.clone(),
-    sessions: std::sync::Arc::new(dashmap::DashMap::new()),
+    pool:        db.pool().clone(),
+    config:      config.clone(),
+    sessions:    std::sync::Arc::new(dashmap::DashMap::new()),
+    http_client: reqwest::Client::new(),
   };
 
   let app = routes::router(state, &config.server);

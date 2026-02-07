@@ -3,7 +3,7 @@ use axum::{
   Router,
   extract::{Path, Query, State},
   http::Extensions,
-  routing::{get, post},
+  routing::{delete, get, post},
 };
 use fc_common::{
   CreateJobset,
@@ -14,6 +14,8 @@ use fc_common::{
   Project,
   UpdateProject,
   Validate,
+  WebhookConfig,
+  models::CreateWebhookConfig,
   nix_probe,
 };
 use serde::Deserialize;
@@ -254,6 +256,99 @@ async fn setup_project(
   Ok(Json(SetupProjectResponse { project, jobsets }))
 }
 
+// Webhook configuration routes
+
+#[derive(Debug, Deserialize)]
+struct CreateWebhookBody {
+  forge_type: String,
+  secret:     Option<String>,
+}
+
+async fn list_project_webhooks(
+  State(state): State<AppState>,
+  Path(id): Path<Uuid>,
+) -> Result<Json<Vec<WebhookConfig>>, ApiError> {
+  let configs =
+    fc_common::repo::webhook_configs::list_for_project(&state.pool, id)
+      .await
+      .map_err(ApiError)?;
+  Ok(Json(configs))
+}
+
+async fn create_project_webhook(
+  extensions: Extensions,
+  State(state): State<AppState>,
+  Path(project_id): Path<Uuid>,
+  Json(body): Json<CreateWebhookBody>,
+) -> Result<Json<WebhookConfig>, ApiError> {
+  RequireRoles::check(&extensions, &["create-projects"]).map_err(|s| {
+    ApiError(if s == axum::http::StatusCode::FORBIDDEN {
+      fc_common::CiError::Forbidden("Insufficient permissions".to_string())
+    } else {
+      fc_common::CiError::Unauthorized("Authentication required".to_string())
+    })
+  })?;
+
+  // Validate forge type
+  let valid_forges = ["github", "gitlab", "gitea", "forgejo"];
+  if !valid_forges.contains(&body.forge_type.as_str()) {
+    return Err(ApiError(fc_common::CiError::Validation(format!(
+      "Invalid forge_type '{}'. Must be one of: {}",
+      body.forge_type,
+      valid_forges.join(", ")
+    ))));
+  }
+
+  let input = CreateWebhookConfig {
+    project_id,
+    forge_type: body.forge_type,
+    secret: body.secret.clone(),
+  };
+
+  // For webhook configs, we store the secret directly (used for token
+  // comparison) GitHub/Gitea use HMAC verification, GitLab uses direct token
+  // comparison
+  let config = fc_common::repo::webhook_configs::create(
+    &state.pool,
+    input,
+    body.secret.as_deref(),
+  )
+  .await
+  .map_err(ApiError)?;
+
+  Ok(Json(config))
+}
+
+#[derive(Deserialize)]
+struct WebhookPathParams {
+  id:         Uuid,
+  webhook_id: Uuid,
+}
+
+async fn delete_project_webhook(
+  _auth: RequireAdmin,
+  State(state): State<AppState>,
+  Path(params): Path<WebhookPathParams>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+  // Verify the webhook belongs to the project
+  let config =
+    fc_common::repo::webhook_configs::get(&state.pool, params.webhook_id)
+      .await
+      .map_err(ApiError)?;
+
+  if config.project_id != params.id {
+    return Err(ApiError(fc_common::CiError::NotFound(
+      "Webhook not found for this project".to_string(),
+    )));
+  }
+
+  fc_common::repo::webhook_configs::delete(&state.pool, params.webhook_id)
+    .await
+    .map_err(ApiError)?;
+
+  Ok(Json(serde_json::json!({ "deleted": true })))
+}
+
 pub fn router() -> Router<AppState> {
   Router::new()
     .route("/projects", get(list_projects).post(create_project))
@@ -266,5 +361,13 @@ pub fn router() -> Router<AppState> {
     .route(
       "/projects/{id}/jobsets",
       get(list_project_jobsets).post(create_project_jobset),
+    )
+    .route(
+      "/projects/{id}/webhooks",
+      get(list_project_webhooks).post(create_project_webhook),
+    )
+    .route(
+      "/projects/{id}/webhooks/{webhook_id}",
+      delete(delete_project_webhook),
     )
 }
