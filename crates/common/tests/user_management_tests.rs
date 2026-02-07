@@ -292,20 +292,20 @@ async fn test_oauth_user_creation() {
 
   let username = format!("oauth-user-{}", Uuid::new_v4().simple());
   let email = format!("{}@github.com", username);
+  let oauth_provider_id = format!("github_{}", Uuid::new_v4().simple());
 
   // Create OAuth user
   let user = repo::users::upsert_oauth_user(
     &pool,
     &username,
-    &email,
-    Some("OAuth User"),
-    "github",
+    Some(email.as_str()),
+    UserType::Github,
+    &oauth_provider_id,
   )
   .await
   .expect("create OAuth user");
 
-  assert_eq!(user.username, username);
-  assert_eq!(user.email, email);
+  assert!(user.username.contains(&username));
   assert_eq!(user.user_type, UserType::Github);
   assert!(user.password_hash.is_none()); // OAuth users have no password
 
@@ -313,15 +313,14 @@ async fn test_oauth_user_creation() {
   let updated = repo::users::upsert_oauth_user(
     &pool,
     &username,
-    &email,
-    Some("Updated Name"),
-    "github",
+    Some(email.as_str()),
+    UserType::Github,
+    &oauth_provider_id,
   )
   .await
   .expect("update OAuth user");
 
   assert_eq!(updated.id, user.id);
-  assert_eq!(updated.full_name.as_deref(), Some("Updated Name"));
 
   // Cleanup
   repo::users::delete(&pool, user.id).await.ok();

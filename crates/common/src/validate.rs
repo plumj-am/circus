@@ -500,8 +500,12 @@ mod tests {
   #[test]
   fn test_create_evaluation_valid() {
     let e = CreateEvaluation {
-      jobset_id:   Uuid::new_v4(),
-      commit_hash: "abc123".to_string(),
+      jobset_id:      Uuid::new_v4(),
+      commit_hash:    "abc123".to_string(),
+      pr_number:      None,
+      pr_head_branch: None,
+      pr_base_branch: None,
+      pr_action:      None,
     };
     assert!(e.validate().is_ok());
   }
@@ -509,8 +513,12 @@ mod tests {
   #[test]
   fn test_create_evaluation_invalid_hash() {
     let e = CreateEvaluation {
-      jobset_id:   Uuid::new_v4(),
-      commit_hash: "not-hex!".to_string(),
+      jobset_id:      Uuid::new_v4(),
+      commit_hash:    "not-hex!".to_string(),
+      pr_number:      None,
+      pr_head_branch: None,
+      pr_base_branch: None,
+      pr_action:      None,
     };
     assert!(e.validate().is_err());
   }
