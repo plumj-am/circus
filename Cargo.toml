@@ -47,7 +47,7 @@ libc = "0.2.180"
 nix-nar = "0.3.1"
 oauth2 = "5.0.0"
 regex = "1.12.3"
-reqwest = { version = "0.12.28", default-features = false, features = [ "json", "rustls-tls" ] }
+reqwest = { version = "0.13.2", default-features = false, features = [ "json", "rustls" ] }
 serde = { version = "1.0.228", features = [ "derive" ] }
 serde_json = "1.0.149"
 sha2 = "0.10.9"
