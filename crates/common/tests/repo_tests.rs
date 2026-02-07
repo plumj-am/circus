@@ -62,6 +62,10 @@ async fn create_test_eval(
   repo::evaluations::create(pool, CreateEvaluation {
     jobset_id,
     commit_hash: format!("abc123{}", uuid::Uuid::new_v4().simple()),
+    pr_number: None,
+    pr_head_branch: None,
+    pr_base_branch: None,
+    pr_action: None,
   })
   .await
   .expect("create evaluation")
@@ -243,8 +247,12 @@ async fn test_evaluation_and_build_lifecycle() {
 
   // Create evaluation
   let eval = repo::evaluations::create(&pool, CreateEvaluation {
-    jobset_id:   jobset.id,
-    commit_hash: "abc123def456".to_string(),
+    jobset_id:      jobset.id,
+    commit_hash:    "abc123def456".to_string(),
+    pr_number:      None,
+    pr_head_branch: None,
+    pr_base_branch: None,
+    pr_action:      None,
   })
   .await
   .expect("create evaluation");
@@ -515,8 +523,8 @@ async fn test_batch_check_deps_for_builds() {
   .await
   .expect("batch check deps");
 
-  assert_eq!(results[&main_build.id], false); // dep not completed
-  assert_eq!(results[&standalone.id], true); // no deps
+  assert!(!results[&main_build.id]); // dep not completed
+  assert!(results[&standalone.id]); // no deps
 
   // Now complete the dep
   repo::builds::start(&pool, dep_build.id).await.unwrap();
@@ -539,8 +547,8 @@ async fn test_batch_check_deps_for_builds() {
   .await
   .expect("batch check deps after complete");
 
-  assert_eq!(results[&main_build.id], true); // dep now completed
-  assert_eq!(results[&standalone.id], true);
+  assert!(results[&main_build.id]); // dep now completed
+  assert!(results[&standalone.id]);
 
   // Empty input
   let empty = repo::build_dependencies::check_deps_for_builds(&pool, &[])
@@ -758,7 +766,7 @@ async fn test_build_cancel_cascade() {
     .await
     .expect("cancel cascade");
 
-  assert!(cancelled.len() >= 1);
+  assert!(!cancelled.is_empty());
 
   // Both should be cancelled
   let parent = repo::builds::get(&pool, parent.id).await.unwrap();
@@ -806,9 +814,10 @@ async fn test_dedup_by_drv_path() {
   assert_eq!(existing.unwrap().id, build.id);
 
   // Check batch dedup
-  let batch = repo::builds::get_completed_by_drv_paths(&pool, &[drv.clone()])
-    .await
-    .expect("batch dedup");
+  let batch =
+    repo::builds::get_completed_by_drv_paths(&pool, std::slice::from_ref(&drv))
+      .await
+      .expect("batch dedup");
   assert!(batch.contains_key(&drv));
 
   // Cleanup
