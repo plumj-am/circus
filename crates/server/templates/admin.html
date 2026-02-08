@@ -116,16 +116,21 @@
 <div class="table-wrap">
 <table>
   <thead>
-    <tr><th>Name</th><th>SSH URI</th><th>Systems</th><th>Max Jobs</th><th>Enabled</th>{% if is_admin %}<th>Actions</th>{% endif %}</tr>
+    <tr><th>Name</th><th>SSH URI</th><th>Systems</th><th>Load</th><th>Enabled</th>{% if is_admin %}<th>Actions</th>{% endif %}</tr>
   </thead>
   <tbody>
     {% for b in builders %}
     <tr>
       <td>{{ b.name }}</td>
       <td>{{ b.ssh_uri }}</td>
-      <td>{{ b.systems.join(", ") }}</td>
-      <td>{{ b.max_jobs }}</td>
-      <td>{% if b.enabled %}Yes{% else %}No{% endif %}</td>
+      <td>{{ b.systems }}</td>
+      <td>
+        <span class="load-bar" style="--load-percent: {{ b.load_percent }}%">
+          {{ b.current_builds }}/{{ b.max_jobs }}
+        </span>
+        <small>({{ b.load_percent }}%)</small>
+      </td>
+      <td>{% if b.enabled %}<span class="badge badge-completed">Yes</span>{% else %}<span class="badge badge-failed">No</span>{% endif %}</td>
       {% if is_admin %}
       <td>
         <button class="btn btn-small" onclick="toggleBuilder('{{ b.id }}', {{ !b.enabled }})">{% if b.enabled %}Disable{% else %}Enable{% endif %}</button>
