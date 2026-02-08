@@ -15,13 +15,13 @@ impl LogStorage {
   }
 
   /// Returns the filesystem path where a build's log should be stored
-  #[must_use] 
+  #[must_use]
   pub fn log_path(&self, build_id: &Uuid) -> PathBuf {
     self.log_dir.join(format!("{build_id}.log"))
   }
 
   /// Returns the filesystem path for an active (in-progress) build log
-  #[must_use] 
+  #[must_use]
   pub fn log_path_for_active(&self, build_id: &Uuid) -> PathBuf {
     self.log_dir.join(format!("{build_id}.active.log"))
   }

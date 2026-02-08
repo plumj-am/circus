@@ -77,13 +77,13 @@ pub enum JobsetState {
 
 impl JobsetState {
   /// Returns true if this jobset state allows evaluation.
-  #[must_use] 
+  #[must_use]
   pub const fn is_evaluable(&self) -> bool {
     matches!(self, Self::Enabled | Self::OneShot | Self::OneAtATime)
   }
 
   /// Returns the database string representation of this state.
-  #[must_use] 
+  #[must_use]
   pub const fn as_str(&self) -> &'static str {
     match self {
       Self::Disabled => "disabled",
@@ -339,12 +339,12 @@ pub struct PaginationParams {
 }
 
 impl PaginationParams {
-  #[must_use] 
+  #[must_use]
   pub fn limit(&self) -> i64 {
     self.limit.unwrap_or(50).clamp(1, 200)
   }
 
-  #[must_use] 
+  #[must_use]
   pub fn offset(&self) -> i64 {
     self.offset.unwrap_or(0).max(0)
   }

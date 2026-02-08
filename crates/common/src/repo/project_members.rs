@@ -141,9 +141,7 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
     .execute(pool)
     .await?;
   if result.rows_affected() == 0 {
-    return Err(CiError::NotFound(format!(
-      "Project member {id} not found"
-    )));
+    return Err(CiError::NotFound(format!("Project member {id} not found")));
   }
   Ok(())
 }
@@ -199,8 +197,8 @@ pub async fn upsert(
     .map_err(|e| CiError::Validation(e.to_string()))?;
 
   sqlx::query_as::<_, ProjectMember>(
-    "INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3) \
-     ON CONFLICT (project_id, user_id) DO UPDATE SET role = EXCLUDED.role \
+    "INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, \
+     $3) ON CONFLICT (project_id, user_id) DO UPDATE SET role = EXCLUDED.role \
      RETURNING *",
   )
   .bind(project_id)

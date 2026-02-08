@@ -403,7 +403,9 @@ async fn handle_gitea_push(
   .map_err(ApiError)?;
 
   // Fall back to the other type if not found
-  let webhook_config = if let Some(c) = webhook_config { c } else {
+  let webhook_config = if let Some(c) = webhook_config {
+    c
+  } else {
     let alt = if forge_type == "gitea" {
       "forgejo"
     } else {

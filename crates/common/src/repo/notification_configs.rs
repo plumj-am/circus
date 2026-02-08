@@ -70,9 +70,9 @@ pub async fn upsert(
 ) -> Result<NotificationConfig> {
   sqlx::query_as::<_, NotificationConfig>(
     "INSERT INTO notification_configs (project_id, notification_type, config, \
-     enabled) VALUES ($1, $2, $3, $4) ON CONFLICT (project_id, notification_type) \
-     DO UPDATE SET config = EXCLUDED.config, enabled = EXCLUDED.enabled \
-     RETURNING *",
+     enabled) VALUES ($1, $2, $3, $4) ON CONFLICT (project_id, \
+     notification_type) DO UPDATE SET config = EXCLUDED.config, enabled = \
+     EXCLUDED.enabled RETURNING *",
   )
   .bind(project_id)
   .bind(notification_type)

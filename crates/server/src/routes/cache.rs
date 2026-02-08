@@ -68,7 +68,10 @@ async fn narinfo(
   };
 
   let nar_hash = entry.get("narHash").and_then(|v| v.as_str()).unwrap_or("");
-  let nar_size = entry.get("narSize").and_then(serde_json::Value::as_u64).unwrap_or(0);
+  let nar_size = entry
+    .get("narSize")
+    .and_then(serde_json::Value::as_u64)
+    .unwrap_or(0);
   let store_path = entry
     .get("path")
     .and_then(|v| v.as_str())

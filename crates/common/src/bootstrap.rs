@@ -36,7 +36,12 @@ fn expand_path(path: &str) -> String {
     if let Some(end) = result[start..].find('}') {
       let var_name = &result[start + 2..start + end];
       let replacement = std::env::var(var_name).unwrap_or_default();
-      result = format!("{}{}{}", &result[..start], replacement, &result[start + end + 1..]);
+      result = format!(
+        "{}{}{}",
+        &result[..start],
+        replacement,
+        &result[start + end + 1..]
+      );
     } else {
       break;
     }
@@ -112,22 +117,24 @@ pub async fn run(pool: &PgPool, config: &DeclarativeConfig) -> Result<()> {
 
     for decl_jobset in &decl_project.jobsets {
       // Parse state string to JobsetState enum
-      let state = decl_jobset.state.as_ref().map(|s| match s.as_str() {
-        "disabled" => JobsetState::Disabled,
-        "enabled" => JobsetState::Enabled,
-        "one_shot" => JobsetState::OneShot,
-        "one_at_a_time" => JobsetState::OneAtATime,
-        _ => JobsetState::Enabled, // Default to enabled for unknown values
+      let state = decl_jobset.state.as_ref().map(|s| {
+        match s.as_str() {
+          "disabled" => JobsetState::Disabled,
+          "enabled" => JobsetState::Enabled,
+          "one_shot" => JobsetState::OneShot,
+          "one_at_a_time" => JobsetState::OneAtATime,
+          _ => JobsetState::Enabled, // Default to enabled for unknown values
+        }
       });
 
       let jobset = repo::jobsets::upsert(pool, CreateJobset {
-        project_id:        project.id,
-        name:              decl_jobset.name.clone(),
-        nix_expression:    decl_jobset.nix_expression.clone(),
-        enabled:           Some(decl_jobset.enabled),
-        flake_mode:        Some(decl_jobset.flake_mode),
-        check_interval:    Some(decl_jobset.check_interval),
-        branch:            decl_jobset.branch.clone(),
+        project_id: project.id,
+        name: decl_jobset.name.clone(),
+        nix_expression: decl_jobset.nix_expression.clone(),
+        enabled: Some(decl_jobset.enabled),
+        flake_mode: Some(decl_jobset.flake_mode),
+        check_interval: Some(decl_jobset.check_interval),
+        branch: decl_jobset.branch.clone(),
         scheduling_shares: Some(decl_jobset.scheduling_shares),
         state,
       })
@@ -141,8 +148,12 @@ pub async fn run(pool: &PgPool, config: &DeclarativeConfig) -> Result<()> {
 
       // Sync jobset inputs
       if !decl_jobset.inputs.is_empty() {
-        repo::jobset_inputs::sync_for_jobset(pool, jobset.id, &decl_jobset.inputs)
-          .await?;
+        repo::jobset_inputs::sync_for_jobset(
+          pool,
+          jobset.id,
+          &decl_jobset.inputs,
+        )
+        .await?;
         tracing::info!(
             project = %project.name,
             jobset = %jobset.name,
@@ -192,9 +203,12 @@ pub async fn run(pool: &PgPool, config: &DeclarativeConfig) -> Result<()> {
 
     // Sync channels
     if !decl_project.channels.is_empty() {
-      repo::channels::sync_for_project(pool, project.id, &decl_project.channels, |name| {
-        jobset_map.get(name).copied()
-      })
+      repo::channels::sync_for_project(
+        pool,
+        project.id,
+        &decl_project.channels,
+        |name| jobset_map.get(name).copied(),
+      )
       .await?;
       tracing::info!(
           project = %project.name,
@@ -202,7 +216,6 @@ pub async fn run(pool: &PgPool, config: &DeclarativeConfig) -> Result<()> {
           "Synced declarative channels"
       );
     }
-
   }
 
   // Upsert API keys
@@ -251,11 +264,11 @@ pub async fn run(pool: &PgPool, config: &DeclarativeConfig) -> Result<()> {
     if let Some(user) = existing {
       // Update existing user
       let update = crate::models::UpdateUser {
-        email:            Some(decl_user.email.clone()),
-        full_name:        decl_user.full_name.clone(),
+        email: Some(decl_user.email.clone()),
+        full_name: decl_user.full_name.clone(),
         password,
-        role:             Some(decl_user.role.clone()),
-        enabled:          Some(decl_user.enabled),
+        role: Some(decl_user.role.clone()),
+        enabled: Some(decl_user.enabled),
         public_dashboard: None,
       };
       if let Err(e) = repo::users::update(pool, user.id, &update).await {
@@ -287,12 +300,12 @@ pub async fn run(pool: &PgPool, config: &DeclarativeConfig) -> Result<()> {
           // Set enabled status if false (users are enabled by default)
           if !decl_user.enabled
             && let Err(e) = repo::users::set_enabled(pool, user.id, false).await
-            {
-              tracing::warn!(
-                username = %user.username,
-                "Failed to disable declarative user: {e}"
-              );
-            }
+          {
+            tracing::warn!(
+              username = %user.username,
+              "Failed to disable declarative user: {e}"
+            );
+          }
         },
         Err(e) => {
           tracing::warn!(
@@ -313,8 +326,8 @@ pub async fn run(pool: &PgPool, config: &DeclarativeConfig) -> Result<()> {
   if !config.remote_builders.is_empty() {
     repo::remote_builders::sync_all(pool, &config.remote_builders).await?;
     tracing::info!(
-        builders = config.remote_builders.len(),
-        "Synced declarative remote builders"
+      builders = config.remote_builders.len(),
+      "Synced declarative remote builders"
     );
   }
 
@@ -332,7 +345,9 @@ pub async fn run(pool: &PgPool, config: &DeclarativeConfig) -> Result<()> {
     }
 
     // Get project by name (already exists from earlier upsert)
-    if let Ok(project) = repo::projects::get_by_name(pool, &decl_project.name).await {
+    if let Ok(project) =
+      repo::projects::get_by_name(pool, &decl_project.name).await
+    {
       repo::project_members::sync_for_project(
         pool,
         project.id,

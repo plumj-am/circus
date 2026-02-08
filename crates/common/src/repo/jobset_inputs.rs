@@ -73,12 +73,9 @@ pub async fn upsert(
 ) -> Result<JobsetInput> {
   sqlx::query_as::<_, JobsetInput>(
     "INSERT INTO jobset_inputs (jobset_id, name, input_type, value, revision) \
-     VALUES ($1, $2, $3, $4, $5) \
-     ON CONFLICT (jobset_id, name) DO UPDATE SET \
-     input_type = EXCLUDED.input_type, \
-     value = EXCLUDED.value, \
-     revision = EXCLUDED.revision \
-     RETURNING *",
+     VALUES ($1, $2, $3, $4, $5) ON CONFLICT (jobset_id, name) DO UPDATE SET \
+     input_type = EXCLUDED.input_type, value = EXCLUDED.value, revision = \
+     EXCLUDED.revision RETURNING *",
   )
   .bind(jobset_id)
   .bind(name)
@@ -102,7 +99,8 @@ pub async fn sync_for_jobset(
 
   // Delete inputs not in declarative config
   sqlx::query(
-    "DELETE FROM jobset_inputs WHERE jobset_id = $1 AND name != ALL($2::text[])",
+    "DELETE FROM jobset_inputs WHERE jobset_id = $1 AND name != \
+     ALL($2::text[])",
   )
   .bind(jobset_id)
   .bind(&names)

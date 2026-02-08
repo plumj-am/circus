@@ -7,7 +7,19 @@ use axum::{
   response::{Html, IntoResponse, Redirect, Response},
   routing::get,
 };
-use fc_common::models::{Build, Evaluation, BuildStatus, EvaluationStatus, ApiKey, Project, Jobset, BuildStep, BuildProduct, Channel, SystemStatus};
+use fc_common::models::{
+  ApiKey,
+  Build,
+  BuildProduct,
+  BuildStatus,
+  BuildStep,
+  Channel,
+  Evaluation,
+  EvaluationStatus,
+  Jobset,
+  Project,
+  SystemStatus,
+};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -699,7 +711,8 @@ async fn evaluations_page(
         Ok(js) => {
           let pname =
             fc_common::repo::projects::get(&state.pool, js.project_id)
-              .await.map_or_else(|_| "-".to_string(), |p| p.name);
+              .await
+              .map_or_else(|_| "-".to_string(), |p| p.name);
           (js.name, pname)
         },
         Err(_) => ("-".to_string(), "-".to_string()),
@@ -983,13 +996,17 @@ async fn queue_page(State(state): State<AppState>) -> Html<String> {
       } else {
         String::new()
       };
-      let builder_name = b.builder_id.and_then(|id| builder_map.get(&id).cloned());
+      let builder_name =
+        b.builder_id.and_then(|id| builder_map.get(&id).cloned());
       QueueBuildView {
         id: b.id,
         job_name: b.job_name.clone(),
         system: b.system.clone().unwrap_or_else(|| "unknown".to_string()),
         created_at: b.created_at.format("%Y-%m-%d %H:%M").to_string(),
-        started_at: b.started_at.map(|t| t.format("%H:%M:%S").to_string()).unwrap_or_default(),
+        started_at: b
+          .started_at
+          .map(|t| t.format("%H:%M:%S").to_string())
+          .unwrap_or_default(),
         elapsed,
         priority: b.priority,
         builder_name,
@@ -1002,16 +1019,18 @@ async fn queue_page(State(state): State<AppState>) -> Html<String> {
   let pending_builds: Vec<QueueBuildView> = pending
     .iter()
     .enumerate()
-    .map(|(idx, b)| QueueBuildView {
-      id: b.id,
-      job_name: b.job_name.clone(),
-      system: b.system.clone().unwrap_or_else(|| "unknown".to_string()),
-      created_at: b.created_at.format("%Y-%m-%d %H:%M").to_string(),
-      started_at: String::new(),
-      elapsed: String::new(),
-      priority: b.priority,
-      builder_name: None,
-      queue_pos: (idx + 1) as i64,
+    .map(|(idx, b)| {
+      QueueBuildView {
+        id:           b.id,
+        job_name:     b.job_name.clone(),
+        system:       b.system.clone().unwrap_or_else(|| "unknown".to_string()),
+        created_at:   b.created_at.format("%Y-%m-%d %H:%M").to_string(),
+        started_at:   String::new(),
+        elapsed:      String::new(),
+        priority:     b.priority,
+        builder_name: None,
+        queue_pos:    (idx + 1) as i64,
+      }
     })
     .collect();
 
@@ -1153,8 +1172,10 @@ async fn admin_page(
         name:         k.name,
         role:         k.role,
         created_at:   k.created_at.format("%Y-%m-%d %H:%M").to_string(),
-        last_used_at: k
-          .last_used_at.map_or_else(|| "Never".to_string(), |t| t.format("%Y-%m-%d %H:%M").to_string()),
+        last_used_at: k.last_used_at.map_or_else(
+          || "Never".to_string(),
+          |t| t.format("%Y-%m-%d %H:%M").to_string(),
+        ),
       }
     })
     .collect();
@@ -1218,7 +1239,9 @@ async fn login_action(
       password: password.clone(),
     };
 
-    if let Ok(user) = fc_common::repo::users::authenticate(&state.pool, &creds).await {
+    if let Ok(user) =
+      fc_common::repo::users::authenticate(&state.pool, &creds).await
+    {
       let session_id = Uuid::new_v4().to_string();
       state
         .sessions
@@ -1269,7 +1292,9 @@ async fn login_action(
     hasher.update(token.as_bytes());
     let key_hash = hex::encode(hasher.finalize());
 
-    if let Ok(Some(api_key)) = fc_common::repo::api_keys::get_by_hash(&state.pool, &key_hash).await {
+    if let Ok(Some(api_key)) =
+      fc_common::repo::api_keys::get_by_hash(&state.pool, &key_hash).await
+    {
       let session_id = Uuid::new_v4().to_string();
       state
         .sessions
@@ -1280,7 +1305,8 @@ async fn login_action(
         });
 
       let cookie = format!(
-        "fc_session={session_id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400"
+        "fc_session={session_id}; HttpOnly; SameSite=Strict; Path=/; \
+         Max-Age=86400"
       );
       (
         [(axum::http::header::SET_COOKIE, cookie)],
@@ -1408,8 +1434,10 @@ async fn users_page(
         role:          u.role,
         user_type:     user_type.to_string(),
         enabled:       u.enabled,
-        last_login_at: u
-          .last_login_at.map_or_else(|| "Never".to_string(), |t| t.format("%Y-%m-%d %H:%M").to_string()),
+        last_login_at: u.last_login_at.map_or_else(
+          || "Never".to_string(),
+          |t| t.format("%Y-%m-%d %H:%M").to_string(),
+        ),
       }
     })
     .collect();
@@ -1455,12 +1483,14 @@ async fn starred_page(
       // Get project name
       let project_name =
         fc_common::repo::projects::get(&state.pool, s.project_id)
-          .await.map_or_else(|_| "-".to_string(), |p| p.name);
+          .await
+          .map_or_else(|_| "-".to_string(), |p| p.name);
 
       // Get jobset name
       let jobset_name = if let Some(js_id) = s.jobset_id {
         fc_common::repo::jobsets::get(&state.pool, js_id)
-          .await.map_or_else(|_| "-".to_string(), |j| j.name)
+          .await
+          .map_or_else(|_| "-".to_string(), |j| j.name)
       } else {
         "-".to_string()
       };

@@ -95,28 +95,25 @@ pub async fn probe_flake(
     base_ref
   };
 
-  let output =
-    tokio::time::timeout(std::time::Duration::from_mins(1), async {
-      tokio::process::Command::new("nix")
-        .args([
-          "--extra-experimental-features",
-          "nix-command flakes",
-          "flake",
-          "show",
-          "--json",
-          "--no-write-lock-file",
-          &flake_ref,
-        ])
-        .output()
-        .await
-    })
-    .await
-    .map_err(|_| {
-      CiError::Timeout("Flake probe timed out after 60s".to_string())
-    })?
-    .map_err(|e| {
-      CiError::NixEval(format!("Failed to run nix flake show: {e}"))
-    })?;
+  let output = tokio::time::timeout(std::time::Duration::from_mins(1), async {
+    tokio::process::Command::new("nix")
+      .args([
+        "--extra-experimental-features",
+        "nix-command flakes",
+        "flake",
+        "show",
+        "--json",
+        "--no-write-lock-file",
+        &flake_ref,
+      ])
+      .output()
+      .await
+  })
+  .await
+  .map_err(|_| CiError::Timeout("Flake probe timed out after 60s".to_string()))?
+  .map_err(|e| {
+    CiError::NixEval(format!("Failed to run nix flake show: {e}"))
+  })?;
 
   if !output.status.success() {
     let stderr = String::from_utf8_lossy(&output.stderr);

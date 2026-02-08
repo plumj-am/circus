@@ -76,9 +76,7 @@ pub async fn require_api_key(
       && let Some(session) = state.sessions.get(&session_id)
     {
       // Check session expiry (24 hours)
-      if session.created_at.elapsed()
-        < std::time::Duration::from_hours(24)
-      {
+      if session.created_at.elapsed() < std::time::Duration::from_hours(24) {
         // Insert both user and session data
         if let Some(ref user) = session.user {
           request.extensions_mut().insert(user.clone());
@@ -98,9 +96,7 @@ pub async fn require_api_key(
       && let Some(session) = state.sessions.get(&session_id)
     {
       // Check session expiry (24 hours)
-      if session.created_at.elapsed()
-        < std::time::Duration::from_hours(24)
-      {
+      if session.created_at.elapsed() < std::time::Duration::from_hours(24) {
         if let Some(ref api_key) = session.api_key {
           request.extensions_mut().insert(api_key.clone());
         }
@@ -222,9 +218,7 @@ pub async fn extract_session(
       && let Some(session) = state.sessions.get(&session_id)
     {
       // Check session expiry
-      if session.created_at.elapsed()
-        < std::time::Duration::from_hours(24)
-      {
+      if session.created_at.elapsed() < std::time::Duration::from_hours(24) {
         if let Some(ref user) = session.user {
           request.extensions_mut().insert(user.clone());
         }
@@ -242,9 +236,7 @@ pub async fn extract_session(
       && let Some(session) = state.sessions.get(&session_id)
     {
       // Check session expiry
-      if session.created_at.elapsed()
-        < std::time::Duration::from_hours(24)
-      {
+      if session.created_at.elapsed() < std::time::Duration::from_hours(24) {
         if let Some(ref api_key) = session.api_key {
           request.extensions_mut().insert(api_key.clone());
         }

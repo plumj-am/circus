@@ -90,8 +90,8 @@ impl IntoResponse for ApiError {
             StatusCode::INSUFFICIENT_STORAGE,
             "DISK_FULL",
             format!(
-              "Database error: {e}\n\nDISK SPACE ISSUE:\nThe server is running \
-               low on disk space."
+              "Database error: {e}\n\nDISK SPACE ISSUE:\nThe server is \
+               running low on disk space."
             ),
           )
         } else {
@@ -130,8 +130,8 @@ impl IntoResponse for ApiError {
             StatusCode::INSUFFICIENT_STORAGE,
             "DISK_FULL",
             format!(
-              "IO error: {msg}\n\nDISK SPACE ISSUE DETECTED:\nThe server has run \
-               out of disk space. Please free up space:\n- Run \
+              "IO error: {msg}\n\nDISK SPACE ISSUE DETECTED:\nThe server has \
+               run out of disk space. Please free up space:\n- Run \
                `nix-collect-garbage -d` to clean the Nix store\n- Clear the \
                evaluator work directory: `rm -rf /tmp/fc-evaluator/*`\n- \
                Clear build logs if configured"

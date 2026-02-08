@@ -146,7 +146,7 @@ pub struct SubStep {
 
 /// Parse a single nix internal JSON log line (`@nix {...}`).
 /// Returns `Some(action, drv_path)` if the line contains a derivation action.
-#[must_use] 
+#[must_use]
 pub fn parse_nix_log_line(line: &str) -> Option<(&'static str, String)> {
   let json_str = line.strip_prefix("@nix ")?.trim();
   let parsed: serde_json::Value = serde_json::from_str(json_str).ok()?;

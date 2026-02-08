@@ -152,9 +152,9 @@ pub async fn upsert(
   sqlx::query_as::<_, RemoteBuilder>(
     "INSERT INTO remote_builders (name, ssh_uri, systems, max_jobs, \
      speed_factor, supported_features, mandatory_features, enabled, \
-     public_host_key, ssh_key_file) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, \
-     $10) ON CONFLICT (name) DO UPDATE SET ssh_uri = EXCLUDED.ssh_uri, systems = \
-     EXCLUDED.systems, max_jobs = EXCLUDED.max_jobs, speed_factor = \
+     public_host_key, ssh_key_file) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, \
+     $9, $10) ON CONFLICT (name) DO UPDATE SET ssh_uri = EXCLUDED.ssh_uri, \
+     systems = EXCLUDED.systems, max_jobs = EXCLUDED.max_jobs, speed_factor = \
      EXCLUDED.speed_factor, supported_features = EXCLUDED.supported_features, \
      mandatory_features = EXCLUDED.mandatory_features, enabled = \
      EXCLUDED.enabled, public_host_key = COALESCE(EXCLUDED.public_host_key, \

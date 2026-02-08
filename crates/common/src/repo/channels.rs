@@ -96,8 +96,8 @@ pub async fn upsert(
 ) -> Result<Channel> {
   sqlx::query_as::<_, Channel>(
     "INSERT INTO channels (project_id, name, jobset_id) VALUES ($1, $2, $3) \
-     ON CONFLICT (project_id, name) DO UPDATE SET jobset_id = EXCLUDED.jobset_id \
-     RETURNING *",
+     ON CONFLICT (project_id, name) DO UPDATE SET jobset_id = \
+     EXCLUDED.jobset_id RETURNING *",
   )
   .bind(project_id)
   .bind(name)
@@ -119,12 +119,14 @@ pub async fn sync_for_project(
   let names: Vec<&str> = channels.iter().map(|c| c.name.as_str()).collect();
 
   // Delete channels not in declarative config
-  sqlx::query("DELETE FROM channels WHERE project_id = $1 AND name != ALL($2::text[])")
-    .bind(project_id)
-    .bind(&names)
-    .execute(pool)
-    .await
-    .map_err(CiError::Database)?;
+  sqlx::query(
+    "DELETE FROM channels WHERE project_id = $1 AND name != ALL($2::text[])",
+  )
+  .bind(project_id)
+  .bind(&names)
+  .execute(pool)
+  .await
+  .map_err(CiError::Database)?;
 
   // Upsert each channel
   for channel in channels {

@@ -231,8 +231,8 @@ pub async fn has_running_builds(
 }
 
 /// List jobsets that are due for evaluation based on their `check_interval`.
-/// Returns jobsets where `last_checked_at` is NULL or older than `check_interval`
-/// seconds.
+/// Returns jobsets where `last_checked_at` is NULL or older than
+/// `check_interval` seconds.
 pub async fn list_due_for_eval(
   pool: &PgPool,
   limit: i64,

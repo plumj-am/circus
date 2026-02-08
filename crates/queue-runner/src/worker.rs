@@ -31,7 +31,7 @@ pub struct WorkerPool {
 
 impl WorkerPool {
   #[allow(clippy::too_many_arguments)]
-  #[must_use] 
+  #[must_use]
   pub fn new(
     db_pool: PgPool,
     workers: usize,
@@ -476,8 +476,10 @@ async fn run_build(
           push_to_cache(&build_result.output_paths, store_uri).await;
         }
 
-        let primary_output =
-          build_result.output_paths.first().map(std::string::String::as_str);
+        let primary_output = build_result
+          .output_paths
+          .first()
+          .map(std::string::String::as_str);
 
         repo::builds::complete(
           pool,

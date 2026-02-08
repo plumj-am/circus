@@ -94,10 +94,10 @@ pub async fn upsert(
   enabled: bool,
 ) -> Result<WebhookConfig> {
   sqlx::query_as::<_, WebhookConfig>(
-    "INSERT INTO webhook_configs (project_id, forge_type, secret_hash, enabled) \
-     VALUES ($1, $2, $3, $4) ON CONFLICT (project_id, forge_type) DO UPDATE SET \
-     secret_hash = COALESCE(EXCLUDED.secret_hash, webhook_configs.secret_hash), \
-     enabled = EXCLUDED.enabled RETURNING *",
+    "INSERT INTO webhook_configs (project_id, forge_type, secret_hash, \
+     enabled) VALUES ($1, $2, $3, $4) ON CONFLICT (project_id, forge_type) DO \
+     UPDATE SET secret_hash = COALESCE(EXCLUDED.secret_hash, \
+     webhook_configs.secret_hash), enabled = EXCLUDED.enabled RETURNING *",
   )
   .bind(project_id)
   .bind(forge_type)
@@ -117,7 +117,8 @@ pub async fn sync_for_project(
   resolve_secret: impl Fn(&DeclarativeWebhook) -> Option<String>,
 ) -> Result<()> {
   // Get forge types from declarative config
-  let types: Vec<&str> = webhooks.iter().map(|w| w.forge_type.as_str()).collect();
+  let types: Vec<&str> =
+    webhooks.iter().map(|w| w.forge_type.as_str()).collect();
 
   // Delete webhook configs not in declarative config
   sqlx::query(

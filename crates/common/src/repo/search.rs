@@ -364,7 +364,8 @@ async fn search_evaluations(
     }
   }
 
-  // Get count - simple count (full filter support would require building query differently)
+  // Get count - simple count (full filter support would require building query
+  // differently)
   let (total,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM evaluations")
     .fetch_one(pool)
     .await?;

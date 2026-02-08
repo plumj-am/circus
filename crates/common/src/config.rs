@@ -220,7 +220,8 @@ pub struct DeclarativeProject {
 /// Declarative notification configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeclarativeNotification {
-  /// Notification type: github_status, email, gitlab_status, gitea_status, run_command
+  /// Notification type: github_status, email, gitlab_status, gitea_status,
+  /// run_command
   pub notification_type: String,
   /// Type-specific configuration (JSON object)
   pub config:            serde_json::Value,

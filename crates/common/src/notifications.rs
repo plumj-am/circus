@@ -90,7 +90,9 @@ async fn set_github_status(
   build: &Build,
 ) {
   // Parse owner/repo from URL
-  let (owner, repo) = if let Some(v) = parse_github_repo(repo_url) { v } else {
+  let (owner, repo) = if let Some(v) = parse_github_repo(repo_url) {
+    v
+  } else {
     warn!("Cannot parse GitHub owner/repo from {repo_url}");
     return;
   };
@@ -142,7 +144,9 @@ async fn set_gitea_status(
   build: &Build,
 ) {
   // Parse owner/repo from URL (try to extract from the gitea URL)
-  let (owner, repo) = if let Some(v) = parse_gitea_repo(repo_url, base_url) { v } else {
+  let (owner, repo) = if let Some(v) = parse_gitea_repo(repo_url, base_url) {
+    v
+  } else {
     warn!("Cannot parse Gitea owner/repo from {repo_url}");
     return;
   };
@@ -191,7 +195,9 @@ async fn set_gitlab_status(
   build: &Build,
 ) {
   // Parse project path from URL
-  let project_path = if let Some(p) = parse_gitlab_project(repo_url, base_url) { p } else {
+  let project_path = if let Some(p) = parse_gitlab_project(repo_url, base_url) {
+    p
+  } else {
     warn!("Cannot parse GitLab project from {repo_url}");
     return;
   };

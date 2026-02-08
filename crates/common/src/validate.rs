@@ -6,14 +6,14 @@ use regex::Regex;
 
 /// Validate that a path is a valid nix store path.
 /// Rejects path traversal, overly long paths, and non-store paths.
-#[must_use] 
+#[must_use]
 pub fn is_valid_store_path(path: &str) -> bool {
   path.starts_with("/nix/store/") && !path.contains("..") && path.len() < 512
 }
 
 /// Validate that a string is a valid nix store hash (32 lowercase alphanumeric
 /// chars).
-#[must_use] 
+#[must_use]
 pub fn is_valid_nix_hash(hash: &str) -> bool {
   hash.len() == 32
     && hash
@@ -62,7 +62,8 @@ fn validate_repository_url(url: &str) -> Result<(), String> {
   }
   if !VALID_REPO_PREFIXES.iter().any(|p| url.starts_with(p)) {
     return Err(
-      "repository_url must start with https://, http://, git://, ssh://, or file://"
+      "repository_url must start with https://, http://, git://, ssh://, or \
+       file://"
         .to_string(),
     );
   }
@@ -146,7 +147,19 @@ fn validate_forge_type(forge_type: &str) -> Result<(), String> {
 
 // --- Implementations ---
 
-use crate::models::{CreateProject, UpdateProject, CreateJobset, UpdateJobset, CreateEvaluation, CreateBuild, CreateChannel, UpdateChannel, CreateRemoteBuilder, UpdateRemoteBuilder, CreateWebhookConfig};
+use crate::models::{
+  CreateBuild,
+  CreateChannel,
+  CreateEvaluation,
+  CreateJobset,
+  CreateProject,
+  CreateRemoteBuilder,
+  CreateWebhookConfig,
+  UpdateChannel,
+  UpdateJobset,
+  UpdateProject,
+  UpdateRemoteBuilder,
+};
 
 impl Validate for CreateProject {
   fn validate(&self) -> Result<(), String> {

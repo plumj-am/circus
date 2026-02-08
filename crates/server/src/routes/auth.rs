@@ -29,7 +29,7 @@ pub struct ApiKeyInfo {
   pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-#[must_use] 
+#[must_use]
 pub fn hash_api_key(key: &str) -> String {
   let mut hasher = Sha256::new();
   hasher.update(key.as_bytes());
