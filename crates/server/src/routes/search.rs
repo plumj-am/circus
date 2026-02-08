@@ -184,10 +184,20 @@ async fn advanced_search_handler(
 ) -> Result<Json<SearchResponse>, ApiError> {
   // Validate and sanitize
   let query = params.q.trim();
-  if query.len() > 256 {
-    return Err(ApiError(fc_common::CiError::Validation(
-      "Search query too long (max 256 characters)".to_string(),
-    )));
+  if query.is_empty() || query.len() > 256 {
+    // Empty or too long query returns empty results
+    return Ok(Json(SearchResponse {
+      projects:          vec![],
+      jobsets:           vec![],
+      evaluations:       vec![],
+      builds:            vec![],
+      total_projects:    Some(0),
+      total_jobsets:     Some(0),
+      total_evaluations: Some(0),
+      total_builds:      Some(0),
+      limit:             Some(params.limit.clamp(1, 100)),
+      offset:            Some(params.offset),
+    }));
   }
 
   // Clamp limit to reasonable range

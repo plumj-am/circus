@@ -53,6 +53,22 @@
 <p><a href="{{ build.log_url }}">View log</a></p>
 {% endif %}
 
+<h2>Reproduce This Build</h2>
+<div class="card">
+  <div class="card-body">
+    <p>To reproduce this build locally, run one of the following commands:</p>
+    <div class="code-block">
+      <strong>Using Nix (flakes):</strong>
+      <pre><code>nix build {{ build.drv_path }}^*</code></pre>
+    </div>
+    <div class="code-block">
+      <strong>Using legacy nix-build:</strong>
+      <pre><code>nix-build {{ build.drv_path }}</code></pre>
+    </div>
+    <p class="text-muted">Note: You may need to add this server as a substituter to avoid rebuilding dependencies.</p>
+  </div>
+</div>
+
 <h2>Build Steps</h2>
 {% if steps.is_empty() %}
 <div class="empty">No steps recorded.</div>

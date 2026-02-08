@@ -19,14 +19,16 @@
 <div class="table-wrap">
 <table>
   <thead>
-    <tr><th>Job</th><th>System</th><th>Started</th></tr>
+    <tr><th>Job</th><th>System</th><th>Started</th><th>Elapsed</th><th>Builder</th></tr>
   </thead>
   <tbody>
     {% for b in running_builds %}
     <tr>
       <td><a href="/build/{{ b.id }}">{{ b.job_name }}</a></td>
       <td>{{ b.system }}</td>
-      <td>{{ b.created_at }}</td>
+      <td>{{ b.started_at }}</td>
+      <td>{{ b.elapsed }}</td>
+      <td>{% match b.builder_name %}{% when Some with (name) %}{{ name }}{% when None %}local{% endmatch %}</td>
     </tr>
     {% endfor %}
   </tbody>
@@ -44,13 +46,15 @@
 <div class="table-wrap">
 <table>
   <thead>
-    <tr><th>Job</th><th>System</th><th>Created</th></tr>
+    <tr><th>#</th><th>Job</th><th>System</th><th>Priority</th><th>Created</th></tr>
   </thead>
   <tbody>
     {% for b in pending_builds %}
     <tr>
+      <td>{{ b.queue_pos }}</td>
       <td><a href="/build/{{ b.id }}">{{ b.job_name }}</a></td>
       <td>{{ b.system }}</td>
+      <td>{{ b.priority }}</td>
       <td>{{ b.created_at }}</td>
     </tr>
     {% endfor %}

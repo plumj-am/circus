@@ -7,7 +7,7 @@ use axum::{
   response::{Html, IntoResponse, Redirect, Response},
   routing::get,
 };
-use fc_common::models::{Build, Evaluation, BuildStatus, EvaluationStatus, ApiKey, Project, Jobset, BuildStep, BuildProduct, Channel, SystemStatus, RemoteBuilder};
+use fc_common::models::{Build, Evaluation, BuildStatus, EvaluationStatus, ApiKey, Project, Jobset, BuildStep, BuildProduct, Channel, SystemStatus};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -32,6 +32,19 @@ struct BuildView {
   output_path:   String,
   error_message: String,
   log_url:       String,
+}
+
+/// Enhanced build view for queue page with elapsed time and builder info
+struct QueueBuildView {
+  id:           Uuid,
+  job_name:     String,
+  system:       String,
+  created_at:   String,
+  started_at:   String,
+  elapsed:      String,
+  priority:     i32,
+  builder_name: Option<String>,
+  queue_pos:    i64,
 }
 
 struct EvalView {
@@ -323,8 +336,8 @@ struct BuildTemplate {
 #[derive(Template)]
 #[template(path = "queue.html")]
 struct QueueTemplate {
-  pending_builds: Vec<BuildView>,
-  running_builds: Vec<BuildView>,
+  pending_builds: Vec<QueueBuildView>,
+  running_builds: Vec<QueueBuildView>,
   pending_count:  i64,
   running_count:  i64,
 }
@@ -335,11 +348,25 @@ struct ChannelsTemplate {
   channels: Vec<Channel>,
 }
 
+/// Enhanced builder view with load and activity info
+struct BuilderView {
+  id:             Uuid,
+  name:           String,
+  ssh_uri:        String,
+  systems:        String,
+  max_jobs:       i32,
+  enabled:        bool,
+  current_builds: i64,
+  load_percent:   i64,
+  #[allow(dead_code)]
+  last_activity:  String,
+}
+
 #[derive(Template)]
 #[template(path = "admin.html")]
 struct AdminTemplate {
   status:    SystemStatus,
-  builders:  Vec<RemoteBuilder>,
+  builders:  Vec<BuilderView>,
   api_keys:  Vec<ApiKeyView>,
   is_admin:  bool,
   auth_name: String,
@@ -936,12 +963,61 @@ async fn queue_page(State(state): State<AppState>) -> Html<String> {
   .await
   .unwrap_or_default();
 
+  // Build builder ID -> name map
+  let builders = fc_common::repo::remote_builders::list(&state.pool)
+    .await
+    .unwrap_or_default();
+  let builder_map: std::collections::HashMap<Uuid, String> =
+    builders.into_iter().map(|b| (b.id, b.name)).collect();
+
   let running_count = running.len() as i64;
   let pending_count = pending.len() as i64;
 
+  // Convert running builds with elapsed time
+  let running_builds: Vec<QueueBuildView> = running
+    .iter()
+    .map(|b| {
+      let elapsed = if let Some(started) = b.started_at {
+        let dur = chrono::Utc::now() - started;
+        format_elapsed(dur.num_seconds())
+      } else {
+        String::new()
+      };
+      let builder_name = b.builder_id.and_then(|id| builder_map.get(&id).cloned());
+      QueueBuildView {
+        id: b.id,
+        job_name: b.job_name.clone(),
+        system: b.system.clone().unwrap_or_else(|| "unknown".to_string()),
+        created_at: b.created_at.format("%Y-%m-%d %H:%M").to_string(),
+        started_at: b.started_at.map(|t| t.format("%H:%M:%S").to_string()).unwrap_or_default(),
+        elapsed,
+        priority: b.priority,
+        builder_name,
+        queue_pos: 0,
+      }
+    })
+    .collect();
+
+  // Convert pending builds with queue position
+  let pending_builds: Vec<QueueBuildView> = pending
+    .iter()
+    .enumerate()
+    .map(|(idx, b)| QueueBuildView {
+      id: b.id,
+      job_name: b.job_name.clone(),
+      system: b.system.clone().unwrap_or_else(|| "unknown".to_string()),
+      created_at: b.created_at.format("%Y-%m-%d %H:%M").to_string(),
+      started_at: String::new(),
+      elapsed: String::new(),
+      priority: b.priority,
+      builder_name: None,
+      queue_pos: (idx + 1) as i64,
+    })
+    .collect();
+
   let tmpl = QueueTemplate {
-    running_builds: running.iter().map(build_view).collect(),
-    pending_builds: pending.iter().map(build_view).collect(),
+    running_builds,
+    pending_builds,
     running_count,
     pending_count,
   };
@@ -950,6 +1026,16 @@ async fn queue_page(State(state): State<AppState>) -> Html<String> {
       .render()
       .unwrap_or_else(|e| format!("Template error: {e}")),
   )
+}
+
+fn format_elapsed(secs: i64) -> String {
+  if secs < 60 {
+    format!("{}s", secs)
+  } else if secs < 3600 {
+    format!("{}m {}s", secs / 60, secs % 60)
+  } else {
+    format!("{}h {}m", secs / 3600, (secs % 3600) / 60)
+  }
 }
 
 async fn channels_page(State(state): State<AppState>) -> Html<String> {
@@ -1005,9 +1091,55 @@ async fn admin_page(
     remote_builders:   builders_count,
     channels_count:    channels.0,
   };
-  let builders = fc_common::repo::remote_builders::list(pool)
+  let raw_builders = fc_common::repo::remote_builders::list(pool)
     .await
     .unwrap_or_default();
+
+  // Get running builds to calculate builder load
+  let running_builds = fc_common::repo::builds::list_filtered(
+    pool,
+    None,
+    Some("running"),
+    None,
+    None,
+    1000,
+    0,
+  )
+  .await
+  .unwrap_or_default();
+
+  // Count builds per builder
+  let mut builds_per_builder: std::collections::HashMap<Uuid, i64> =
+    std::collections::HashMap::new();
+  for build in &running_builds {
+    if let Some(builder_id) = build.builder_id {
+      *builds_per_builder.entry(builder_id).or_insert(0) += 1;
+    }
+  }
+
+  // Convert to BuilderView with load info
+  let builders: Vec<BuilderView> = raw_builders
+    .into_iter()
+    .map(|b| {
+      let current_builds = *builds_per_builder.get(&b.id).unwrap_or(&0);
+      let load_percent = if b.max_jobs > 0 {
+        (current_builds * 100) / (b.max_jobs as i64)
+      } else {
+        0
+      };
+      BuilderView {
+        id: b.id,
+        name: b.name,
+        ssh_uri: b.ssh_uri,
+        systems: b.systems.join(", "),
+        max_jobs: b.max_jobs,
+        enabled: b.enabled,
+        current_builds,
+        load_percent,
+        last_activity: b.created_at.format("%Y-%m-%d").to_string(),
+      }
+    })
+    .collect();
 
   // Fetch API keys for admin view
   let keys = fc_common::repo::api_keys::list(pool)

@@ -128,12 +128,14 @@ async fn list_project_jobsets(
 
 #[derive(Debug, Deserialize)]
 struct CreateJobsetBody {
-  name:           String,
-  nix_expression: String,
-  enabled:        Option<bool>,
-  flake_mode:     Option<bool>,
-  check_interval: Option<i32>,
-  state:          Option<fc_common::models::JobsetState>,
+  name:              String,
+  nix_expression:    String,
+  enabled:           Option<bool>,
+  flake_mode:        Option<bool>,
+  check_interval:    Option<i32>,
+  branch:            Option<String>,
+  scheduling_shares: Option<i32>,
+  state:             Option<fc_common::models::JobsetState>,
 }
 
 async fn create_project_jobset(
@@ -156,8 +158,8 @@ async fn create_project_jobset(
     enabled: body.enabled,
     flake_mode: body.flake_mode,
     check_interval: body.check_interval,
-    branch: None,
-    scheduling_shares: None,
+    branch: body.branch,
+    scheduling_shares: body.scheduling_shares,
     state: body.state,
   };
   input
