@@ -2,6 +2,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
+  config::DeclarativeChannel,
   error::{CiError, Result},
   models::{Channel, CreateChannel},
 };
@@ -83,6 +84,61 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
   if result.rows_affected() == 0 {
     return Err(CiError::NotFound(format!("Channel {id} not found")));
   }
+  Ok(())
+}
+
+/// Upsert a channel (insert or update on conflict).
+pub async fn upsert(
+  pool: &PgPool,
+  project_id: Uuid,
+  name: &str,
+  jobset_id: Uuid,
+) -> Result<Channel> {
+  sqlx::query_as::<_, Channel>(
+    "INSERT INTO channels (project_id, name, jobset_id) VALUES ($1, $2, $3) \
+     ON CONFLICT (project_id, name) DO UPDATE SET jobset_id = EXCLUDED.jobset_id \
+     RETURNING *",
+  )
+  .bind(project_id)
+  .bind(name)
+  .bind(jobset_id)
+  .fetch_one(pool)
+  .await
+  .map_err(CiError::Database)
+}
+
+/// Sync channels from declarative config.
+/// Deletes channels not in the declarative list and upserts those that are.
+pub async fn sync_for_project(
+  pool: &PgPool,
+  project_id: Uuid,
+  channels: &[DeclarativeChannel],
+  resolve_jobset: impl Fn(&str) -> Option<Uuid>,
+) -> Result<()> {
+  // Get channel names from declarative config
+  let names: Vec<&str> = channels.iter().map(|c| c.name.as_str()).collect();
+
+  // Delete channels not in declarative config
+  sqlx::query("DELETE FROM channels WHERE project_id = $1 AND name != ALL($2::text[])")
+    .bind(project_id)
+    .bind(&names)
+    .execute(pool)
+    .await
+    .map_err(CiError::Database)?;
+
+  // Upsert each channel
+  for channel in channels {
+    if let Some(jobset_id) = resolve_jobset(&channel.jobset_name) {
+      upsert(pool, project_id, &channel.name, jobset_id).await?;
+    } else {
+      tracing::warn!(
+          channel = %channel.name,
+          jobset_name = %channel.jobset_name,
+          "Could not resolve jobset for declarative channel"
+      );
+    }
+  }
+
   Ok(())
 }
 

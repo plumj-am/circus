@@ -65,7 +65,8 @@ pub enum EvaluationStatus {
 #[derive(
   Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, Default,
 )]
-#[sqlx(type_name = "text", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "varchar", rename_all = "snake_case")]
 pub enum JobsetState {
   Disabled,
   #[default]
@@ -290,7 +291,7 @@ pub struct User {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "text", rename_all = "lowercase")]
+#[sqlx(type_name = "varchar", rename_all = "lowercase")]
 pub enum UserType {
   Local,
   Github,

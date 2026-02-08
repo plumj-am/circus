@@ -33,7 +33,7 @@ static SYSTEM_RE: LazyLock<Regex> =
   LazyLock::new(|| Regex::new(r"^\w+-\w+$").unwrap());
 
 const VALID_REPO_PREFIXES: &[&str] =
-  &["https://", "http://", "git://", "ssh://"];
+  &["https://", "http://", "git://", "ssh://", "file://"];
 const VALID_FORGE_TYPES: &[&str] = &["github", "gitea", "forgejo", "gitlab"];
 
 /// Trait for validating request DTOs before persisting.
@@ -62,7 +62,7 @@ fn validate_repository_url(url: &str) -> Result<(), String> {
   }
   if !VALID_REPO_PREFIXES.iter().any(|p| url.starts_with(p)) {
     return Err(
-      "repository_url must start with https://, http://, git://, or ssh://"
+      "repository_url must start with https://, http://, git://, ssh://, or file://"
         .to_string(),
     );
   }

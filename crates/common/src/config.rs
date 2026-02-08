@@ -159,9 +159,41 @@ pub struct CacheUploadConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct DeclarativeConfig {
-  pub projects: Vec<DeclarativeProject>,
-  pub api_keys: Vec<DeclarativeApiKey>,
-  pub users:    Vec<DeclarativeUser>,
+  pub projects:        Vec<DeclarativeProject>,
+  pub api_keys:        Vec<DeclarativeApiKey>,
+  pub users:           Vec<DeclarativeUser>,
+  /// Remote builder definitions for distributed builds
+  pub remote_builders: Vec<DeclarativeRemoteBuilder>,
+}
+
+/// Declarative remote builder configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeclarativeRemoteBuilder {
+  pub name:               String,
+  pub ssh_uri:            String,
+  pub systems:            Vec<String>,
+  #[serde(default = "default_max_jobs")]
+  pub max_jobs:           i32,
+  #[serde(default = "default_speed_factor")]
+  pub speed_factor:       i32,
+  #[serde(default)]
+  pub supported_features: Vec<String>,
+  #[serde(default)]
+  pub mandatory_features: Vec<String>,
+  /// Path to SSH private key file (for production)
+  pub ssh_key_file:       Option<String>,
+  /// SSH public host key for verification
+  pub public_host_key:    Option<String>,
+  #[serde(default = "default_true")]
+  pub enabled:            bool,
+}
+
+const fn default_max_jobs() -> i32 {
+  1
+}
+
+const fn default_speed_factor() -> i32 {
+  1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,18 +203,97 @@ pub struct DeclarativeProject {
   pub description:    Option<String>,
   #[serde(default)]
   pub jobsets:        Vec<DeclarativeJobset>,
+  /// Notification configurations for this project
+  #[serde(default)]
+  pub notifications:  Vec<DeclarativeNotification>,
+  /// Webhook configurations for this project
+  #[serde(default)]
+  pub webhooks:       Vec<DeclarativeWebhook>,
+  /// Release channels for this project
+  #[serde(default)]
+  pub channels:       Vec<DeclarativeChannel>,
+  /// Project members with their roles
+  #[serde(default)]
+  pub members:        Vec<DeclarativeProjectMember>,
+}
+
+/// Declarative notification configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeclarativeNotification {
+  /// Notification type: github_status, email, gitlab_status, gitea_status, run_command
+  pub notification_type: String,
+  /// Type-specific configuration (JSON object)
+  pub config:            serde_json::Value,
+  #[serde(default = "default_true")]
+  pub enabled:           bool,
+}
+
+/// Declarative webhook configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeclarativeWebhook {
+  /// Forge type: github, gitea, gitlab
+  pub forge_type:  String,
+  /// Webhook secret (inline, for dev/testing only)
+  pub secret:      Option<String>,
+  /// Path to a file containing the webhook secret (for production)
+  pub secret_file: Option<String>,
+  #[serde(default = "default_true")]
+  pub enabled:     bool,
+}
+
+/// Declarative channel configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeclarativeChannel {
+  pub name:        String,
+  /// Name of the jobset this channel tracks (resolved during bootstrap)
+  pub jobset_name: String,
+}
+
+/// Declarative project member configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeclarativeProjectMember {
+  /// Username of the member (must exist in users)
+  pub username: String,
+  /// Role: member, maintainer, or admin
+  #[serde(default = "default_member_role")]
+  pub role:     String,
+}
+
+fn default_member_role() -> String {
+  "member".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeclarativeJobset {
-  pub name:           String,
-  pub nix_expression: String,
+  pub name:              String,
+  pub nix_expression:    String,
   #[serde(default = "default_true")]
-  pub enabled:        bool,
+  pub enabled:           bool,
   #[serde(default = "default_true")]
-  pub flake_mode:     bool,
+  pub flake_mode:        bool,
   #[serde(default = "default_check_interval")]
-  pub check_interval: i32,
+  pub check_interval:    i32,
+  /// Jobset state: disabled, enabled, one_shot, or one_at_a_time
+  pub state:             Option<String>,
+  /// Git branch to track (defaults to repository default branch)
+  pub branch:            Option<String>,
+  /// Scheduling priority shares (default 100, higher = more priority)
+  #[serde(default = "default_scheduling_shares")]
+  pub scheduling_shares: i32,
+  /// Jobset inputs for parameterized evaluations
+  #[serde(default)]
+  pub inputs:            Vec<DeclarativeJobsetInput>,
+}
+
+/// Declarative jobset input for parameterized builds.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeclarativeJobsetInput {
+  pub name:       String,
+  /// Input type: git, string, boolean, path, or build
+  pub input_type: String,
+  pub value:      String,
+  /// Git revision (for git inputs)
+  pub revision:   Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -219,6 +330,10 @@ const fn default_true() -> bool {
 
 const fn default_check_interval() -> i32 {
   60
+}
+
+const fn default_scheduling_shares() -> i32 {
+  100
 }
 
 fn default_role() -> String {
@@ -535,24 +650,33 @@ mod tests {
   #[test]
   fn test_declarative_config_serialization_roundtrip() {
     let config = DeclarativeConfig {
-      projects: vec![DeclarativeProject {
+      projects:        vec![DeclarativeProject {
         name:           "test".to_string(),
         repository_url: "https://example.com/repo".to_string(),
         description:    Some("desc".to_string()),
         jobsets:        vec![DeclarativeJobset {
-          name:           "checks".to_string(),
-          nix_expression: "checks".to_string(),
-          enabled:        true,
-          flake_mode:     true,
-          check_interval: 300,
+          name:              "checks".to_string(),
+          nix_expression:    "checks".to_string(),
+          enabled:           true,
+          flake_mode:        true,
+          check_interval:    300,
+          state:             None,
+          branch:            None,
+          scheduling_shares: 100,
+          inputs:            vec![],
         }],
+        notifications:  vec![],
+        webhooks:       vec![],
+        channels:       vec![],
+        members:        vec![],
       }],
-      api_keys: vec![DeclarativeApiKey {
+      api_keys:        vec![DeclarativeApiKey {
         name: "test-key".to_string(),
         key:  "fc_test".to_string(),
         role: "admin".to_string(),
       }],
-      users:    vec![],
+      users:           vec![],
+      remote_builders: vec![],
     };
 
     let json = serde_json::to_string(&config).unwrap();

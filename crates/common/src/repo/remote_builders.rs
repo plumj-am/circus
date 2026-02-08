@@ -2,6 +2,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
+  config::DeclarativeRemoteBuilder,
   error::{CiError, Result},
   models::{CreateRemoteBuilder, RemoteBuilder},
 };
@@ -132,4 +133,82 @@ pub async fn count(pool: &PgPool) -> Result<i64> {
     .await
     .map_err(CiError::Database)?;
   Ok(row.0)
+}
+
+/// Upsert a remote builder (insert or update on conflict by name).
+pub async fn upsert(
+  pool: &PgPool,
+  name: &str,
+  ssh_uri: &str,
+  systems: &[String],
+  max_jobs: i32,
+  speed_factor: i32,
+  supported_features: &[String],
+  mandatory_features: &[String],
+  enabled: bool,
+  public_host_key: Option<&str>,
+  ssh_key_file: Option<&str>,
+) -> Result<RemoteBuilder> {
+  sqlx::query_as::<_, RemoteBuilder>(
+    "INSERT INTO remote_builders (name, ssh_uri, systems, max_jobs, \
+     speed_factor, supported_features, mandatory_features, enabled, \
+     public_host_key, ssh_key_file) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, \
+     $10) ON CONFLICT (name) DO UPDATE SET ssh_uri = EXCLUDED.ssh_uri, systems = \
+     EXCLUDED.systems, max_jobs = EXCLUDED.max_jobs, speed_factor = \
+     EXCLUDED.speed_factor, supported_features = EXCLUDED.supported_features, \
+     mandatory_features = EXCLUDED.mandatory_features, enabled = \
+     EXCLUDED.enabled, public_host_key = COALESCE(EXCLUDED.public_host_key, \
+     remote_builders.public_host_key), ssh_key_file = \
+     COALESCE(EXCLUDED.ssh_key_file, remote_builders.ssh_key_file) RETURNING *",
+  )
+  .bind(name)
+  .bind(ssh_uri)
+  .bind(systems)
+  .bind(max_jobs)
+  .bind(speed_factor)
+  .bind(supported_features)
+  .bind(mandatory_features)
+  .bind(enabled)
+  .bind(public_host_key)
+  .bind(ssh_key_file)
+  .fetch_one(pool)
+  .await
+  .map_err(CiError::Database)
+}
+
+/// Sync remote builders from declarative config.
+/// Deletes builders not in the declarative list and upserts those that are.
+pub async fn sync_all(
+  pool: &PgPool,
+  builders: &[DeclarativeRemoteBuilder],
+) -> Result<()> {
+  // Get builder names from declarative config
+  let names: Vec<&str> = builders.iter().map(|b| b.name.as_str()).collect();
+
+  // Delete builders not in declarative config
+  sqlx::query("DELETE FROM remote_builders WHERE name != ALL($1::text[])")
+    .bind(&names)
+    .execute(pool)
+    .await
+    .map_err(CiError::Database)?;
+
+  // Upsert each builder
+  for builder in builders {
+    upsert(
+      pool,
+      &builder.name,
+      &builder.ssh_uri,
+      &builder.systems,
+      builder.max_jobs,
+      builder.speed_factor,
+      &builder.supported_features,
+      &builder.mandatory_features,
+      builder.enabled,
+      builder.public_host_key.as_deref(),
+      builder.ssh_key_file.as_deref(),
+    )
+    .await?;
+  }
+
+  Ok(())
 }
