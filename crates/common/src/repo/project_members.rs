@@ -4,6 +4,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
+  config::DeclarativeProjectMember,
   error::{CiError, Result},
   models::{CreateProjectMember, ProjectMember, UpdateProjectMember},
   roles::VALID_PROJECT_ROLES,
@@ -184,4 +185,69 @@ pub async fn check_permission(
   } else {
     Ok(false)
   }
+}
+
+/// Upsert a project member (insert or update on conflict).
+pub async fn upsert(
+  pool: &PgPool,
+  project_id: Uuid,
+  user_id: Uuid,
+  role: &str,
+) -> Result<ProjectMember> {
+  // Validate role
+  validate_role(role, VALID_PROJECT_ROLES)
+    .map_err(|e| CiError::Validation(e.to_string()))?;
+
+  sqlx::query_as::<_, ProjectMember>(
+    "INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3) \
+     ON CONFLICT (project_id, user_id) DO UPDATE SET role = EXCLUDED.role \
+     RETURNING *",
+  )
+  .bind(project_id)
+  .bind(user_id)
+  .bind(role)
+  .fetch_one(pool)
+  .await
+  .map_err(CiError::Database)
+}
+
+/// Sync project members from declarative config.
+/// Deletes members not in the declarative list and upserts those that are.
+pub async fn sync_for_project(
+  pool: &PgPool,
+  project_id: Uuid,
+  members: &[DeclarativeProjectMember],
+  resolve_user: impl Fn(&str) -> Option<Uuid>,
+) -> Result<()> {
+  // Get user IDs from declarative config
+  let user_ids: Vec<Uuid> = members
+    .iter()
+    .filter_map(|m| resolve_user(&m.username))
+    .collect();
+
+  // Delete members not in declarative config
+  sqlx::query(
+    "DELETE FROM project_members WHERE project_id = $1 AND user_id != \
+     ALL($2::uuid[])",
+  )
+  .bind(project_id)
+  .bind(&user_ids)
+  .execute(pool)
+  .await
+  .map_err(CiError::Database)?;
+
+  // Upsert each member
+  for member in members {
+    if let Some(user_id) = resolve_user(&member.username) {
+      upsert(pool, project_id, user_id, &member.role).await?;
+    } else {
+      tracing::warn!(
+          project_id = %project_id,
+          username = %member.username,
+          "Could not resolve user for declarative project member"
+      );
+    }
+  }
+
+  Ok(())
 }
