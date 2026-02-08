@@ -2,6 +2,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
+  config::DeclarativeWebhook,
   error::{CiError, Result},
   models::{CreateWebhookConfig, WebhookConfig},
 };
@@ -81,5 +82,73 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
   if result.rows_affected() == 0 {
     return Err(CiError::NotFound(format!("Webhook config {id} not found")));
   }
+  Ok(())
+}
+
+/// Upsert a webhook config (insert or update on conflict).
+pub async fn upsert(
+  pool: &PgPool,
+  project_id: Uuid,
+  forge_type: &str,
+  secret_hash: Option<&str>,
+  enabled: bool,
+) -> Result<WebhookConfig> {
+  sqlx::query_as::<_, WebhookConfig>(
+    "INSERT INTO webhook_configs (project_id, forge_type, secret_hash, enabled) \
+     VALUES ($1, $2, $3, $4) ON CONFLICT (project_id, forge_type) DO UPDATE SET \
+     secret_hash = COALESCE(EXCLUDED.secret_hash, webhook_configs.secret_hash), \
+     enabled = EXCLUDED.enabled RETURNING *",
+  )
+  .bind(project_id)
+  .bind(forge_type)
+  .bind(secret_hash)
+  .bind(enabled)
+  .fetch_one(pool)
+  .await
+  .map_err(CiError::Database)
+}
+
+/// Sync webhook configs from declarative config.
+/// Deletes configs not in the declarative list and upserts those that are.
+pub async fn sync_for_project(
+  pool: &PgPool,
+  project_id: Uuid,
+  webhooks: &[DeclarativeWebhook],
+  resolve_secret: impl Fn(&DeclarativeWebhook) -> Option<String>,
+) -> Result<()> {
+  // Get forge types from declarative config
+  let types: Vec<&str> = webhooks.iter().map(|w| w.forge_type.as_str()).collect();
+
+  // Delete webhook configs not in declarative config
+  sqlx::query(
+    "DELETE FROM webhook_configs WHERE project_id = $1 AND forge_type != \
+     ALL($2::text[])",
+  )
+  .bind(project_id)
+  .bind(&types)
+  .execute(pool)
+  .await
+  .map_err(CiError::Database)?;
+
+  // Upsert each webhook config
+  for webhook in webhooks {
+    let secret = resolve_secret(webhook);
+    let secret_hash = secret.as_ref().map(|s| {
+      use sha2::{Digest, Sha256};
+      let mut hasher = Sha256::new();
+      hasher.update(s.as_bytes());
+      hex::encode(hasher.finalize())
+    });
+
+    upsert(
+      pool,
+      project_id,
+      &webhook.forge_type,
+      secret_hash.as_deref(),
+      webhook.enabled,
+    )
+    .await?;
+  }
+
   Ok(())
 }
