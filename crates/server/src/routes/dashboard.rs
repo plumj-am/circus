@@ -1035,10 +1035,10 @@ async fn queue_page(State(state): State<AppState>) -> Html<String> {
     .collect();
 
   let tmpl = QueueTemplate {
-    running_builds,
     pending_builds,
-    running_count,
+    running_builds,
     pending_count,
+    running_count,
   };
   Html(
     tmpl
@@ -1049,7 +1049,7 @@ async fn queue_page(State(state): State<AppState>) -> Html<String> {
 
 fn format_elapsed(secs: i64) -> String {
   if secs < 60 {
-    format!("{}s", secs)
+    format!("{secs}s")
   } else if secs < 3600 {
     format!("{}m {}s", secs / 60, secs % 60)
   } else {
@@ -1142,7 +1142,7 @@ async fn admin_page(
     .map(|b| {
       let current_builds = *builds_per_builder.get(&b.id).unwrap_or(&0);
       let load_percent = if b.max_jobs > 0 {
-        (current_builds * 100) / (b.max_jobs as i64)
+        (current_builds * 100) / i64::from(b.max_jobs)
       } else {
         0
       };

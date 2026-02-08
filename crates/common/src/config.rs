@@ -220,8 +220,8 @@ pub struct DeclarativeProject {
 /// Declarative notification configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeclarativeNotification {
-  /// Notification type: github_status, email, gitlab_status, gitea_status,
-  /// run_command
+  /// Notification type: `github_status`, email, `gitlab_status`, `gitea_status`,
+  /// `run_command`
   pub notification_type: String,
   /// Type-specific configuration (JSON object)
   pub config:            serde_json::Value,
@@ -274,7 +274,7 @@ pub struct DeclarativeJobset {
   pub flake_mode:        bool,
   #[serde(default = "default_check_interval")]
   pub check_interval:    i32,
-  /// Jobset state: disabled, enabled, one_shot, or one_at_a_time
+  /// Jobset state: disabled, enabled, `one_shot`, or `one_at_a_time`
   pub state:             Option<String>,
   /// Git branch to track (defaults to repository default branch)
   pub branch:            Option<String>,
