@@ -164,6 +164,26 @@ pub struct BuildDependency {
   pub dependency_build_id: Uuid,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct BuildMetric {
+  pub id:           Uuid,
+  pub build_id:     Uuid,
+  pub metric_name:  String,
+  pub metric_value: f64,
+  pub unit:         String,
+  pub collected_at: DateTime<Utc>,
+}
+
+pub mod metric_names {
+  pub const BUILD_DURATION_SECONDS: &str = "build_duration_seconds";
+  pub const OUTPUT_SIZE_BYTES: &str = "output_size_bytes";
+}
+
+pub mod metric_units {
+  pub const SECONDS: &str = "seconds";
+  pub const BYTES: &str = "bytes";
+}
+
 /// Active jobset view — enabled jobsets joined with project info.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct ActiveJobset {

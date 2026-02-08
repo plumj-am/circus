@@ -1,5 +1,6 @@
 pub mod api_keys;
 pub mod build_dependencies;
+pub mod build_metrics;
 pub mod build_products;
 pub mod build_steps;
 pub mod builds;
