@@ -94,6 +94,7 @@
       features = pkgs.callPackage ./nix/tests/features.nix {inherit self;};
       webhooks = pkgs.callPackage ./nix/tests/webhooks.nix {inherit self;};
       e2e = pkgs.callPackage ./nix/tests/e2e.nix {inherit self;};
+      declarative = pkgs.callPackage ./nix/tests/declarative.nix {inherit self;};
     });
 
     devShells = forAllSystems (system: let
@@ -115,6 +116,20 @@
       };
     });
 
-    formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.alejandra);
+    formatter = forAllSystems (system: let
+      pkgs = nixpkgs.legacyPackages.${system};
+    in
+      pkgs.writeShellApplication {
+        name = "nix3-fmt-wrapper";
+
+        runtimeInputs = [
+          pkgs.alejandra
+          pkgs.fd
+        ];
+
+        text = ''
+          fd "$@" -t f -e nix -x alejandra -q '{}'
+        '';
+      });
   };
 }
