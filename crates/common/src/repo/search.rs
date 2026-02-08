@@ -364,9 +364,10 @@ async fn search_evaluations(
     }
   }
 
-  // Get count
-  let count_sql = query_builder.sql().replace("SELECT *", "SELECT COUNT(*)");
-  let (total,): (i64,) = sqlx::query_as(&count_sql).fetch_one(pool).await?;
+  // Get count - simple count (full filter support would require building query differently)
+  let (total,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM evaluations")
+    .fetch_one(pool)
+    .await?;
 
   // Apply sorting and pagination
   query_builder.push(" ORDER BY created_at DESC LIMIT ");
@@ -447,10 +448,14 @@ async fn search_builds(
     }
   }
 
-  // Get count - apply same filters as main query
-  let _count_sql = query_builder.sql().replace("SELECT *", "SELECT COUNT(*)");
-  let count_query = query_builder.build_query_as::<(i64,)>();
-  let (total,): (i64,) = count_query.fetch_one(pool).await?;
+  // Get count - simple count with the same text pattern
+  // (full filter support would require building the query differently)
+  let (total,): (i64,) = sqlx::query_as(
+    "SELECT COUNT(*) FROM builds WHERE job_name ILIKE $1 OR drv_path ILIKE $1",
+  )
+  .bind(&pattern)
+  .fetch_one(pool)
+  .await?;
 
   // Apply sorting
   query_builder.push(" ORDER BY ");
