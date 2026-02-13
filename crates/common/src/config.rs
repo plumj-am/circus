@@ -118,6 +118,25 @@ pub struct NotificationsConfig {
   pub gitlab_url:   Option<String>,
   pub gitlab_token: Option<String>,
   pub email:        Option<EmailConfig>,
+  pub alerts:       Option<AlertConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AlertConfig {
+  pub enabled:             bool,
+  pub error_threshold:     f64,
+  pub time_window_minutes: i64,
+}
+
+impl Default for AlertConfig {
+  fn default() -> Self {
+    Self {
+      enabled:             false,
+      error_threshold:     20.0,
+      time_window_minutes: 60,
+    }
+  }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -220,8 +239,8 @@ pub struct DeclarativeProject {
 /// Declarative notification configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeclarativeNotification {
-  /// Notification type: `github_status`, email, `gitlab_status`, `gitea_status`,
-  /// `run_command`
+  /// Notification type: `github_status`, email, `gitlab_status`,
+  /// `gitea_status`, `run_command`
   pub notification_type: String,
   /// Type-specific configuration (JSON object)
   pub config:            serde_json::Value,

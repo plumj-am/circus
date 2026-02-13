@@ -1,5 +1,6 @@
 //! Common types and utilities for CI
 
+pub mod alerts;
 pub mod config;
 pub mod database;
 pub mod error;
