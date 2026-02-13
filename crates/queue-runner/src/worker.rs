@@ -215,10 +215,22 @@ async fn sign_outputs(
 }
 
 /// Push output paths to an external binary cache via `nix copy`.
-async fn push_to_cache(output_paths: &[String], store_uri: &str) {
+/// Supports S3 URIs with proper credential handling.
+async fn push_to_cache(
+  output_paths: &[String],
+  store_uri: &str,
+  s3_config: Option<&fc_common::config::S3CacheConfig>,
+) {
+  // Build the full store URI with S3 options if applicable
+  let full_store_uri = if store_uri.starts_with("s3://") {
+    build_s3_store_uri(store_uri, s3_config)
+  } else {
+    store_uri.to_string()
+  };
+
   for path in output_paths {
     let result = tokio::process::Command::new("nix")
-      .args(["copy", "--to", store_uri, path])
+      .args(["copy", "--to", &full_store_uri, path])
       .output()
       .await;
     match result {
@@ -238,6 +250,47 @@ async fn push_to_cache(output_paths: &[String], store_uri: &str) {
       },
     }
   }
+}
+
+/// Build S3 store URI with configuration options.
+/// Nix S3 URIs support query parameters for configuration:
+/// s3://bucket?region=us-east-1&endpoint=https://minio.example.com
+fn build_s3_store_uri(
+  base_uri: &str,
+  config: Option<&fc_common::config::S3CacheConfig>,
+) -> String {
+  let Some(cfg) = config else {
+    return base_uri.to_string();
+  };
+
+  let mut params: Vec<(String, String)> = Vec::new();
+
+  if let Some(region) = &cfg.region {
+    params.push(("region".to_string(), region.clone()));
+  }
+
+  if let Some(endpoint) = &cfg.endpoint_url {
+    params.push(("endpoint".to_string(), endpoint.clone()));
+  }
+
+  if cfg.use_path_style {
+    params.push(("use-path-style".to_string(), "true".to_string()));
+  }
+
+  if params.is_empty() {
+    return base_uri.to_string();
+  }
+
+  // Build URI with query parameters
+  let query = params
+    .iter()
+    .map(|(k, v)| {
+      format!("{}={}", urlencoding::encode(k), urlencoding::encode(v))
+    })
+    .collect::<Vec<_>>()
+    .join("&");
+
+  format!("{}?{}", base_uri, query)
 }
 
 /// Try to run the build on a remote builder if one is available for the build's
@@ -551,7 +604,12 @@ async fn run_build(
         if cache_upload_config.enabled
           && let Some(ref store_uri) = cache_upload_config.store_uri
         {
-          push_to_cache(&build_result.output_paths, store_uri).await;
+          push_to_cache(
+            &build_result.output_paths,
+            store_uri,
+            cache_upload_config.s3.as_ref(),
+          )
+          .await;
         }
 
         let primary_output = build_result

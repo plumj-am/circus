@@ -167,10 +167,55 @@ pub struct SigningConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-#[derive(Default)]
 pub struct CacheUploadConfig {
   pub enabled:   bool,
   pub store_uri: Option<String>,
+  /// S3-specific configuration (used when store_uri starts with s3://)
+  pub s3:        Option<S3CacheConfig>,
+}
+
+/// S3-specific cache configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct S3CacheConfig {
+  /// AWS region (e.g., "us-east-1")
+  pub region:            Option<String>,
+  /// Path prefix within the bucket (e.g., "nix-cache/")
+  pub prefix:            Option<String>,
+  /// AWS access key ID (optional - uses IAM role if not provided)
+  pub access_key_id:     Option<String>,
+  /// AWS secret access key (optional - uses IAM role if not provided)
+  pub secret_access_key: Option<String>,
+  /// Session token for temporary credentials (optional)
+  pub session_token:     Option<String>,
+  /// Endpoint URL for S3-compatible services (e.g., MinIO)
+  pub endpoint_url:      Option<String>,
+  /// Whether to use path-style addressing (for MinIO compatibility)
+  pub use_path_style:    bool,
+}
+
+impl Default for S3CacheConfig {
+  fn default() -> Self {
+    Self {
+      region:            None,
+      prefix:            None,
+      access_key_id:     None,
+      secret_access_key: None,
+      session_token:     None,
+      endpoint_url:      None,
+      use_path_style:    false,
+    }
+  }
+}
+
+impl Default for CacheUploadConfig {
+  fn default() -> Self {
+    Self {
+      enabled:   false,
+      store_uri: None,
+      s3:        None,
+    }
+  }
 }
 
 /// Declarative project/jobset/api-key/user definitions.
