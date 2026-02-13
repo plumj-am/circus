@@ -1,7 +1,9 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use fc_common::{
+  alerts::AlertManager,
   config::{
+    AlertConfig,
     CacheUploadConfig,
     GcConfig,
     LogConfig,
@@ -10,7 +12,14 @@ use fc_common::{
   },
   gc_roots::GcRoots,
   log_storage::LogStorage,
-  models::{Build, BuildStatus, CreateBuildProduct, CreateBuildStep},
+  models::{
+    Build,
+    BuildStatus,
+    CreateBuildProduct,
+    CreateBuildStep,
+    metric_names,
+    metric_units,
+  },
   repo,
 };
 use sqlx::PgPool;
@@ -26,6 +35,7 @@ pub struct WorkerPool {
   notifications_config: Arc<NotificationsConfig>,
   signing_config:       Arc<SigningConfig>,
   cache_upload_config:  Arc<CacheUploadConfig>,
+  alert_manager:        Arc<Option<AlertManager>>,
   drain_token:          tokio_util::sync::CancellationToken,
 }
 
@@ -42,7 +52,9 @@ impl WorkerPool {
     notifications_config: NotificationsConfig,
     signing_config: SigningConfig,
     cache_upload_config: CacheUploadConfig,
+    alert_config: Option<AlertConfig>,
   ) -> Self {
+    let alert_manager = alert_config.map(AlertManager::new);
     Self {
       semaphore: Arc::new(Semaphore::new(workers)),
       pool: db_pool,
@@ -53,6 +65,7 @@ impl WorkerPool {
       notifications_config: Arc::new(notifications_config),
       signing_config: Arc::new(signing_config),
       cache_upload_config: Arc::new(cache_upload_config),
+      alert_manager: Arc::new(alert_manager),
       drain_token: tokio_util::sync::CancellationToken::new(),
     }
   }
@@ -96,6 +109,7 @@ impl WorkerPool {
     let notifications_config = self.notifications_config.clone();
     let signing_config = self.signing_config.clone();
     let cache_upload_config = self.cache_upload_config.clone();
+    let alert_manager = self.alert_manager.clone();
 
     tokio::spawn(async move {
       let _permit = match semaphore.acquire().await {
@@ -113,6 +127,7 @@ impl WorkerPool {
         &notifications_config,
         &signing_config,
         &cache_upload_config,
+        &alert_manager,
       )
       .await
       {
@@ -278,6 +293,68 @@ async fn try_remote_build(
   None
 }
 
+async fn collect_metrics_and_alert(
+  pool: &PgPool,
+  build: &Build,
+  output_paths: &[String],
+  alert_manager: &Option<AlertManager>,
+) {
+  if let (Some(started), Some(completed)) =
+    (build.started_at, build.completed_at)
+  {
+    let duration = completed.signed_duration_since(started);
+    let duration_secs = duration.num_seconds() as f64;
+
+    if let Err(e) = repo::build_metrics::upsert(
+      pool,
+      build.id,
+      metric_names::BUILD_DURATION_SECONDS,
+      duration_secs,
+      metric_units::SECONDS,
+    )
+    .await
+    {
+      tracing::warn!("Failed to save build duration metric: {}", e);
+    }
+  }
+
+  for path in output_paths.iter() {
+    if let Ok(meta) = tokio::fs::metadata(path).await {
+      let size = meta.len();
+      if let Err(e) = repo::build_metrics::upsert(
+        pool,
+        build.id,
+        metric_names::OUTPUT_SIZE_BYTES,
+        size as f64,
+        metric_units::BYTES,
+      )
+      .await
+      {
+        tracing::warn!("Failed to save output size metric: {}", e);
+        continue;
+      }
+      break;
+    }
+  }
+
+  let manager = match alert_manager {
+    Some(m) => m,
+    None => return,
+  };
+
+  if manager.is_enabled() {
+    if let Ok(evaluation) =
+      repo::evaluations::get(pool, build.evaluation_id).await
+    {
+      if let Ok(jobset) = repo::jobsets::get(pool, evaluation.jobset_id).await {
+        let _ = manager
+          .check_and_alert(pool, Some(jobset.project_id), Some(jobset.id))
+          .await;
+      }
+    }
+  }
+}
+
 #[tracing::instrument(skip(pool, build, work_dir, log_config, gc_config, notifications_config, signing_config, cache_upload_config), fields(build_id = %build.id, job = %build.job_name))]
 #[allow(clippy::too_many_arguments)]
 async fn run_build(
@@ -290,6 +367,7 @@ async fn run_build(
   notifications_config: &NotificationsConfig,
   signing_config: &SigningConfig,
   cache_upload_config: &CacheUploadConfig,
+  alert_manager: &Option<AlertManager>,
 ) -> anyhow::Result<()> {
   // Atomically claim the build
   let claimed = repo::builds::start(pool, build.id).await?;
@@ -490,6 +568,14 @@ async fn run_build(
           None,
         )
         .await?;
+
+        collect_metrics_and_alert(
+          pool,
+          &build,
+          &build_result.output_paths,
+          &alert_manager,
+        )
+        .await;
 
         tracing::info!(build_id = %build.id, "Build completed successfully");
       } else {

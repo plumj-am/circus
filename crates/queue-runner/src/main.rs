@@ -52,9 +52,10 @@ async fn main() -> anyhow::Result<()> {
     build_timeout,
     log_config,
     gc_config,
-    notifications_config,
+    notifications_config.clone(),
     signing_config,
     cache_upload_config,
+    notifications_config.alerts.clone(),
   ));
 
   tracing::info!(

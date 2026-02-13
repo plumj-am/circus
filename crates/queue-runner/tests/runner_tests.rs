@@ -2,7 +2,7 @@
 //! Nix log parsing tests require no external binaries.
 //! Database tests require TEST_DATABASE_URL.
 
-// --- Nix log line parsing ---
+// Nix log line parsing
 
 #[test]
 fn test_parse_nix_log_start() {
@@ -60,7 +60,7 @@ fn test_parse_nix_log_empty_line() {
   assert!(result.is_none());
 }
 
-// --- WorkerPool drain ---
+// WorkerPool drain
 
 #[tokio::test]
 async fn test_worker_pool_drain_stops_dispatch() {
@@ -89,6 +89,7 @@ async fn test_worker_pool_drain_stops_dispatch() {
     fc_common::config::NotificationsConfig::default(),
     fc_common::config::SigningConfig::default(),
     fc_common::config::CacheUploadConfig::default(),
+    None,
   );
 
   // Drain should not panic
@@ -99,7 +100,7 @@ async fn test_worker_pool_drain_stops_dispatch() {
   // doesn't crash
 }
 
-// --- Database-dependent tests ---
+// Database-dependent tests
 
 #[tokio::test]
 async fn test_atomic_build_claiming() {
@@ -273,6 +274,7 @@ async fn test_orphan_build_reset() {
 
   // Simulate the build being stuck for a while by manually backdating
   // started_at
+  // Truly a genius way to test.
   sqlx::query(
     "UPDATE builds SET started_at = NOW() - INTERVAL '10 minutes' WHERE id = \
      $1",
