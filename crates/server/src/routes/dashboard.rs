@@ -423,6 +423,13 @@ struct StarredTemplate {
   auth_name:    String,
 }
 
+#[derive(Template)]
+#[template(path = "metrics.html")]
+struct MetricsTemplate {
+  is_admin:  bool,
+  auth_name: String,
+}
+
 // --- Handlers ---
 
 async fn home(
@@ -1565,6 +1572,18 @@ async fn starred_page(
   )
 }
 
+async fn metrics_page(extensions: Extensions) -> Html<String> {
+  let tmpl = MetricsTemplate {
+    is_admin:  is_admin(&extensions),
+    auth_name: auth_name(&extensions),
+  };
+  Html(
+    tmpl
+      .render()
+      .unwrap_or_else(|e| format!("Template error: {e}")),
+  )
+}
+
 pub fn router() -> Router<AppState> {
   Router::new()
     .route("/login", get(login_page).post(login_action))
@@ -1583,4 +1602,5 @@ pub fn router() -> Router<AppState> {
     .route("/admin", get(admin_page))
     .route("/users", get(users_page))
     .route("/starred", get(starred_page))
+    .route("/metrics", get(metrics_page))
 }
