@@ -1,12 +1,58 @@
 use axum::{
   Router,
-  extract::State,
+  extract::{Query, State},
   http::StatusCode,
   response::{IntoResponse, Response},
   routing::get,
 };
+use serde::Deserialize;
+use uuid::Uuid;
 
 use crate::state::AppState;
+
+/// Query parameters for timeseries data
+#[derive(Debug, Deserialize)]
+struct TimeseriesQuery {
+  project_id: Option<Uuid>,
+  jobset_id:  Option<Uuid>,
+  #[serde(default = "default_hours")]
+  hours:      i32,
+  #[serde(default = "default_bucket")]
+  bucket:     i32,
+}
+
+fn default_hours() -> i32 {
+  24
+}
+
+fn default_bucket() -> i32 {
+  60
+}
+
+/// Response type for build stats timeseries
+#[derive(serde::Serialize)]
+struct BuildStatsResponse {
+  timestamps:   Vec<String>,
+  total:        Vec<i64>,
+  failed:       Vec<i64>,
+  avg_duration: Vec<Option<f64>>,
+}
+
+/// Response type for duration percentiles
+#[derive(serde::Serialize)]
+struct DurationPercentilesResponse {
+  timestamps: Vec<String>,
+  p50:        Vec<Option<f64>>,
+  p95:        Vec<Option<f64>>,
+  p99:        Vec<Option<f64>>,
+}
+
+/// Response type for system distribution
+#[derive(serde::Serialize)]
+struct SystemDistributionResponse {
+  systems: Vec<String>,
+  counts:  Vec<i64>,
+}
 
 async fn prometheus_metrics(State(state): State<AppState>) -> Response {
   let stats = match fc_common::repo::builds::get_stats(&state.pool).await {
@@ -193,6 +239,107 @@ async fn prometheus_metrics(State(state): State<AppState>) -> Response {
     .into_response()
 }
 
+/// Get build statistics timeseries data for visualization
+async fn build_stats_timeseries(
+  State(state): State<AppState>,
+  Query(params): Query<TimeseriesQuery>,
+) -> Response {
+  match fc_common::repo::build_metrics::get_build_stats_timeseries(
+    &state.pool,
+    params.project_id,
+    params.jobset_id,
+    params.hours,
+    params.bucket,
+  )
+  .await
+  {
+    Ok(buckets) => {
+      let response = BuildStatsResponse {
+        timestamps:   buckets
+          .iter()
+          .map(|b| b.bucket_time.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+          .collect(),
+        total:        buckets.iter().map(|b| b.total_builds).collect(),
+        failed:       buckets.iter().map(|b| b.failed_builds).collect(),
+        avg_duration: buckets.iter().map(|b| b.avg_duration).collect(),
+      };
+      (StatusCode::OK, axum::Json(response)).into_response()
+    },
+    Err(e) => {
+      tracing::error!("Failed to fetch build stats timeseries: {e}");
+      StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    },
+  }
+}
+
+/// Get duration percentile timeseries data
+async fn duration_percentiles_timeseries(
+  State(state): State<AppState>,
+  Query(params): Query<TimeseriesQuery>,
+) -> Response {
+  match fc_common::repo::build_metrics::get_duration_percentiles_timeseries(
+    &state.pool,
+    params.project_id,
+    params.jobset_id,
+    params.hours,
+    params.bucket,
+  )
+  .await
+  {
+    Ok(buckets) => {
+      let response = DurationPercentilesResponse {
+        timestamps: buckets
+          .iter()
+          .map(|b| b.bucket_time.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+          .collect(),
+        p50:        buckets.iter().map(|b| b.p50).collect(),
+        p95:        buckets.iter().map(|b| b.p95).collect(),
+        p99:        buckets.iter().map(|b| b.p99).collect(),
+      };
+      (StatusCode::OK, axum::Json(response)).into_response()
+    },
+    Err(e) => {
+      tracing::error!("Failed to fetch duration percentiles: {e}");
+      StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    },
+  }
+}
+
+/// Get system distribution data
+async fn system_distribution(
+  State(state): State<AppState>,
+  Query(params): Query<TimeseriesQuery>,
+) -> Response {
+  match fc_common::repo::build_metrics::get_system_distribution(
+    &state.pool,
+    params.project_id,
+    params.hours,
+  )
+  .await
+  {
+    Ok(distribution) => {
+      let (systems, counts): (Vec<String>, Vec<i64>) =
+        distribution.into_iter().unzip();
+      let response = SystemDistributionResponse { systems, counts };
+      (StatusCode::OK, axum::Json(response)).into_response()
+    },
+    Err(e) => {
+      tracing::error!("Failed to fetch system distribution: {e}");
+      StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    },
+  }
+}
+
 pub fn router() -> Router<AppState> {
-  Router::new().route("/metrics", get(prometheus_metrics))
+  Router::new()
+    .route("/prometheus", get(prometheus_metrics))
+    .route(
+      "/api/v1/metrics/timeseries/builds",
+      get(build_stats_timeseries),
+    )
+    .route(
+      "/api/v1/metrics/timeseries/duration",
+      get(duration_percentiles_timeseries),
+    )
+    .route("/api/v1/metrics/systems", get(system_distribution))
 }
