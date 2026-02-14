@@ -54,6 +54,15 @@ struct SystemDistributionResponse {
   counts:  Vec<i64>,
 }
 
+/// Escape a string for use as a Prometheus label value.
+/// Per the exposition format, backslash, double-quote, and newline must be
+/// escaped.
+fn escape_prometheus_label(s: &str) -> String {
+  s.replace('\\', "\\\\")
+    .replace('"', "\\\"")
+    .replace('\n', "\\n")
+}
+
 async fn prometheus_metrics(State(state): State<AppState>) -> Response {
   let stats = match fc_common::repo::builds::get_stats(&state.pool).await {
     Ok(s) => s,
@@ -216,8 +225,9 @@ async fn prometheus_metrics(State(state): State<AppState>) -> Response {
     );
     output.push_str("# TYPE fc_project_builds_completed gauge\n");
     for (name, completed, _) in &per_project {
+      let escaped = escape_prometheus_label(name);
       output.push_str(&format!(
-        "fc_project_builds_completed{{project=\"{name}\"}} {completed}\n"
+        "fc_project_builds_completed{{project=\"{escaped}\"}} {completed}\n"
       ));
     }
     output.push_str(
@@ -225,8 +235,9 @@ async fn prometheus_metrics(State(state): State<AppState>) -> Response {
     );
     output.push_str("# TYPE fc_project_builds_failed gauge\n");
     for (name, _, failed) in &per_project {
+      let escaped = escape_prometheus_label(name);
       output.push_str(&format!(
-        "fc_project_builds_failed{{project=\"{name}\"}} {failed}\n"
+        "fc_project_builds_failed{{project=\"{escaped}\"}} {failed}\n"
       ));
     }
   }

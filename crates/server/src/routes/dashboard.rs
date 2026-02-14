@@ -3,7 +3,7 @@ use axum::{
   Form,
   Router,
   extract::{Path, Query, State},
-  http::Extensions,
+  http::{Extensions, StatusCode},
   response::{Html, IntoResponse, Redirect, Response},
   routing::get,
 };
@@ -1271,12 +1271,15 @@ async fn login_action(
       let tmpl = LoginTemplate {
         error: Some("Invalid username or password".to_string()),
       };
-      return Html(
-        tmpl
-          .render()
-          .unwrap_or_else(|e| format!("Template error: {e}")),
+      return (
+        StatusCode::UNAUTHORIZED,
+        Html(
+          tmpl
+            .render()
+            .unwrap_or_else(|e| format!("Template error: {e}")),
+        ),
       )
-      .into_response();
+        .into_response();
     }
   }
 

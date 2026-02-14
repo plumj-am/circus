@@ -138,12 +138,14 @@ pkgs.testers.nixosTest {
     with subtest("Builds list with combined filters returns 200"):
         machine.succeed("curl -sf 'http://127.0.0.1:3000/api/v1/builds?system=x86_64-linux&status=pending&job_name=test' | jq '.items'")
 
-    # Metrics endpoint
-    with subtest("Metrics endpoint returns prometheus format"):
-        result = machine.succeed("curl -sf http://127.0.0.1:3000/metrics")
-        assert "fc_builds_total" in result, "Missing fc_builds_total in metrics"
-        assert "fc_projects_total" in result, "Missing fc_projects_total in metrics"
-        assert "fc_evaluations_total" in result, "Missing fc_evaluations_total in metrics"
+    # Prometheus endpoint
+    with subtest("Prometheus endpoint returns prometheus format"):
+        result = machine.succeed("curl -sf http://127.0.0.1:3000/prometheus")
+        machine.succeed(f"echo '{result[:1000]}' > /tmp/metrics.txt")
+        machine.succeed("echo 'PROMETHEUS OUTPUT:' && cat /tmp/metrics.txt")
+        assert "fc_builds_total" in result, f"Missing fc_builds_total. Got: {result[:300]}"
+        assert "fc_projects_total" in result, "Missing fc_projects_total in prometheus metrics"
+        assert "fc_evaluations_total" in result, "Missing fc_evaluations_total in prometheus metrics"
 
     # CORS: default restrictive (no Access-Control-Allow-Origin for cross-origin)
     with subtest("Default CORS does not allow arbitrary origins"):

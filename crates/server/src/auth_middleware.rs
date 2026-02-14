@@ -198,14 +198,36 @@ impl RequireRoles {
 }
 
 /// Session extraction middleware for dashboard routes.
-/// Reads `fc_user_session` or `fc_session` cookie and inserts User/ApiKey into
-/// extensions if valid.
+/// Reads `fc_user_session` or `fc_session` cookie, or Bearer token (API key),
+/// and inserts User/ApiKey into extensions if valid.
 pub async fn extract_session(
   State(state): State<AppState>,
   mut request: Request,
   next: Next,
 ) -> Response {
-  // Extract cookie header first, then clone to end the borrow
+  // Try Bearer token first (API key auth)
+  let auth_header = request
+    .headers()
+    .get("authorization")
+    .and_then(|v| v.to_str().ok())
+    .map(String::from);
+
+  if let Some(ref auth_header) = auth_header {
+    if let Some(token) = auth_header.strip_prefix("Bearer ") {
+      use sha2::{Digest, Sha256};
+      let mut hasher = Sha256::new();
+      hasher.update(token.as_bytes());
+      let key_hash = hex::encode(hasher.finalize());
+
+      if let Ok(Some(api_key)) =
+        fc_common::repo::api_keys::get_by_hash(&state.pool, &key_hash).await
+      {
+        request.extensions_mut().insert(api_key.clone());
+      }
+    }
+  }
+
+  // Extract cookie header next
   let cookie_header = request
     .headers()
     .get("cookie")

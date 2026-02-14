@@ -27,6 +27,7 @@ use tokio::sync::Semaphore;
 
 pub struct WorkerPool {
   semaphore:            Arc<Semaphore>,
+  worker_count:         usize,
   pool:                 PgPool,
   work_dir:             Arc<PathBuf>,
   build_timeout:        Duration,
@@ -57,6 +58,7 @@ impl WorkerPool {
     let alert_manager = alert_config.map(AlertManager::new);
     Self {
       semaphore: Arc::new(Semaphore::new(workers)),
+      worker_count: workers,
       pool: db_pool,
       work_dir: Arc::new(work_dir),
       build_timeout,
@@ -79,7 +81,7 @@ impl WorkerPool {
   /// Wait until all in-flight builds complete (semaphore fully available).
   pub async fn wait_for_drain(&self) {
     // Acquire all permits = all workers idle
-    let workers = self.semaphore.available_permits() + 1; // at least 1
+    let workers = self.worker_count;
     let _ = tokio::time::timeout(
       Duration::from_secs(self.build_timeout.as_secs() + 60),
       async {
@@ -645,6 +647,11 @@ async fn run_build(
               max = build.max_retries,
               "Build failed, scheduling retry"
           );
+          // Clean up old build steps before retry
+          sqlx::query("DELETE FROM build_steps WHERE build_id = $1")
+            .bind(build.id)
+            .execute(pool)
+            .await?;
           sqlx::query(
             "UPDATE builds SET status = 'pending', started_at = NULL, \
              retry_count = retry_count + 1, completed_at = NULL WHERE id = $1",

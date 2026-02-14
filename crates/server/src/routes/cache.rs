@@ -10,6 +10,54 @@ use tokio::process::Command;
 
 use crate::{error::ApiError, state::AppState};
 
+/// Extract the first path info entry from `nix path-info --json` output,
+/// handling both the old array format (`[{"path":...}]`) and the new
+/// object-keyed format (`{"/nix/store/...": {...}}`).
+fn first_path_info_entry(
+  parsed: &serde_json::Value,
+) -> Option<(&serde_json::Value, Option<&str>)> {
+  if let Some(arr) = parsed.as_array() {
+    let entry = arr.first()?;
+    let path = entry.get("path").and_then(|v| v.as_str());
+    Some((entry, path))
+  } else if let Some(obj) = parsed.as_object() {
+    let (key, val) = obj.iter().next()?;
+    Some((val, Some(key.as_str())))
+  } else {
+    None
+  }
+}
+
+/// Look up a store path by its nix hash, checking both build_products and
+/// builds tables.
+async fn find_store_path(
+  pool: &sqlx::PgPool,
+  hash: &str,
+) -> std::result::Result<Option<String>, ApiError> {
+  let like_pattern = format!("/nix/store/{hash}-%");
+
+  let path: Option<String> = sqlx::query_scalar(
+    "SELECT path FROM build_products WHERE path LIKE $1 LIMIT 1",
+  )
+  .bind(&like_pattern)
+  .fetch_optional(pool)
+  .await
+  .map_err(|e| ApiError(fc_common::CiError::Database(e)))?;
+
+  if path.is_some() {
+    return Ok(path);
+  }
+
+  sqlx::query_scalar(
+    "SELECT build_output_path FROM builds WHERE build_output_path LIKE $1 \
+     LIMIT 1",
+  )
+  .bind(&like_pattern)
+  .fetch_optional(pool)
+  .await
+  .map_err(|e| ApiError(fc_common::CiError::Database(e)))
+}
+
 /// Serve `NARInfo` for a store path hash.
 /// GET /nix-cache/{hash}.narinfo
 async fn narinfo(
@@ -27,27 +75,14 @@ async fn narinfo(
     return Ok(StatusCode::NOT_FOUND.into_response());
   }
 
-  // Look up the store path from build_products by matching the hash prefix
-  let product = sqlx::query_as::<_, fc_common::models::BuildProduct>(
-    "SELECT * FROM build_products WHERE path LIKE $1 LIMIT 1",
-  )
-  .bind(format!("/nix/store/{hash}-%"))
-  .fetch_optional(&state.pool)
-  .await
-  .map_err(|e| ApiError(fc_common::CiError::Database(e)))?;
-
-  let product = match product {
-    Some(p) => p,
-    None => return Ok(StatusCode::NOT_FOUND.into_response()),
+  let store_path = match find_store_path(&state.pool, hash).await? {
+    Some(p) if fc_common::validate::is_valid_store_path(&p) => p,
+    _ => return Ok(StatusCode::NOT_FOUND.into_response()),
   };
-
-  if !fc_common::validate::is_valid_store_path(&product.path) {
-    return Ok(StatusCode::NOT_FOUND.into_response());
-  }
 
   // Get narinfo from nix path-info
   let output = Command::new("nix")
-    .args(["path-info", "--json", &product.path])
+    .args(["path-info", "--json", &store_path])
     .output()
     .await;
 
@@ -62,7 +97,7 @@ async fn narinfo(
     Err(_) => return Ok(StatusCode::NOT_FOUND.into_response()),
   };
 
-  let entry = match parsed.as_array().and_then(|a| a.first()) {
+  let (entry, path_from_info) = match first_path_info_entry(&parsed) {
     Some(e) => e,
     None => return Ok(StatusCode::NOT_FOUND.into_response()),
   };
@@ -72,10 +107,7 @@ async fn narinfo(
     .get("narSize")
     .and_then(serde_json::Value::as_u64)
     .unwrap_or(0);
-  let store_path = entry
-    .get("path")
-    .and_then(|v| v.as_str())
-    .unwrap_or(&product.path);
+  let store_path = path_from_info.unwrap_or(&store_path);
 
   let refs: Vec<&str> = entry
     .get("references")
@@ -174,11 +206,8 @@ async fn sign_narinfo(narinfo: &str, key_file: &std::path::Path) -> String {
       if let Ok(o) = re_output
         && let Ok(parsed) =
           serde_json::from_slice::<serde_json::Value>(&o.stdout)
-        && let Some(sigs) = parsed
-          .as_array()
-          .and_then(|a| a.first())
-          .and_then(|e| e.get("signatures"))
-          .and_then(|v| v.as_array())
+        && let Some((entry, _)) = first_path_info_entry(&parsed)
+        && let Some(sigs) = entry.get("signatures").and_then(|v| v.as_array())
       {
         let sig_lines: Vec<String> = sigs
           .iter()
@@ -214,26 +243,14 @@ async fn serve_nar_zst(
     return Ok(StatusCode::NOT_FOUND.into_response());
   }
 
-  let product = sqlx::query_as::<_, fc_common::models::BuildProduct>(
-    "SELECT * FROM build_products WHERE path LIKE $1 LIMIT 1",
-  )
-  .bind(format!("/nix/store/{hash}-%"))
-  .fetch_optional(&state.pool)
-  .await
-  .map_err(|e| ApiError(fc_common::CiError::Database(e)))?;
-
-  let product = match product {
-    Some(p) => p,
-    None => return Ok(StatusCode::NOT_FOUND.into_response()),
+  let store_path = match find_store_path(&state.pool, hash).await? {
+    Some(p) if fc_common::validate::is_valid_store_path(&p) => p,
+    _ => return Ok(StatusCode::NOT_FOUND.into_response()),
   };
-
-  if !fc_common::validate::is_valid_store_path(&product.path) {
-    return Ok(StatusCode::NOT_FOUND.into_response());
-  }
 
   // Use two piped processes instead of sh -c to prevent command injection
   let mut nix_child = std::process::Command::new("nix")
-    .args(["store", "dump-path", &product.path])
+    .args(["store", "dump-path", &store_path])
     .stdout(std::process::Stdio::piped())
     .stderr(std::process::Stdio::null())
     .spawn()
@@ -290,25 +307,13 @@ async fn serve_nar(
     return Ok(StatusCode::NOT_FOUND.into_response());
   }
 
-  let product = sqlx::query_as::<_, fc_common::models::BuildProduct>(
-    "SELECT * FROM build_products WHERE path LIKE $1 LIMIT 1",
-  )
-  .bind(format!("/nix/store/{hash}-%"))
-  .fetch_optional(&state.pool)
-  .await
-  .map_err(|e| ApiError(fc_common::CiError::Database(e)))?;
-
-  let product = match product {
-    Some(p) => p,
-    None => return Ok(StatusCode::NOT_FOUND.into_response()),
+  let store_path = match find_store_path(&state.pool, hash).await? {
+    Some(p) if fc_common::validate::is_valid_store_path(&p) => p,
+    _ => return Ok(StatusCode::NOT_FOUND.into_response()),
   };
 
-  if !fc_common::validate::is_valid_store_path(&product.path) {
-    return Ok(StatusCode::NOT_FOUND.into_response());
-  }
-
   let child = Command::new("nix")
-    .args(["store", "dump-path", &product.path])
+    .args(["store", "dump-path", &store_path])
     .stdout(std::process::Stdio::piped())
     .stderr(std::process::Stdio::null())
     .spawn();

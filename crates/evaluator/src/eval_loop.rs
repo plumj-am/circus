@@ -1,9 +1,10 @@
 use std::{collections::HashMap, time::Duration};
 
+use anyhow::Context;
 use chrono::Utc;
 use fc_common::{
   config::EvaluatorConfig,
-  error::check_disk_space,
+  error::{CiError, check_disk_space},
   models::{
     CreateBuild,
     CreateEvaluation,
@@ -15,6 +16,7 @@ use fc_common::{
 };
 use futures::stream::{self, StreamExt};
 use sqlx::PgPool;
+use tracing::info;
 use uuid::Uuid;
 
 pub async fn run(pool: PgPool, config: EvaluatorConfig) -> anyhow::Result<()> {
@@ -172,7 +174,33 @@ async fn evaluate_jobset(
         "Inputs unchanged (hash: {}), skipping evaluation",
         &inputs_hash[..16],
     );
-    return Ok(());
+    // Create evaluation record even when skipped so system tracks this check
+    // Handle duplicate key conflict gracefully (another evaluator may have
+    // created it) - fall through to process existing evaluation instead of
+    // skipping
+    if let Err(e) = repo::evaluations::create(pool, CreateEvaluation {
+      jobset_id:      jobset.id,
+      commit_hash:    commit_hash.clone(),
+      pr_number:      None,
+      pr_head_branch: None,
+      pr_base_branch: None,
+      pr_action:      None,
+    })
+    .await
+    {
+      if !matches!(e, CiError::Conflict(_)) {
+        return Err(e.into());
+      }
+      tracing::info!(
+          jobset = %jobset.name,
+          commit = %commit_hash,
+          "Evaluation already exists (concurrent creation in inputs_hash path), will process"
+      );
+    } else {
+      // Successfully created new evaluation, can skip
+      repo::jobsets::update_last_checked(pool, jobset.id).await?;
+      return Ok(());
+    }
   }
 
   // Also skip if commit hasn't changed (backward compat)
@@ -183,9 +211,114 @@ async fn evaluate_jobset(
     tracing::debug!(
         jobset = %jobset.name,
         commit = %commit_hash,
-        "Already evaluated, skipping"
+        "Inputs unchanged (hash: {}), skipping evaluation",
+        &inputs_hash[..16],
     );
-    return Ok(());
+    // Create evaluation record even when skipped so system tracks this check
+    // Handle duplicate key conflict gracefully (another evaluator may have
+    // created it) - fall through to process existing evaluation instead of
+    // skipping
+    if let Err(e) = repo::evaluations::create(pool, CreateEvaluation {
+      jobset_id:      jobset.id,
+      commit_hash:    commit_hash.clone(),
+      pr_number:      None,
+      pr_head_branch: None,
+      pr_base_branch: None,
+      pr_action:      None,
+    })
+    .await
+    {
+      if !matches!(e, CiError::Conflict(_)) {
+        return Err(e.into());
+      }
+      tracing::info!(
+          jobset = %jobset.name,
+          commit = %commit_hash,
+          "Evaluation already exists (concurrent creation in commit path), will process"
+      );
+      let existing = repo::evaluations::get_by_jobset_and_commit(
+        pool,
+        jobset.id,
+        &commit_hash,
+      )
+      .await?
+      .ok_or_else(|| {
+        anyhow::anyhow!(
+          "Evaluation conflict but not found: {}/{}",
+          jobset.id,
+          commit_hash
+        )
+      })?;
+
+      if existing.status == EvaluationStatus::Completed {
+        // Check if we need to re-evaluate due to no builds
+        let builds =
+          repo::builds::list_for_evaluation(pool, existing.id).await?;
+        if builds.is_empty() {
+          info!(
+            "Evaluation completed with 0 builds, re-running nix evaluation \
+             jobset={} commit={}",
+            jobset.name, commit_hash
+          );
+          // Update existing evaluation status to Running
+          repo::evaluations::update_status(
+            pool,
+            existing.id,
+            EvaluationStatus::Running,
+            None,
+          )
+          .await?;
+          // Use existing evaluation instead of creating new one
+          let eval = existing;
+          // Run nix evaluation and create builds from the result
+          let eval_result = crate::nix::evaluate(
+            &repo_path,
+            &jobset.nix_expression,
+            jobset.flake_mode,
+            nix_timeout,
+            config,
+            &inputs,
+          )
+          .await?;
+
+          create_builds_from_eval(pool, eval.id, &eval_result).await?;
+
+          repo::evaluations::update_status(
+            pool,
+            eval.id,
+            EvaluationStatus::Completed,
+            None,
+          )
+          .await?;
+
+          repo::jobsets::update_last_checked(pool, jobset.id).await?;
+          return Ok(());
+        } else {
+          info!(
+            "Evaluation already completed with {} builds, skipping nix \
+             evaluation jobset={} commit={}",
+            builds.len(),
+            jobset.name,
+            commit_hash
+          );
+          repo::jobsets::update_last_checked(pool, jobset.id).await?;
+          return Ok(());
+        }
+      }
+
+      // Existing evaluation is pending or running, update status and continue
+      repo::evaluations::update_status(
+        pool,
+        existing.id,
+        EvaluationStatus::Running,
+        None,
+      )
+      .await?;
+    } else {
+      // Successfully created new evaluation, can skip
+      repo::jobsets::update_last_checked(pool, jobset.id).await?;
+      return Ok(());
+    }
   }
 
   tracing::info!(
@@ -194,8 +327,9 @@ async fn evaluate_jobset(
       "Starting evaluation"
   );
 
-  // Create evaluation record
-  let eval = repo::evaluations::create(pool, CreateEvaluation {
+  // Create evaluation record. If it already exists (race condition), fetch the
+  // existing one and continue. Only update status if it's still pending.
+  let eval = match repo::evaluations::create(pool, CreateEvaluation {
     jobset_id:      jobset.id,
     commit_hash:    commit_hash.clone(),
     pr_number:      None,
@@ -203,16 +337,72 @@ async fn evaluate_jobset(
     pr_base_branch: None,
     pr_action:      None,
   })
-  .await?;
+  .await
+  {
+    Ok(eval) => eval,
+    Err(CiError::Conflict(_)) => {
+      tracing::info!(
+          jobset = %jobset.name,
+          commit = %commit_hash,
+          "Evaluation already exists (conflict), fetching existing record"
+      );
+      let existing = repo::evaluations::get_by_jobset_and_commit(
+        pool,
+        jobset.id,
+        &commit_hash,
+      )
+      .await?
+      .ok_or_else(|| {
+        anyhow::anyhow!(
+          "Evaluation conflict but not found: {}/{}",
+          jobset.id,
+          commit_hash
+        )
+      })?;
 
-  // Mark as running and set inputs hash
-  repo::evaluations::update_status(
-    pool,
-    eval.id,
-    EvaluationStatus::Running,
-    None,
-  )
-  .await?;
+      if existing.status == EvaluationStatus::Pending {
+        repo::evaluations::update_status(
+          pool,
+          existing.id,
+          EvaluationStatus::Running,
+          None,
+        )
+        .await?;
+      } else if existing.status == EvaluationStatus::Completed {
+        let build_count = repo::builds::count_filtered(
+          pool,
+          Some(existing.id),
+          None,
+          None,
+          None,
+        )
+        .await?;
+
+        if build_count > 0 {
+          info!(
+            "Evaluation already completed with {} builds, skipping nix \
+             evaluation jobset={} commit={}",
+            build_count, jobset.name, commit_hash
+          );
+          return Ok(());
+        } else {
+          info!(
+            "Evaluation completed but has 0 builds, re-running nix evaluation \
+             jobset={} commit={}",
+            jobset.name, commit_hash
+          );
+        }
+      }
+      existing
+    },
+    Err(e) => {
+      return Err(anyhow::anyhow!(e)).with_context(|| {
+        format!("failed to create evaluation for jobset {}", jobset.name)
+      });
+    },
+  };
+
+  // Set inputs hash (only needed for new evaluations, not existing ones)
   let _ = repo::evaluations::set_inputs_hash(pool, eval.id, &inputs_hash).await;
 
   // Check for declarative config in repo
@@ -230,6 +420,7 @@ async fn evaluate_jobset(
   .await
   {
     Ok(eval_result) => {
+      tracing::debug!(jobset = %jobset.name, job_count = eval_result.jobs.len(), "Nix evaluation returned");
       tracing::info!(
           jobset = %jobset.name,
           count = eval_result.jobs.len(),
@@ -237,70 +428,7 @@ async fn evaluate_jobset(
           "Evaluation discovered jobs"
       );
 
-      // Create build records, tracking drv_path -> build_id for dependency
-      // resolution
-      let mut drv_to_build: HashMap<String, Uuid> = HashMap::new();
-      let mut name_to_build: HashMap<String, Uuid> = HashMap::new();
-
-      for job in &eval_result.jobs {
-        let outputs_json = job
-          .outputs
-          .as_ref()
-          .map(|o| serde_json::to_value(o).unwrap_or_default());
-        let constituents_json = job
-          .constituents
-          .as_ref()
-          .map(|c| serde_json::to_value(c).unwrap_or_default());
-        let is_aggregate = job.constituents.is_some();
-
-        let build = repo::builds::create(pool, CreateBuild {
-          evaluation_id: eval.id,
-          job_name:      job.name.clone(),
-          drv_path:      job.drv_path.clone(),
-          system:        job.system.clone(),
-          outputs:       outputs_json,
-          is_aggregate:  Some(is_aggregate),
-          constituents:  constituents_json,
-        })
-        .await?;
-
-        drv_to_build.insert(job.drv_path.clone(), build.id);
-        name_to_build.insert(job.name.clone(), build.id);
-      }
-
-      // Resolve dependencies
-      for job in &eval_result.jobs {
-        let build_id = match drv_to_build.get(&job.drv_path) {
-          Some(id) => *id,
-          None => continue,
-        };
-
-        // Input derivation dependencies
-        if let Some(ref input_drvs) = job.input_drvs {
-          for dep_drv in input_drvs.keys() {
-            if let Some(&dep_build_id) = drv_to_build.get(dep_drv)
-              && dep_build_id != build_id
-            {
-              let _ =
-                repo::build_dependencies::create(pool, build_id, dep_build_id)
-                  .await;
-            }
-          }
-        }
-
-        // Aggregate constituent dependencies
-        if let Some(ref constituents) = job.constituents {
-          for constituent_name in constituents {
-            if let Some(&dep_build_id) = name_to_build.get(constituent_name)
-              && dep_build_id != build_id
-            {
-              let _ =
-                repo::build_dependencies::create(pool, build_id, dep_build_id)
-                  .await;
-            }
-          }
-        }
-      }
+      create_builds_from_eval(pool, eval.id, &eval_result).await?;
 
       repo::evaluations::update_status(
         pool,
@@ -343,6 +471,78 @@ async fn evaluate_jobset(
         jobset = %jobset.name,
         "Failed to mark one-shot complete: {e}"
       );
+    }
+  }
+
+  Ok(())
+}
+
+/// Create build records from evaluation results, resolving dependencies.
+async fn create_builds_from_eval(
+  pool: &PgPool,
+  eval_id: Uuid,
+  eval_result: &crate::nix::EvalResult,
+) -> anyhow::Result<()> {
+  let mut drv_to_build: HashMap<String, Uuid> = HashMap::new();
+  let mut name_to_build: HashMap<String, Uuid> = HashMap::new();
+
+  for job in &eval_result.jobs {
+    let outputs_json = job
+      .outputs
+      .as_ref()
+      .map(|o| serde_json::to_value(o).unwrap_or_default());
+    let constituents_json = job
+      .constituents
+      .as_ref()
+      .map(|c| serde_json::to_value(c).unwrap_or_default());
+    let is_aggregate = job.constituents.is_some();
+
+    let build = repo::builds::create(pool, CreateBuild {
+      evaluation_id: eval_id,
+      job_name:      job.name.clone(),
+      drv_path:      job.drv_path.clone(),
+      system:        job.system.clone(),
+      outputs:       outputs_json,
+      is_aggregate:  Some(is_aggregate),
+      constituents:  constituents_json,
+    })
+    .await?;
+
+    drv_to_build.insert(job.drv_path.clone(), build.id);
+    name_to_build.insert(job.name.clone(), build.id);
+  }
+
+  // Resolve dependencies
+  for job in &eval_result.jobs {
+    let build_id = match drv_to_build.get(&job.drv_path) {
+      Some(id) => *id,
+      None => continue,
+    };
+
+    // Input derivation dependencies
+    if let Some(ref input_drvs) = job.input_drvs {
+      for dep_drv in input_drvs.keys() {
+        if let Some(&dep_build_id) = drv_to_build.get(dep_drv)
+          && dep_build_id != build_id
+        {
+          let _ =
+            repo::build_dependencies::create(pool, build_id, dep_build_id)
+              .await;
+        }
+      }
+    }
+
+    // Aggregate constituent dependencies
+    if let Some(ref constituents) = job.constituents {
+      for constituent_name in constituents {
+        if let Some(&dep_build_id) = name_to_build.get(constituent_name)
+          && dep_build_id != build_id
+        {
+          let _ =
+            repo::build_dependencies::create(pool, build_id, dep_build_id)
+              .await;
+        }
+      }
     }
   }
 

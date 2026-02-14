@@ -1,8 +1,14 @@
 {
-  pkgs,
   self,
+  pkgs,
+  lib,
 }: let
   fc-packages = self.packages.${pkgs.stdenv.hostPlatform.system};
+
+  # Demo password file to demonstrate passwordFile option
+  # Password must be at least 12 characters with at least one uppercase letter
+  demoPasswordFile = pkgs.writeText "demo-password" "DemoPassword123!";
+
   nixos = pkgs.nixos ({
     modulesPath,
     pkgs,
@@ -11,26 +17,12 @@
     imports = [
       self.nixosModules.fc-ci
       (modulesPath + "/virtualisation/qemu-vm.nix")
+      ./vm-common.nix
+
+      {config._module.args = {inherit self;};}
     ];
 
-    ## VM hardware
-    virtualisation = {
-      memorySize = 2048;
-      cores = 2;
-      diskSize = 4096;
-      graphics = false;
-
-      # Forward guest:3000 -> host:3000 so the dashboard is reachable
-      forwardPorts = [
-        {
-          from = "host";
-          host.port = 3000;
-          guest.port = 3000;
-        }
-      ];
-    };
-
-    services.fc = {
+    services.fc-ci = {
       enable = true;
       package = fc-packages.fc-server;
       evaluatorPackage = fc-packages.fc-evaluator;
@@ -49,9 +41,22 @@
         signing.enabled = false;
         server = {
           # Bind to all interfaces so port forwarding works
-          host = "0.0.0.0";
+          host = lib.mkForce "0.0.0.0";
           port = 3000;
-          cors_permissive = true;
+          cors_permissive = lib.mkForce true;
+        };
+      };
+
+      declarative.users = {
+        admin = {
+          email = "admin@localhost";
+          password = "AdminPassword123!";
+          role = "admin";
+        };
+        demo = {
+          email = "demo@localhost";
+          role = "read-only";
+          passwordFile = toString demoPasswordFile;
         };
       };
     };
@@ -89,18 +94,22 @@
         psql -U fc -d fc -c "INSERT INTO api_keys (name, key_hash, role) VALUES ('demo-readonly', '$RO_HASH', 'read-only') ON CONFLICT DO NOTHING" 2>/dev/null || true
 
         echo ""
-        echo "==========================================="
+        echo "====================================================="
         echo ""
-        echo "  Dashboard:  http://localhost:3000"
-        echo "  Health:     http://localhost:3000/health"
-        echo "  API base:   http://localhost:3000/api/v1"
+        echo "  Dashboard:     http://localhost:3000"
+        echo "  Health:        http://localhost:3000/health"
+        echo "  API base:      http://localhost:3000/api/v1"
         echo ""
-        echo "  Admin key:     fc_demo_admin_key"
+        echo "  Web login:     admin / AdminPassword123! (admin)"
+        echo "                 demo / DemoPassword123! (read-only)"
+        echo ""
+        echo "  Admin API key: fc_demo_admin_key"
         echo "  Read-only key: fc_demo_readonly_key"
         echo ""
-        echo "  Login at http://localhost:3000/login"
-        echo "  using the admin key above."
-        echo "==========================================="
+        echo "  Login at http://localhost:3000/login using"
+        echo "  the credentials or the API key provided above."
+        echo ""
+        echo "====================================================="
       '';
     };
 
@@ -122,21 +131,23 @@
 
     # Show a helpful MOTD
     environment.etc."motd".text = ''
-      ┌──────────────────────────────────────────────┐
-      │  Dashboard:  http://localhost:3000           │
-      │  API:        http://localhost:3000/api/v1    │
-      │                                              │
-      │  Admin API key:     fc_demo_admin_key        │
-      │  Read-only API key: fc_demo_readonly_key     │
-      │                                              │
-      │  Useful commands:                            │
-      │    $ systemctl status fc-server              │
-      │    $ journalctl -u fc-server -f              │
-      │    $ curl -sf localhost:3000/health | jq     │
-      │    $ curl -sf localhost:3000/metrics         │
-      │                                              │
-      │  Press Ctrl-a x to quit QEMU.                │
-      └──────────────────────────────────────────────┘
+      ┌─────────────────────────────────────────────────────────────┐
+      │  Dashboard:  http://localhost:3000                          │
+      │  API:        http://localhost:3000/api/v1                   │
+      │                                                             │
+      │  Web login: admin / AdminPassword123! (admin)               │
+      │             demo / DemoPassword123! (read-only)             │
+      │  Admin API key:     fc_demo_admin_key                       │
+      │  Read-only API key: fc_demo_readonly_key                    │
+      │                                                             │
+      │  Useful commands:                                           │
+      │    $ systemctl status fc-server                             │
+      │    $ journalctl -u fc-server -f                             │
+      │    $ curl -sf localhost:3000/health | jq                    │
+      │    $ curl -sf localhost:3000/metrics                        │
+      │                                                             │
+      │  Press Ctrl-a x to quit QEMU.                               │
+      └─────────────────────────────────────────────────────────────┘
     '';
 
     system.stateVersion = "26.11";

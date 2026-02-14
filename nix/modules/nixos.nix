@@ -5,35 +5,72 @@
   ...
 }: let
   inherit (lib.modules) mkIf mkDefault;
-  inherit (lib.options) mkOption mkEnableOption;
-  inherit (lib.types) bool str int package listOf submodule nullOr;
-  inherit (lib.attrsets) recursiveUpdate optionalAttrs;
+  inherit (lib.options) mkOption mkEnableOption literalExpression;
+  inherit (lib.types) bool str int package listOf submodule nullOr enum attrsOf;
+  inherit (lib.attrsets) recursiveUpdate optionalAttrs mapAttrsToList filterAttrs;
   inherit (lib.lists) optional map;
 
-  cfg = config.services.fc;
+  cfg = config.services.fc-ci;
 
   settingsFormat = pkgs.formats.toml {};
   settingsType = settingsFormat.type;
 
   # Build the final settings by merging declarative config into settings
-  finalSettings = recursiveUpdate cfg.settings (optionalAttrs (cfg.declarative.projects != [] || cfg.declarative.apiKeys != []) {
+  finalSettings = recursiveUpdate cfg.settings (optionalAttrs (cfg.declarative.projects != [] || cfg.declarative.apiKeys != [] || cfg.declarative.users != {} || cfg.declarative.remoteBuilders != []) {
     declarative = {
-      projects =
-        map (p: {
+      projects = map (p:
+        filterAttrs (_: v: v != null) {
           name = p.name;
           repository_url = p.repositoryUrl;
-          description = p.description or null;
-          jobsets =
-            map (j: {
+          description = p.description;
+          jobsets = map (j:
+            filterAttrs (_: v: v != null) {
               name = j.name;
               nix_expression = j.nixExpression;
               enabled = j.enabled;
               flake_mode = j.flakeMode;
               check_interval = j.checkInterval;
+              state = j.state;
+              branch = j.branch;
+              scheduling_shares = j.schedulingShares;
+              inputs = map (i:
+                filterAttrs (_: v: v != null) {
+                  name = i.name;
+                  input_type = i.inputType;
+                  value = i.value;
+                  revision = i.revision;
+                })
+              j.inputs;
             })
-            p.jobsets;
+          p.jobsets;
+          notifications =
+            map (n: {
+              notification_type = n.notificationType;
+              config = n.config;
+              enabled = n.enabled;
+            })
+            p.notifications;
+          webhooks = map (w:
+            filterAttrs (_: v: v != null) {
+              forge_type = w.forgeType;
+              secret_file = w.secretFile;
+              enabled = w.enabled;
+            })
+          p.webhooks;
+          channels =
+            map (c: {
+              name = c.name;
+              jobset_name = c.jobsetName;
+            })
+            p.channels;
+          members =
+            map (m: {
+              username = m.username;
+              role = m.role;
+            })
+            p.members;
         })
-        cfg.declarative.projects;
+      cfg.declarative.projects;
 
       api_keys =
         map (k: {
@@ -42,6 +79,38 @@
           role = k.role;
         })
         cfg.declarative.apiKeys;
+
+      users = mapAttrsToList (username: u: let
+        hasInlinePassword = u.password != null;
+        _ =
+          if hasInlinePassword
+          then builtins.throw "User '${username}' has inline password set. Use passwordFile instead to avoid plaintext passwords in the Nix store."
+          else null;
+      in
+        filterAttrs (_: v: v != null) {
+          inherit username;
+          email = u.email;
+          full_name = u.fullName;
+          password_file = u.passwordFile;
+          role = u.role;
+          enabled = u.enabled;
+        })
+      cfg.declarative.users;
+
+      remote_builders = map (b:
+        filterAttrs (_: v: v != null) {
+          name = b.name;
+          ssh_uri = b.sshUri;
+          systems = b.systems;
+          max_jobs = b.maxJobs;
+          speed_factor = b.speedFactor;
+          supported_features = b.supportedFeatures;
+          mandatory_features = b.mandatoryFeatures;
+          ssh_key_file = b.sshKeyFile;
+          public_host_key = b.publicHostKey;
+          enabled = b.enabled;
+        })
+      cfg.declarative.remoteBuilders;
     };
   });
 
@@ -52,7 +121,7 @@
       enabled = mkOption {
         type = bool;
         default = true;
-        description = "Whether this jobset is enabled for evaluation.";
+        description = "Whether this jobset is enabled for evaluation. Deprecated: use `state` instead.";
       };
 
       name = mkOption {
@@ -62,6 +131,8 @@
 
       nixExpression = mkOption {
         type = str;
+        default = "hydraJobs";
+        example = literalExpression "packages // checks";
         description = "Nix expression to evaluate (e.g. 'packages', 'checks', 'hydraJobs').";
       };
 
@@ -75,6 +146,58 @@
         type = int;
         default = 60;
         description = "Seconds between evaluation checks.";
+      };
+
+      state = mkOption {
+        type = enum ["disabled" "enabled" "one_shot" "one_at_a_time"];
+        default = "enabled";
+        description = ''
+          Jobset scheduling state:
+
+          * `disabled`: Jobset will not be evaluated
+          * `enabled`: Normal operation, evaluated according to checkInterval
+          * `one_shot`: Evaluated once, then automatically set to disabled
+          * `one_at_a_time`: Only one build can run at a time for this jobset
+        '';
+      };
+
+      branch = mkOption {
+        type = nullOr str;
+        default = null;
+        description = "Git branch to track. Defaults to repository default branch.";
+      };
+
+      schedulingShares = mkOption {
+        type = int;
+        default = 100;
+        description = "Scheduling priority shares. Higher values = more priority.";
+      };
+
+      inputs = mkOption {
+        type = listOf (submodule {
+          options = {
+            name = mkOption {
+              type = str;
+              description = "Input name.";
+            };
+            inputType = mkOption {
+              type = str;
+              default = "git";
+              description = "Input type: git, string, boolean, path, or build.";
+            };
+            value = mkOption {
+              type = str;
+              description = "Input value.";
+            };
+            revision = mkOption {
+              type = nullOr str;
+              default = null;
+              description = "Git revision (for git inputs).";
+            };
+          };
+        });
+        default = [];
+        description = "Jobset inputs for parameterized evaluations.";
       };
     };
   };
@@ -102,6 +225,87 @@
         default = [];
         description = "Jobsets to create for this project.";
       };
+
+      notifications = mkOption {
+        type = listOf (submodule {
+          options = {
+            notificationType = mkOption {
+              type = str;
+              description = "Notification type: github_status, email, gitlab_status, gitea_status, run_command.";
+            };
+            config = mkOption {
+              type = settingsType;
+              default = {};
+              description = "Type-specific configuration.";
+            };
+            enabled = mkOption {
+              type = bool;
+              default = true;
+              description = "Whether this notification is enabled.";
+            };
+          };
+        });
+        default = [];
+        description = "Notification configurations for this project.";
+      };
+
+      webhooks = mkOption {
+        type = listOf (submodule {
+          options = {
+            forgeType = mkOption {
+              type = enum ["github" "gitea" "gitlab"];
+              description = "Forge type for webhook.";
+            };
+            secretFile = mkOption {
+              type = nullOr str;
+              default = null;
+              description = "Path to file containing webhook secret.";
+            };
+            enabled = mkOption {
+              type = bool;
+              default = true;
+              description = "Whether this webhook is enabled.";
+            };
+          };
+        });
+        default = [];
+        description = "Webhook configurations for this project.";
+      };
+
+      channels = mkOption {
+        type = listOf (submodule {
+          options = {
+            name = mkOption {
+              type = str;
+              description = "Channel name.";
+            };
+            jobsetName = mkOption {
+              type = str;
+              description = "Name of the jobset this channel tracks.";
+            };
+          };
+        });
+        default = [];
+        description = "Release channels for this project.";
+      };
+
+      members = mkOption {
+        type = listOf (submodule {
+          options = {
+            username = mkOption {
+              type = str;
+              description = "Username of the member.";
+            };
+            role = mkOption {
+              type = enum ["member" "maintainer" "admin"];
+              default = "member";
+              description = "Project role for the member.";
+            };
+          };
+        });
+        default = [];
+        description = "Project members with their roles.";
+      };
     };
   };
 
@@ -120,11 +324,13 @@
         '';
       };
 
+      # FIXME: should be a list, ideally
       role = mkOption {
         type = str;
         default = "admin";
+        example = "eval-jobset";
         description = ''
-          Role:
+          Role, one of:
 
           * admin,
           * read-only,
@@ -137,10 +343,131 @@
       };
     };
   };
+
+  userOpts = {
+    options = {
+      enabled = mkOption {
+        type = bool;
+        default = true;
+        description = "Whether this user is enabled.";
+      };
+
+      email = mkOption {
+        type = str;
+        description = "User's email address.";
+      };
+
+      fullName = mkOption {
+        type = nullOr str;
+        default = null;
+        description = "Optional full name for the user.";
+      };
+
+      password = mkOption {
+        type = nullOr str;
+        default = null;
+        description = ''
+          Password provided inline (for dev/testing only).
+          For production, use {option}`passwordFile` instead.
+        '';
+      };
+
+      passwordFile = mkOption {
+        type = nullOr str;
+        default = null;
+        description = ''
+          Path to a file containing the user's password.
+          Preferred for production deployments.
+        '';
+      };
+
+      role = mkOption {
+        type = str;
+        default = "read-only";
+        example = "eval-jobset";
+        description = ''
+          Role, one of:
+
+          * admin,
+          * read-only,
+          * create-projects,
+          * eval-jobset,
+          * cancel-build,
+          * restart-jobs,
+          * bump-to-front.
+        '';
+      };
+    };
+  };
+
+  remoteBuilderOpts = {
+    options = {
+      name = mkOption {
+        type = str;
+        description = "Unique name for this builder.";
+      };
+
+      sshUri = mkOption {
+        type = str;
+        example = "ssh://builder@builder.example.com";
+        description = "SSH URI for connecting to the builder.";
+      };
+
+      systems = mkOption {
+        type = listOf str;
+        default = ["x86_64-linux"];
+        description = "List of systems this builder supports.";
+      };
+
+      maxJobs = mkOption {
+        type = int;
+        default = 1;
+        description = "Maximum number of parallel jobs.";
+      };
+
+      speedFactor = mkOption {
+        type = int;
+        default = 1;
+        description = "Speed factor for scheduling (higher = faster builder).";
+      };
+
+      supportedFeatures = mkOption {
+        type = listOf str;
+        default = [];
+        description = "List of supported features.";
+      };
+
+      mandatoryFeatures = mkOption {
+        type = listOf str;
+        default = [];
+        description = "List of mandatory features.";
+      };
+
+      sshKeyFile = mkOption {
+        type = nullOr str;
+        default = null;
+        description = "Path to SSH private key file.";
+      };
+
+      publicHostKey = mkOption {
+        type = nullOr str;
+        default = null;
+        description = "SSH public host key for verification.";
+      };
+
+      enabled = mkOption {
+        type = bool;
+        default = true;
+        description = "Whether this builder is enabled.";
+      };
+    };
+  };
 in {
-  options.services.fc = {
+  options.services.fc-ci = {
     enable = mkEnableOption "FC CI system";
 
+    # TODO: could we use `mkPackageOption` here?
+    # Also for the options below
     package = mkOption {
       type = package;
       description = "The FC server package.";
@@ -221,6 +548,47 @@ in {
           }
         ];
       };
+
+      users = mkOption {
+        type = attrsOf (submodule userOpts);
+        default = {};
+        description = ''
+          Declarative user definitions. The attribute name is the username.
+          Users are upserted on every server startup.
+
+          Use {option}`passwordFile` with a secrets manager for production deployments.
+        '';
+        example = {
+          admin = {
+            email = "admin@example.com";
+            passwordFile = "/run/secrets/fc-admin-password";
+            role = "admin";
+          };
+          readonly = {
+            email = "readonly@example.com";
+            passwordFile = "/run/secrets/fc-readonly-password";
+            role = "read-only";
+          };
+        };
+      };
+
+      remoteBuilders = mkOption {
+        type = listOf (submodule remoteBuilderOpts);
+        default = [];
+        description = ''
+          Declarative remote builder definitions. Builders are upserted on every
+          server startup for distributed builds.
+        '';
+        example = [
+          {
+            name = "builder1";
+            sshUri = "ssh://builder@builder.example.com";
+            systems = ["x86_64-linux" "aarch64-linux"];
+            maxJobs = 4;
+            speedFactor = 2;
+          }
+        ];
+      };
     };
 
     database = {
@@ -236,7 +604,7 @@ in {
     };
 
     evaluator = {
-      enable = mkEnableOption "FC evaluator (git polling and nix evaluation)";
+      enable = mkEnableOption "FC evaluator (Git polling and nix evaluation)";
     };
 
     queueRunner = {
@@ -245,6 +613,15 @@ in {
   };
 
   config = mkIf cfg.enable {
+    assertions =
+      mapAttrsToList (
+        username: user: {
+          assertion = user.password != null || user.passwordFile != null;
+          message = "User '${username}' must have either 'password' or 'passwordFile' set.";
+        }
+      )
+      cfg.declarative.users;
+
     users.users.fc = {
       isSystemUser = true;
       group = "fc";
@@ -265,7 +642,7 @@ in {
       ];
     };
 
-    services.fc.settings = mkDefault {
+    services.fc-ci.settings = mkDefault {
       database.url = "postgresql:///fc?host=/run/postgresql";
       server.host = "127.0.0.1";
       server.port = 3000;

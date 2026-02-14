@@ -10,7 +10,8 @@ pkgs.testers.nixosTest {
       self.nixosModules.fc-ci
       ../vm-common.nix
     ];
-    _module.args.self = self;
+
+    config._module.args = {inherit self;};
   };
 
   # API CRUD tests: dashboard content, project/jobset/evaluation/build/channel/builder
@@ -18,6 +19,7 @@ pkgs.testers.nixosTest {
   testScript = ''
     import hashlib
     import json
+    import re
 
     machine.start()
     machine.wait_for_unit("postgresql.service")

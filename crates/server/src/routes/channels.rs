@@ -50,7 +50,27 @@ async fn create_channel(
   input
     .validate()
     .map_err(|msg| ApiError(fc_common::CiError::Validation(msg)))?;
+  let jobset_id = input.jobset_id;
   let channel = fc_common::repo::channels::create(&state.pool, input)
+    .await
+    .map_err(ApiError)?;
+
+  // Catch-up: if the jobset already has a completed evaluation, promote now
+  if let Ok(Some(eval)) =
+    fc_common::repo::evaluations::get_latest(&state.pool, jobset_id).await
+  {
+    if eval.status == fc_common::models::EvaluationStatus::Completed {
+      let _ = fc_common::repo::channels::auto_promote_if_complete(
+        &state.pool,
+        jobset_id,
+        eval.id,
+      )
+      .await;
+    }
+  }
+
+  // Re-fetch to include any promotion
+  let channel = fc_common::repo::channels::get(&state.pool, channel.id)
     .await
     .map_err(ApiError)?;
   Ok(Json(channel))
