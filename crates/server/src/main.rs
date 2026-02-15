@@ -51,6 +51,10 @@ async fn main() -> anyhow::Result<()> {
   let host = cli.host.unwrap_or(config.server.host.clone());
   let port = cli.port.unwrap_or(config.server.port);
 
+  fc_common::validate::warn_insecure_schemes(
+    &config.server.allowed_url_schemes,
+  );
+
   let db = Database::new(config.database.clone()).await?;
 
   // Bootstrap declarative projects, jobsets, and API keys from config

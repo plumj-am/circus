@@ -38,15 +38,18 @@ pub struct DatabaseConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ServerConfig {
-  pub host:             String,
-  pub port:             u16,
-  pub request_timeout:  u64,
-  pub max_body_size:    usize,
-  pub api_key:          Option<String>,
-  pub allowed_origins:  Vec<String>,
-  pub cors_permissive:  bool,
-  pub rate_limit_rps:   Option<u64>,
-  pub rate_limit_burst: Option<u32>,
+  pub host:                String,
+  pub port:                u16,
+  pub request_timeout:     u64,
+  pub max_body_size:       usize,
+  pub api_key:             Option<String>,
+  pub allowed_origins:     Vec<String>,
+  pub cors_permissive:     bool,
+  pub rate_limit_rps:      Option<u64>,
+  pub rate_limit_burst:    Option<u32>,
+  /// Allowed URL schemes for repository URLs. Insecure schemes emit a warning
+  /// on startup
+  pub allowed_url_schemes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -472,15 +475,21 @@ impl DatabaseConfig {
 impl Default for ServerConfig {
   fn default() -> Self {
     Self {
-      host:             "127.0.0.1".to_string(),
-      port:             3000,
-      request_timeout:  30,
-      max_body_size:    10 * 1024 * 1024, // 10MB
-      api_key:          None,
-      allowed_origins:  Vec::new(),
-      cors_permissive:  false,
-      rate_limit_rps:   None,
-      rate_limit_burst: None,
+      host:                "127.0.0.1".to_string(),
+      port:                3000,
+      request_timeout:     30,
+      max_body_size:       10 * 1024 * 1024, // 10MB
+      api_key:             None,
+      allowed_origins:     Vec::new(),
+      cors_permissive:     false,
+      rate_limit_rps:      None,
+      rate_limit_burst:    None,
+      allowed_url_schemes: vec![
+        "https".into(),
+        "http".into(),
+        "git".into(),
+        "ssh".into(),
+      ],
     }
   }
 }

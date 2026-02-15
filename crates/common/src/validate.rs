@@ -30,8 +30,9 @@ static COMMIT_HASH_RE: LazyLock<Regex> =
 static SYSTEM_RE: LazyLock<Regex> =
   LazyLock::new(|| Regex::new(r"^\w+-\w+$").unwrap());
 
-const VALID_REPO_PREFIXES: &[&str] =
-  &["https://", "http://", "git://", "ssh://", "file://"];
+/// Schemes considered insecure for repository URLs.
+const INSECURE_SCHEMES: &[&str] = &["file", "http"];
+
 const VALID_FORGE_TYPES: &[&str] = &["github", "gitea", "forgejo", "gitlab"];
 
 /// Known internal/metadata IP ranges and hostnames to block for SSRF
@@ -61,7 +62,7 @@ fn extract_host_from_url(url: &str) -> Option<String> {
 
 /// Check if a hostname is internal/metadata (SSRF targets).
 fn is_internal_host(host: &str) -> bool {
-  if INTERNAL_HOSTS.iter().any(|&h| host == h) {
+  if INTERNAL_HOSTS.contains(&host) {
     return true;
   }
   // Block localhost variants
@@ -121,17 +122,9 @@ fn validate_repository_url(url: &str) -> Result<(), String> {
   if url.len() > 2048 {
     return Err("repository_url must be at most 2048 characters".to_string());
   }
-  if !VALID_REPO_PREFIXES.iter().any(|p| url.starts_with(p)) {
+  if !url.contains("://") {
     return Err(
-      "repository_url must start with https://, http://, git://, ssh://, or \
-       file://"
-        .to_string(),
-    );
-  }
-  // Reject file:// URLs for SSRF protection (local filesystem access)
-  if url.starts_with("file://") {
-    return Err(
-      "repository_url must not use file:// scheme for security reasons"
+      "repository_url must contain a valid URL scheme (e.g. https://)"
         .to_string(),
     );
   }
@@ -145,6 +138,46 @@ fn validate_repository_url(url: &str) -> Result<(), String> {
     }
   }
   Ok(())
+}
+
+/// Validate that a URL uses one of the allowed schemes.
+/// Logs a warning when insecure schemes (`file`, `http`) are used.
+pub fn validate_url_scheme(
+  url: &str,
+  allowed_schemes: &[String],
+) -> Result<(), String> {
+  let scheme = url.split("://").next().unwrap_or("");
+  if !allowed_schemes.iter().any(|s| s == scheme) {
+    return Err(format!(
+      "repository_url scheme '{scheme}://' is not allowed. Allowed schemes: {}",
+      allowed_schemes
+        .iter()
+        .map(|s| format!("{s}://"))
+        .collect::<Vec<_>>()
+        .join(", ")
+    ));
+  }
+  if INSECURE_SCHEMES.contains(&scheme) {
+    tracing::warn!(
+      url = url,
+      scheme = scheme,
+      "Repository URL uses insecure scheme"
+    );
+  }
+  Ok(())
+}
+
+/// Log warnings at startup for any insecure schemes in the allowed list.
+pub fn warn_insecure_schemes(allowed_schemes: &[String]) {
+  for scheme in allowed_schemes {
+    if INSECURE_SCHEMES.contains(&scheme.as_str()) {
+      tracing::warn!(
+        scheme = scheme.as_str(),
+        "Insecure URL scheme '{scheme}://' is enabled in \
+         server.allowed_url_schemes"
+      );
+    }
+  }
 }
 
 fn validate_description(desc: &str) -> Result<(), String> {
@@ -544,10 +577,11 @@ mod tests {
 
   #[test]
   fn test_create_project_invalid_url() {
+    // URL without scheme separator is rejected structurally
     let p = CreateProject {
       name:           "valid-name".to_string(),
       description:    None,
-      repository_url: "ftp://example.com".to_string(),
+      repository_url: "not-a-url".to_string(),
     };
     assert!(p.validate().is_err());
   }
@@ -741,8 +775,39 @@ mod tests {
   }
 
   #[test]
-  fn test_repository_url_rejects_file_scheme() {
-    assert!(validate_repository_url("file:///etc/passwd").is_err());
+  fn test_validate_url_scheme_rejects_file_by_default() {
+    let default_schemes: Vec<String> = vec!["https", "http", "git", "ssh"]
+      .into_iter()
+      .map(Into::into)
+      .collect();
+    assert!(
+      validate_url_scheme("file:///etc/passwd", &default_schemes).is_err()
+    );
+  }
+
+  #[test]
+  fn test_validate_url_scheme_allows_file_when_configured() {
+    let schemes: Vec<String> = vec!["https", "http", "git", "ssh", "file"]
+      .into_iter()
+      .map(Into::into)
+      .collect();
+    assert!(validate_url_scheme("file:///var/lib/repo.git", &schemes).is_ok());
+  }
+
+  #[test]
+  fn test_validate_url_scheme_rejects_unknown() {
+    let schemes: Vec<String> =
+      vec!["https", "ssh"].into_iter().map(Into::into).collect();
+    assert!(
+      validate_url_scheme("ftp://example.com/repo.git", &schemes).is_err()
+    );
+  }
+
+  #[test]
+  fn test_repository_url_accepts_file_structurally() {
+    // validate_repository_url no longer checks schemes (that's
+    // validate_url_scheme's job)
+    assert!(validate_repository_url("file:///etc/passwd").is_ok());
   }
 
   #[test]

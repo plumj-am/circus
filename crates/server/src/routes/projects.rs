@@ -62,6 +62,11 @@ async fn create_project(
   input
     .validate()
     .map_err(|msg| ApiError(fc_common::CiError::Validation(msg)))?;
+  fc_common::validate::validate_url_scheme(
+    &input.repository_url,
+    &state.config.server.allowed_url_schemes,
+  )
+  .map_err(|msg| ApiError(fc_common::CiError::Validation(msg)))?;
   let project = fc_common::repo::projects::create(&state.pool, input)
     .await
     .map_err(ApiError)?;
@@ -87,6 +92,13 @@ async fn update_project(
   input
     .validate()
     .map_err(|msg| ApiError(fc_common::CiError::Validation(msg)))?;
+  if let Some(ref url) = input.repository_url {
+    fc_common::validate::validate_url_scheme(
+      url,
+      &state.config.server.allowed_url_schemes,
+    )
+    .map_err(|msg| ApiError(fc_common::CiError::Validation(msg)))?;
+  }
   let project = fc_common::repo::projects::update(&state.pool, id, input)
     .await
     .map_err(ApiError)?;
@@ -231,6 +243,11 @@ async fn setup_project(
   create_project
     .validate()
     .map_err(|msg| ApiError(fc_common::CiError::Validation(msg)))?;
+  fc_common::validate::validate_url_scheme(
+    &create_project.repository_url,
+    &state.config.server.allowed_url_schemes,
+  )
+  .map_err(|msg| ApiError(fc_common::CiError::Validation(msg)))?;
 
   let project = fc_common::repo::projects::create(&state.pool, create_project)
     .await
