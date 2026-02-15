@@ -114,6 +114,10 @@ pub async fn evaluate(
   config: &EvaluatorConfig,
   inputs: &[JobsetInput],
 ) -> Result<EvalResult> {
+  // Validate nix expression before constructing any commands
+  fc_common::validate::validate_nix_expression(nix_expression)
+    .map_err(|e| CiError::NixEval(format!("Invalid nix expression: {e}")))?;
+
   if flake_mode {
     evaluate_flake(repo_path, nix_expression, timeout, config, inputs).await
   } else {
