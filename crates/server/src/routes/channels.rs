@@ -60,12 +60,15 @@ async fn create_channel(
     fc_common::repo::evaluations::get_latest(&state.pool, jobset_id).await
   {
     if eval.status == fc_common::models::EvaluationStatus::Completed {
-      let _ = fc_common::repo::channels::auto_promote_if_complete(
+      if let Err(e) = fc_common::repo::channels::auto_promote_if_complete(
         &state.pool,
         jobset_id,
         eval.id,
       )
-      .await;
+      .await
+      {
+        tracing::warn!(jobset_id = %jobset_id, "Failed to auto-promote channel: {e}");
+      }
     }
   }
 

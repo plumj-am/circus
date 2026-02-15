@@ -175,12 +175,22 @@ pub async fn auto_promote_if_complete(
       .map_err(CiError::Database)?;
 
   for channel in channels {
-    let _ = promote(pool, channel.id, evaluation_id).await;
-    tracing::info!(
-        channel = %channel.name,
-        evaluation_id = %evaluation_id,
-        "Auto-promoted evaluation to channel"
-    );
+    match promote(pool, channel.id, evaluation_id).await {
+      Ok(_) => {
+        tracing::info!(
+            channel = %channel.name,
+            evaluation_id = %evaluation_id,
+            "Auto-promoted evaluation to channel"
+        );
+      },
+      Err(e) => {
+        tracing::warn!(
+            channel = %channel.name,
+            evaluation_id = %evaluation_id,
+            "Failed to auto-promote channel: {e}"
+        );
+      },
+    }
   }
 
   Ok(())

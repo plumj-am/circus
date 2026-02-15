@@ -176,10 +176,9 @@ pub fn router(state: AppState, config: &ServerConfig) -> Router {
         ));
 
   // Add rate limiting if configured
-  if let (Some(rps), Some(burst)) =
+  if let (Some(_rps), Some(burst)) =
     (config.rate_limit_rps, config.rate_limit_burst)
   {
-    let _ = rps; // rate_limit_rps reserved for future use
     let rl_state = Arc::new(RateLimitState {
       requests: DashMap::new(),
       burst,

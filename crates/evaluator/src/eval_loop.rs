@@ -403,7 +403,11 @@ async fn evaluate_jobset(
   };
 
   // Set inputs hash (only needed for new evaluations, not existing ones)
-  let _ = repo::evaluations::set_inputs_hash(pool, eval.id, &inputs_hash).await;
+  if let Err(e) =
+    repo::evaluations::set_inputs_hash(pool, eval.id, &inputs_hash).await
+  {
+    tracing::warn!(eval_id = %eval.id, "Failed to set evaluation inputs hash: {e}");
+  }
 
   // Check for declarative config in repo
   check_declarative_config(pool, &repo_path, jobset.project_id).await;
@@ -525,9 +529,11 @@ async fn create_builds_from_eval(
         if let Some(&dep_build_id) = drv_to_build.get(dep_drv)
           && dep_build_id != build_id
         {
-          let _ =
-            repo::build_dependencies::create(pool, build_id, dep_build_id)
-              .await;
+          if let Err(e) =
+            repo::build_dependencies::create(pool, build_id, dep_build_id).await
+          {
+            tracing::warn!(build_id = %build_id, dep = %dep_build_id, "Failed to create build dependency: {e}");
+          }
         }
       }
     }
@@ -538,9 +544,11 @@ async fn create_builds_from_eval(
         if let Some(&dep_build_id) = name_to_build.get(constituent_name)
           && dep_build_id != build_id
         {
-          let _ =
-            repo::build_dependencies::create(pool, build_id, dep_build_id)
-              .await;
+          if let Err(e) =
+            repo::build_dependencies::create(pool, build_id, dep_build_id).await
+          {
+            tracing::warn!(build_id = %build_id, dep = %dep_build_id, "Failed to create constituent dependency: {e}");
+          }
         }
       }
     }

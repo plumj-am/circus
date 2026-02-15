@@ -43,8 +43,10 @@ pub async fn run(
                     job = %build.job_name,
                     "Aggregate build: all constituents completed"
                 );
-                let _ = repo::builds::start(&pool, build.id).await;
-                let _ = repo::builds::complete(
+                if let Err(e) = repo::builds::start(&pool, build.id).await {
+                  tracing::warn!(build_id = %build.id, "Failed to start aggregate build: {e}");
+                }
+                if let Err(e) = repo::builds::complete(
                   &pool,
                   build.id,
                   BuildStatus::Completed,
@@ -52,7 +54,10 @@ pub async fn run(
                   None,
                   None,
                 )
-                .await;
+                .await
+                {
+                  tracing::warn!(build_id = %build.id, "Failed to complete aggregate build: {e}");
+                }
                 continue;
               },
               Ok(false) => {
@@ -84,8 +89,10 @@ pub async fn run(
                   drv = %build.drv_path,
                   "Dedup: reusing result from existing build"
               );
-              let _ = repo::builds::start(&pool, build.id).await;
-              let _ = repo::builds::complete(
+              if let Err(e) = repo::builds::start(&pool, build.id).await {
+                tracing::warn!(build_id = %build.id, "Failed to start dedup build: {e}");
+              }
+              if let Err(e) = repo::builds::complete(
                 &pool,
                 build.id,
                 BuildStatus::Completed,
@@ -93,7 +100,10 @@ pub async fn run(
                 existing.build_output_path.as_deref(),
                 None,
               )
-              .await;
+              .await
+              {
+                tracing::warn!(build_id = %build.id, "Failed to complete dedup build: {e}");
+              }
               continue;
             },
             _ => {},

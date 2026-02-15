@@ -109,11 +109,14 @@ pub async fn authenticate(
   if let Some(ref hash) = user.password_hash {
     if verify_password(&creds.password, hash)? {
       // Update last login time
-      let _ =
+      if let Err(e) =
         sqlx::query("UPDATE users SET last_login_at = NOW() WHERE id = $1")
           .bind(user.id)
           .execute(pool)
-          .await;
+          .await
+      {
+        tracing::warn!(user_id = %user.id, "Failed to update last_login_at: {e}");
+      }
       Ok(user)
     } else {
       Err(CiError::Unauthorized("Invalid credentials".to_string()))
@@ -442,13 +445,16 @@ pub async fn validate_session(
 
   // Update last_used_at
   if result.is_some() {
-    let _ = sqlx::query(
+    if let Err(e) = sqlx::query(
       "UPDATE user_sessions SET last_used_at = NOW() WHERE session_token_hash \
        = $1",
     )
     .bind(&token_hash)
     .execute(pool)
-    .await;
+    .await
+    {
+      tracing::warn!("Failed to update session last_used_at: {e}");
+    }
   }
 
   Ok(result)
