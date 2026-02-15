@@ -40,7 +40,7 @@ pub async fn get_completed_by_drv_path(
   drv_path: &str,
 ) -> Result<Option<Build>> {
   sqlx::query_as::<_, Build>(
-    "SELECT * FROM builds WHERE drv_path = $1 AND status = 'completed' LIMIT 1",
+    "SELECT * FROM builds WHERE drv_path = $1 AND status = 'succeeded' LIMIT 1",
   )
   .bind(drv_path)
   .fetch_optional(pool)
@@ -276,13 +276,13 @@ pub async fn cancel_cascade(pool: &PgPool, id: Uuid) -> Result<Vec<Build>> {
 }
 
 /// Restart a build by resetting it to pending state.
-/// Only works for failed, completed, or cancelled builds.
+/// Only works for failed, succeeded, or cancelled builds.
 pub async fn restart(pool: &PgPool, id: Uuid) -> Result<Build> {
   sqlx::query_as::<_, Build>(
     "UPDATE builds SET status = 'pending', started_at = NULL, completed_at = \
      NULL, log_path = NULL, build_output_path = NULL, error_message = NULL, \
      retry_count = retry_count + 1 WHERE id = $1 AND status IN ('failed', \
-     'completed', 'cancelled') RETURNING *",
+     'succeeded', 'cancelled') RETURNING *",
   )
   .bind(id)
   .fetch_optional(pool)
@@ -315,7 +315,7 @@ pub async fn get_completed_by_drv_paths(
   }
   let builds = sqlx::query_as::<_, Build>(
     "SELECT DISTINCT ON (drv_path) * FROM builds WHERE drv_path = ANY($1) AND \
-     status = 'completed' ORDER BY drv_path, completed_at DESC",
+     status = 'succeeded' ORDER BY drv_path, completed_at DESC",
   )
   .bind(drv_paths)
   .fetch_all(pool)

@@ -153,7 +153,7 @@ pub async fn auto_promote_if_complete(
 ) -> Result<()> {
   // Check if all builds for this evaluation are completed
   let row: (i64, i64) = sqlx::query_as(
-    "SELECT COUNT(*), COUNT(*) FILTER (WHERE status = 'completed') FROM \
+    "SELECT COUNT(*), COUNT(*) FILTER (WHERE status = 'succeeded') FROM \
      builds WHERE evaluation_id = $1",
   )
   .bind(evaluation_id)

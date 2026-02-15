@@ -189,9 +189,9 @@ pkgs.testers.nixosTest {
         )
 
     with subtest("Queue runner builds pending derivation"):
-        # Poll the E2E build until completed (queue-runner is already running)
+        # Poll the E2E build until succeeded (queue-runner is already running)
         machine.wait_until_succeeds(
-            f"curl -sf http://127.0.0.1:3000/api/v1/builds/{e2e_build_id} | jq -e 'select(.status==\"completed\")'",
+            f"curl -sf http://127.0.0.1:3000/api/v1/builds/{e2e_build_id} | jq -e 'select(.status==\"succeeded\")'",
             timeout=120
         )
 
@@ -293,7 +293,7 @@ pkgs.testers.nixosTest {
         result = machine.succeed(
             f"curl -sf http://127.0.0.1:3000/api/v1/builds/{e2e_build_id} | jq -r .status"
         ).strip()
-        assert result == "completed", f"Expected completed after notification, got {result}"
+        assert result == "succeeded", f"Expected succeeded after notification, got {result}"
 
     with subtest("Channel auto-promotion after all builds complete"):
         # Create a channel tracking the E2E jobset
@@ -409,17 +409,17 @@ pkgs.testers.nixosTest {
         machine.succeed("cd /tmp/test-flake-work && git add -A && git commit -m 'trigger notification test'")
         machine.succeed("cd /tmp/test-flake-work && git push origin HEAD:refs/heads/master")
 
-        # Wait for the notify-test build to complete
+        # Wait for the notify-test build to succeed
         machine.wait_until_succeeds(
             "curl -sf 'http://127.0.0.1:3000/api/v1/builds?job_name=notify-test' "
-            "| jq -e '.items[] | select(.status==\"completed\")'",
+            "| jq -e '.items[] | select(.status==\"succeeded\")'",
             timeout=120
         )
 
         # Get the build ID
         notify_build_id = machine.succeed(
             "curl -sf 'http://127.0.0.1:3000/api/v1/builds?job_name=notify-test' "
-            "| jq -r '.items[] | select(.status==\"completed\") | .id' | head -1"
+            "| jq -r '.items[] | select(.status==\"succeeded\") | .id' | head -1"
         ).strip()
 
         # Wait a bit for notification to dispatch
@@ -428,8 +428,8 @@ pkgs.testers.nixosTest {
         # Verify the notification script was executed
         machine.wait_for_file("/var/lib/fc/notify-output")
         output = machine.succeed("cat /var/lib/fc/notify-output")
-        assert "BUILD_STATUS=success" in output or "BUILD_STATUS=completed" in output, \
-            f"Expected BUILD_STATUS in notification output, got: {output}"
+        assert "BUILD_STATUS=success" in output, \
+            f"Expected BUILD_STATUS=success in notification output, got: {output}"
         assert notify_build_id in output, f"Expected build ID {notify_build_id} in output, got: {output}"
 
     with subtest("Generate signing key and configure signing"):
@@ -474,17 +474,17 @@ pkgs.testers.nixosTest {
         machine.succeed("cd /tmp/test-flake-work && git add -A && git commit -m 'trigger signing test'")
         machine.succeed("cd /tmp/test-flake-work && git push origin HEAD:refs/heads/master")
 
-        # Wait for the sign-test build to complete
+        # Wait for the sign-test build to succeed
         machine.wait_until_succeeds(
             "curl -sf 'http://127.0.0.1:3000/api/v1/builds?job_name=sign-test' "
-            "| jq -e '.items[] | select(.status==\"completed\")'",
+            "| jq -e '.items[] | select(.status==\"succeeded\")'",
             timeout=120
         )
 
         # Get the sign-test build ID
         sign_build_id = machine.succeed(
             "curl -sf 'http://127.0.0.1:3000/api/v1/builds?job_name=sign-test' "
-            "| jq -r '.items[] | select(.status==\"completed\") | .id' | head -1"
+            "| jq -r '.items[] | select(.status==\"succeeded\") | .id' | head -1"
         ).strip()
 
         # Verify the build has signed=true
@@ -545,7 +545,7 @@ pkgs.testers.nixosTest {
 
         # Wait for evaluation and build
         machine.wait_until_succeeds(
-            "curl -sf 'http://127.0.0.1:3000/api/v1/builds?job_name=gc-test' | jq -e '.items[] | select(.status==\"completed\")'",
+            "curl -sf 'http://127.0.0.1:3000/api/v1/builds?job_name=gc-test' | jq -e '.items[] | select(.status==\"succeeded\")'",
             timeout=120
         )
 

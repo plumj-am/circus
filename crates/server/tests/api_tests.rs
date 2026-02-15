@@ -679,8 +679,8 @@ async fn test_metrics_endpoint() {
     "Missing TYPE header for fc_builds_total"
   );
   assert!(
-    body_str.contains("fc_builds_total{status=\"completed\"}"),
-    "Missing completed status label"
+    body_str.contains("fc_builds_total{status=\"succeeded\"}"),
+    "Missing succeeded status label"
   );
   assert!(
     body_str.contains("fc_builds_total{status=\"failed\"}"),

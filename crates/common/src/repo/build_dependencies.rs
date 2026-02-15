@@ -81,7 +81,7 @@ pub async fn all_deps_completed(pool: &PgPool, build_id: Uuid) -> Result<bool> {
   let row: (i64,) = sqlx::query_as(
     "SELECT COUNT(*) FROM build_dependencies bd JOIN builds b ON \
      bd.dependency_build_id = b.id WHERE bd.build_id = $1 AND b.status != \
-     'completed'",
+     'succeeded'",
   )
   .bind(build_id)
   .fetch_one(pool)

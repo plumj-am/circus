@@ -98,7 +98,7 @@ async fn prometheus_metrics(State(state): State<AppState>) -> Response {
 
   // Per-project build counts
   let per_project: Vec<(String, i64, i64)> = sqlx::query_as(
-    "SELECT p.name, COUNT(*) FILTER (WHERE b.status = 'completed'), COUNT(*) \
+    "SELECT p.name, COUNT(*) FILTER (WHERE b.status = 'succeeded'), COUNT(*) \
      FILTER (WHERE b.status = 'failed') FROM builds b JOIN evaluations e ON \
      b.evaluation_id = e.id JOIN jobsets j ON e.jobset_id = j.id JOIN \
      projects p ON j.project_id = p.id GROUP BY p.name",
@@ -133,7 +133,7 @@ async fn prometheus_metrics(State(state): State<AppState>) -> Response {
   output.push_str("# TYPE fc_builds_total gauge\n");
   let _ = writeln!(
     output,
-    "fc_builds_total{{status=\"completed\"}} {}",
+    "fc_builds_total{{status=\"succeeded\"}} {}",
     stats.completed_builds.unwrap_or(0)
   );
   let _ = writeln!(
