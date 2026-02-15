@@ -124,31 +124,38 @@ async fn prometheus_metrics(State(state): State<AppState>) -> Response {
   .await
   .unwrap_or((None, None, None));
 
-  let mut output = String::new();
+  use std::fmt::Write;
+
+  let mut output = String::with_capacity(2048);
 
   // Build counts by status
   output.push_str("# HELP fc_builds_total Total number of builds by status\n");
   output.push_str("# TYPE fc_builds_total gauge\n");
-  output.push_str(&format!(
-    "fc_builds_total{{status=\"completed\"}} {}\n",
+  let _ = writeln!(
+    output,
+    "fc_builds_total{{status=\"completed\"}} {}",
     stats.completed_builds.unwrap_or(0)
-  ));
-  output.push_str(&format!(
-    "fc_builds_total{{status=\"failed\"}} {}\n",
+  );
+  let _ = writeln!(
+    output,
+    "fc_builds_total{{status=\"failed\"}} {}",
     stats.failed_builds.unwrap_or(0)
-  ));
-  output.push_str(&format!(
-    "fc_builds_total{{status=\"running\"}} {}\n",
+  );
+  let _ = writeln!(
+    output,
+    "fc_builds_total{{status=\"running\"}} {}",
     stats.running_builds.unwrap_or(0)
-  ));
-  output.push_str(&format!(
-    "fc_builds_total{{status=\"pending\"}} {}\n",
+  );
+  let _ = writeln!(
+    output,
+    "fc_builds_total{{status=\"pending\"}} {}",
     stats.pending_builds.unwrap_or(0)
-  ));
-  output.push_str(&format!(
-    "fc_builds_total{{status=\"all\"}} {}\n",
+  );
+  let _ = writeln!(
+    output,
+    "fc_builds_total{{status=\"all\"}} {}",
     stats.total_builds.unwrap_or(0)
-  ));
+  );
 
   // Build duration stats
   output.push_str(
@@ -156,67 +163,73 @@ async fn prometheus_metrics(State(state): State<AppState>) -> Response {
      seconds\n",
   );
   output.push_str("# TYPE fc_builds_avg_duration_seconds gauge\n");
-  output.push_str(&format!(
-    "fc_builds_avg_duration_seconds {:.2}\n",
+  let _ = writeln!(
+    output,
+    "fc_builds_avg_duration_seconds {:.2}",
     stats.avg_duration_seconds.unwrap_or(0.0)
-  ));
+  );
 
   output.push_str(
     "\n# HELP fc_builds_duration_seconds Build duration percentiles\n",
   );
   output.push_str("# TYPE fc_builds_duration_seconds gauge\n");
   if let Some(p50) = duration_p50 {
-    output.push_str(&format!(
-      "fc_builds_duration_seconds{{quantile=\"0.5\"}} {p50:.2}\n"
-    ));
+    let _ = writeln!(
+      output,
+      "fc_builds_duration_seconds{{quantile=\"0.5\"}} {p50:.2}"
+    );
   }
   if let Some(p95) = duration_p95 {
-    output.push_str(&format!(
-      "fc_builds_duration_seconds{{quantile=\"0.95\"}} {p95:.2}\n"
-    ));
+    let _ = writeln!(
+      output,
+      "fc_builds_duration_seconds{{quantile=\"0.95\"}} {p95:.2}"
+    );
   }
   if let Some(p99) = duration_p99 {
-    output.push_str(&format!(
-      "fc_builds_duration_seconds{{quantile=\"0.99\"}} {p99:.2}\n"
-    ));
+    let _ = writeln!(
+      output,
+      "fc_builds_duration_seconds{{quantile=\"0.99\"}} {p99:.2}"
+    );
   }
 
   // Evaluations
   output
     .push_str("\n# HELP fc_evaluations_total Total number of evaluations\n");
   output.push_str("# TYPE fc_evaluations_total gauge\n");
-  output.push_str(&format!("fc_evaluations_total {eval_count}\n"));
+  let _ = writeln!(output, "fc_evaluations_total {eval_count}");
 
   output.push_str("\n# HELP fc_evaluations_by_status Evaluations by status\n");
   output.push_str("# TYPE fc_evaluations_by_status gauge\n");
   for (status, count) in &eval_by_status {
-    output.push_str(&format!(
-      "fc_evaluations_by_status{{status=\"{status}\"}} {count}\n"
-    ));
+    let _ = writeln!(
+      output,
+      "fc_evaluations_by_status{{status=\"{status}\"}} {count}"
+    );
   }
 
   // Queue depth (pending builds)
   output
     .push_str("\n# HELP fc_queue_depth Number of pending builds in queue\n");
   output.push_str("# TYPE fc_queue_depth gauge\n");
-  output.push_str(&format!(
-    "fc_queue_depth {}\n",
+  let _ = writeln!(
+    output,
+    "fc_queue_depth {}",
     stats.pending_builds.unwrap_or(0)
-  ));
+  );
 
   // Infrastructure
   output.push_str("\n# HELP fc_projects_total Total number of projects\n");
   output.push_str("# TYPE fc_projects_total gauge\n");
-  output.push_str(&format!("fc_projects_total {project_count}\n"));
+  let _ = writeln!(output, "fc_projects_total {project_count}");
 
   output.push_str("\n# HELP fc_channels_total Total number of channels\n");
   output.push_str("# TYPE fc_channels_total gauge\n");
-  output.push_str(&format!("fc_channels_total {channel_count}\n"));
+  let _ = writeln!(output, "fc_channels_total {channel_count}");
 
   output
     .push_str("\n# HELP fc_remote_builders_active Active remote builders\n");
   output.push_str("# TYPE fc_remote_builders_active gauge\n");
-  output.push_str(&format!("fc_remote_builders_active {builder_count}\n"));
+  let _ = writeln!(output, "fc_remote_builders_active {builder_count}");
 
   // Per-project build counts
   if !per_project.is_empty() {
@@ -226,9 +239,10 @@ async fn prometheus_metrics(State(state): State<AppState>) -> Response {
     output.push_str("# TYPE fc_project_builds_completed gauge\n");
     for (name, completed, _) in &per_project {
       let escaped = escape_prometheus_label(name);
-      output.push_str(&format!(
-        "fc_project_builds_completed{{project=\"{escaped}\"}} {completed}\n"
-      ));
+      let _ = writeln!(
+        output,
+        "fc_project_builds_completed{{project=\"{escaped}\"}} {completed}"
+      );
     }
     output.push_str(
       "\n# HELP fc_project_builds_failed Failed builds per project\n",
@@ -236,9 +250,10 @@ async fn prometheus_metrics(State(state): State<AppState>) -> Response {
     output.push_str("# TYPE fc_project_builds_failed gauge\n");
     for (name, _, failed) in &per_project {
       let escaped = escape_prometheus_label(name);
-      output.push_str(&format!(
-        "fc_project_builds_failed{{project=\"{escaped}\"}} {failed}\n"
-      ));
+      let _ = writeln!(
+        output,
+        "fc_project_builds_failed{{project=\"{escaped}\"}} {failed}"
+      );
     }
   }
 
@@ -353,4 +368,34 @@ pub fn router() -> Router<AppState> {
       get(duration_percentiles_timeseries),
     )
     .route("/api/v1/metrics/systems", get(system_distribution))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_escape_prometheus_label_plain() {
+    assert_eq!(escape_prometheus_label("hello"), "hello");
+  }
+
+  #[test]
+  fn test_escape_prometheus_label_backslash() {
+    assert_eq!(escape_prometheus_label(r"a\b"), r"a\\b");
+  }
+
+  #[test]
+  fn test_escape_prometheus_label_quotes() {
+    assert_eq!(escape_prometheus_label(r#"say "hi""#), r#"say \"hi\""#);
+  }
+
+  #[test]
+  fn test_escape_prometheus_label_newline() {
+    assert_eq!(escape_prometheus_label("line1\nline2"), r"line1\nline2");
+  }
+
+  #[test]
+  fn test_escape_prometheus_label_combined() {
+    assert_eq!(escape_prometheus_label("a\\b\n\"c\""), r#"a\\b\n\"c\""#);
+  }
 }

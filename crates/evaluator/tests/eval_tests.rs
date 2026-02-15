@@ -112,7 +112,7 @@ fn test_parse_nix_eval_jobs_both_attr_and_name() {
   assert_eq!(outputs.get("out").unwrap(), "/nix/store/abc123-hello");
 }
 
-// --- Inputs hash computation ---
+// Inputs hash computation
 
 #[test]
 fn test_inputs_hash_deterministic() {
