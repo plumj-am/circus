@@ -62,6 +62,8 @@ in {
           host = "127.0.0.1";
           port = 3000;
           cors_permissive = false;
+          # Allow file:// URLs in VM tests (no network, repos are local)
+          allowed_url_schemes = ["https" "http" "git" "ssh" "file"];
         };
 
         gc.enabled = false;
