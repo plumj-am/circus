@@ -27,6 +27,7 @@ use tokio::sync::Semaphore;
 
 pub struct WorkerPool {
   semaphore:            Arc<Semaphore>,
+  worker_count:         usize,
   pool:                 PgPool,
   work_dir:             Arc<PathBuf>,
   build_timeout:        Duration,
@@ -57,6 +58,7 @@ impl WorkerPool {
     let alert_manager = alert_config.map(AlertManager::new);
     Self {
       semaphore: Arc::new(Semaphore::new(workers)),
+      worker_count: workers,
       pool: db_pool,
       work_dir: Arc::new(work_dir),
       build_timeout,
@@ -79,7 +81,7 @@ impl WorkerPool {
   /// Wait until all in-flight builds complete (semaphore fully available).
   pub async fn wait_for_drain(&self) {
     // Acquire all permits = all workers idle
-    let workers = self.semaphore.available_permits() + 1; // at least 1
+    let workers = self.worker_count;
     let _ = tokio::time::timeout(
       Duration::from_secs(self.build_timeout.as_secs() + 60),
       async {
@@ -263,25 +265,24 @@ fn build_s3_store_uri(
     return base_uri.to_string();
   };
 
-  let mut params: Vec<(String, String)> = Vec::new();
+  let mut params: Vec<(&str, &str)> = Vec::new();
 
   if let Some(region) = &cfg.region {
-    params.push(("region".to_string(), region.clone()));
+    params.push(("region", region));
   }
 
   if let Some(endpoint) = &cfg.endpoint_url {
-    params.push(("endpoint".to_string(), endpoint.clone()));
+    params.push(("endpoint", endpoint));
   }
 
   if cfg.use_path_style {
-    params.push(("use-path-style".to_string(), "true".to_string()));
+    params.push(("use-path-style", "true"));
   }
 
   if params.is_empty() {
     return base_uri.to_string();
   }
 
-  // Build URI with query parameters
   let query = params
     .iter()
     .map(|(k, v)| {
@@ -290,7 +291,67 @@ fn build_s3_store_uri(
     .collect::<Vec<_>>()
     .join("&");
 
-  format!("{}?{}", base_uri, query)
+  format!("{base_uri}?{query}")
+}
+
+#[cfg(test)]
+mod tests {
+  use fc_common::config::S3CacheConfig;
+
+  use super::*;
+
+  #[test]
+  fn test_build_s3_store_uri_no_config() {
+    let result = build_s3_store_uri("s3://my-bucket", None);
+    assert_eq!(result, "s3://my-bucket");
+  }
+
+  #[test]
+  fn test_build_s3_store_uri_empty_config() {
+    let cfg = S3CacheConfig::default();
+    let result = build_s3_store_uri("s3://my-bucket", Some(&cfg));
+    assert_eq!(result, "s3://my-bucket");
+  }
+
+  #[test]
+  fn test_build_s3_store_uri_with_region() {
+    let cfg = S3CacheConfig {
+      region: Some("us-east-1".to_string()),
+      ..Default::default()
+    };
+    let result = build_s3_store_uri("s3://my-bucket", Some(&cfg));
+    assert_eq!(result, "s3://my-bucket?region=us-east-1");
+  }
+
+  #[test]
+  fn test_build_s3_store_uri_with_endpoint_and_path_style() {
+    let cfg = S3CacheConfig {
+      endpoint_url: Some("https://minio.example.com".to_string()),
+      use_path_style: true,
+      ..Default::default()
+    };
+    let result = build_s3_store_uri("s3://my-bucket", Some(&cfg));
+    assert!(result.starts_with("s3://my-bucket?"));
+    assert!(result.contains("endpoint=https%3A%2F%2Fminio.example.com"));
+    assert!(result.contains("use-path-style=true"));
+  }
+
+  #[test]
+  fn test_build_s3_store_uri_all_params() {
+    let cfg = S3CacheConfig {
+      region: Some("eu-west-1".to_string()),
+      endpoint_url: Some("https://s3.example.com".to_string()),
+      use_path_style: true,
+      ..Default::default()
+    };
+    let result = build_s3_store_uri("s3://cache-bucket", Some(&cfg));
+    assert!(result.starts_with("s3://cache-bucket?"));
+    assert!(result.contains("region=eu-west-1"));
+    assert!(result.contains("endpoint=https%3A%2F%2Fs3.example.com"));
+    assert!(result.contains("use-path-style=true"));
+    // Verify params are joined with &
+    assert_eq!(result.matches('&').count(), 2);
+  }
 }
 
 /// Try to run the build on a remote builder if one is available for the build's
@@ -317,7 +378,10 @@ async fn try_remote_build(
     );
 
     // Set builder_id
-    let _ = repo::builds::set_builder(pool, build.id, builder.id).await;
+    if let Err(e) = repo::builds::set_builder(pool, build.id, builder.id).await
+    {
+      tracing::warn!(build_id = %build.id, builder = %builder.name, "Failed to set builder_id: {e}");
+    }
 
     // Build remotely via --store
     let store_uri = format!("ssh://{}", builder.ssh_uri);
@@ -400,7 +464,7 @@ async fn collect_metrics_and_alert(
       repo::evaluations::get(pool, build.evaluation_id).await
     {
       if let Ok(jobset) = repo::jobsets::get(pool, evaluation.jobset_id).await {
-        let _ = manager
+        manager
           .check_and_alert(pool, Some(jobset.project_id), Some(jobset.id))
           .await;
       }
@@ -506,7 +570,9 @@ async fn run_build(
       let log_path = if let Some(ref storage) = log_storage {
         let final_path = storage.log_path(&build.id);
         if live_log_path.exists() {
-          let _ = tokio::fs::rename(&live_log_path, &final_path).await;
+          if let Err(e) = tokio::fs::rename(&live_log_path, &final_path).await {
+            tracing::warn!(build_id = %build.id, "Failed to rename build log: {e}");
+          }
         } else {
           match storage.write_log(
             &build.id,
@@ -597,7 +663,9 @@ async fn run_build(
 
         // Sign outputs at build time
         if sign_outputs(&build_result.output_paths, signing_config).await {
-          let _ = repo::builds::mark_signed(pool, build.id).await;
+          if let Err(e) = repo::builds::mark_signed(pool, build.id).await {
+            tracing::warn!(build_id = %build.id, "Failed to mark build as signed: {e}");
+          }
         }
 
         // Push to external binary cache if configured
@@ -645,6 +713,11 @@ async fn run_build(
               max = build.max_retries,
               "Build failed, scheduling retry"
           );
+          // Clean up old build steps before retry
+          sqlx::query("DELETE FROM build_steps WHERE build_id = $1")
+            .bind(build.id)
+            .execute(pool)
+            .await?;
           sqlx::query(
             "UPDATE builds SET status = 'pending', started_at = NULL, \
              retry_count = retry_count + 1, completed_at = NULL WHERE id = $1",
@@ -675,7 +748,9 @@ async fn run_build(
 
       // Write error log
       if let Some(ref storage) = log_storage {
-        let _ = storage.write_log(&build.id, "", &msg);
+        if let Err(e) = storage.write_log(&build.id, "", &msg) {
+          tracing::warn!(build_id = %build.id, "Failed to write error log: {e}");
+        }
       }
       // Clean up live log
       let _ = tokio::fs::remove_file(&live_log_path).await;
@@ -715,9 +790,12 @@ async fn run_build(
     if updated_build.status == BuildStatus::Completed
       && let Ok(eval) = repo::evaluations::get(pool, build.evaluation_id).await
     {
-      let _ =
+      if let Err(e) =
         repo::channels::auto_promote_if_complete(pool, eval.jobset_id, eval.id)
-          .await;
+          .await
+      {
+        tracing::warn!(build_id = %build.id, "Failed to auto-promote channels: {e}");
+      }
     }
   }
 

@@ -48,6 +48,7 @@ pub struct Evaluation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "lowercase")]
 #[sqlx(type_name = "text", rename_all = "lowercase")]
 pub enum EvaluationStatus {
   Pending,
@@ -121,6 +122,7 @@ pub struct Build {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
 #[sqlx(type_name = "text", rename_all = "lowercase")]
 pub enum BuildStatus {
   Pending,
@@ -290,8 +292,6 @@ pub struct RemoteBuilder {
   pub created_at:         DateTime<Utc>,
 }
 
-// --- User Management ---
-
 /// User account for authentication and personalization
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct User {
@@ -350,7 +350,7 @@ pub struct UserSession {
   pub last_used_at:       Option<DateTime<Utc>>,
 }
 
-// --- Pagination ---
+// Pagination
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaginationParams {
@@ -387,7 +387,7 @@ pub struct PaginatedResponse<T> {
   pub offset: i64,
 }
 
-// --- DTO structs for creation and updates ---
+// DTO structs for creation and updates
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateProject {
@@ -535,7 +535,7 @@ pub struct SystemStatus {
   pub channels_count:    i64,
 }
 
-// --- User DTOs ---
+// User DTOs
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateUser {

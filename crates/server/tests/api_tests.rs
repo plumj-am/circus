@@ -75,7 +75,7 @@ fn build_app_with_config(
   fc_server::routes::router(state, &server_config)
 }
 
-// ---- Existing tests ----
+// API endpoint tests
 
 #[tokio::test]
 async fn test_health_endpoint() {
@@ -240,7 +240,7 @@ async fn test_builds_endpoints() {
   assert_eq!(response.status(), StatusCode::OK);
 }
 
-// ---- Hardening tests ----
+// Error response structure
 
 #[tokio::test]
 async fn test_error_response_includes_error_code() {
@@ -663,9 +663,57 @@ async fn test_metrics_endpoint() {
     .await
     .unwrap();
   let body_str = String::from_utf8(body.to_vec()).unwrap();
+
+  // Verify metric names are present
   assert!(body_str.contains("fc_builds_total"));
   assert!(body_str.contains("fc_projects_total"));
   assert!(body_str.contains("fc_evaluations_total"));
+
+  // Verify Prometheus format: HELP/TYPE headers and label syntax
+  assert!(
+    body_str.contains("# HELP fc_builds_total"),
+    "Missing HELP header for fc_builds_total"
+  );
+  assert!(
+    body_str.contains("# TYPE fc_builds_total gauge"),
+    "Missing TYPE header for fc_builds_total"
+  );
+  assert!(
+    body_str.contains("fc_builds_total{status=\"completed\"}"),
+    "Missing completed status label"
+  );
+  assert!(
+    body_str.contains("fc_builds_total{status=\"failed\"}"),
+    "Missing failed status label"
+  );
+  assert!(
+    body_str.contains("fc_queue_depth"),
+    "Missing queue depth metric"
+  );
+  assert!(
+    body_str.contains("fc_builds_avg_duration_seconds"),
+    "Missing avg duration metric"
+  );
+
+  // Verify each line with a metric value ends with a number (basic format
+  // check)
+  for line in body_str.lines() {
+    if line.starts_with('#') || line.is_empty() {
+      continue;
+    }
+    // Metric lines should have format: metric_name{labels} value
+    // or: metric_name value
+    let parts: Vec<&str> = line.rsplitn(2, ' ').collect();
+    assert!(
+      parts.len() == 2,
+      "Malformed metric line (expected 'name value'): {line}"
+    );
+    assert!(
+      parts[0].parse::<f64>().is_ok(),
+      "Metric value is not a number: '{}' in line: {line}",
+      parts[0]
+    );
+  }
 }
 
 #[tokio::test]
@@ -698,7 +746,7 @@ async fn test_get_nonexistent_build_returns_error_code() {
   assert!(json["error"].as_str().unwrap().contains("not found"));
 }
 
-// ---- Validation tests ----
+// Input validation
 
 #[tokio::test]
 async fn test_create_project_validation_rejects_invalid_name() {
@@ -802,7 +850,7 @@ async fn test_create_project_validation_accepts_valid() {
   assert_eq!(response.status(), StatusCode::OK);
 }
 
-// ---- Error handling tests ----
+// Auth and error handling
 
 #[tokio::test]
 async fn test_project_create_with_auth() {

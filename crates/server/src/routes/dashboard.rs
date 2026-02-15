@@ -3,7 +3,7 @@ use axum::{
   Form,
   Router,
   extract::{Path, Query, State},
-  http::Extensions,
+  http::{Extensions, StatusCode},
   response::{Html, IntoResponse, Redirect, Response},
   routing::get,
 };
@@ -25,7 +25,7 @@ use uuid::Uuid;
 
 use crate::state::AppState;
 
-// --- View models (pre-formatted for templates) ---
+// View models (pre-formatted for templates)
 
 struct BuildView {
   id:            Uuid,
@@ -237,7 +237,7 @@ fn auth_name(extensions: &Extensions) -> String {
     .unwrap_or_default()
 }
 
-// --- Templates ---
+// Askama templates
 
 #[derive(Template)]
 #[template(path = "home.html")]
@@ -430,7 +430,7 @@ struct MetricsTemplate {
   auth_name: String,
 }
 
-// --- Handlers ---
+// Route handlers
 
 async fn home(
   State(state): State<AppState>,
@@ -1201,7 +1201,7 @@ async fn admin_page(
   )
 }
 
-// --- Setup Wizard ---
+// Setup wizard
 
 async fn project_setup_page(extensions: Extensions) -> Html<String> {
   let tmpl = ProjectSetupTemplate {
@@ -1215,7 +1215,7 @@ async fn project_setup_page(extensions: Extensions) -> Html<String> {
   )
 }
 
-// --- Login / Logout ---
+// Login / Logout
 
 async fn login_page() -> Html<String> {
   let tmpl = LoginTemplate { error: None };
@@ -1258,9 +1258,17 @@ async fn login_action(
           created_at: std::time::Instant::now(),
         });
 
+      let secure_flag = if !state.config.server.cors_permissive
+        && state.config.server.host != "127.0.0.1"
+        && state.config.server.host != "localhost"
+      {
+        "; Secure"
+      } else {
+        ""
+      };
       let cookie = format!(
         "fc_user_session={session_id}; HttpOnly; SameSite=Strict; Path=/; \
-         Max-Age=86400"
+         Max-Age=86400{secure_flag}"
       );
       return (
         [(axum::http::header::SET_COOKIE, cookie)],
@@ -1271,12 +1279,15 @@ async fn login_action(
       let tmpl = LoginTemplate {
         error: Some("Invalid username or password".to_string()),
       };
-      return Html(
-        tmpl
-          .render()
-          .unwrap_or_else(|e| format!("Template error: {e}")),
+      return (
+        StatusCode::UNAUTHORIZED,
+        Html(
+          tmpl
+            .render()
+            .unwrap_or_else(|e| format!("Template error: {e}")),
+        ),
       )
-      .into_response();
+        .into_response();
     }
   }
 
@@ -1311,9 +1322,17 @@ async fn login_action(
           created_at: std::time::Instant::now(),
         });
 
+      let secure_flag = if !state.config.server.cors_permissive
+        && state.config.server.host != "127.0.0.1"
+        && state.config.server.host != "localhost"
+      {
+        "; Secure"
+      } else {
+        ""
+      };
       let cookie = format!(
         "fc_session={session_id}; HttpOnly; SameSite=Strict; Path=/; \
-         Max-Age=86400"
+         Max-Age=86400{secure_flag}"
       );
       (
         [(axum::http::header::SET_COOKIE, cookie)],

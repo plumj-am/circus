@@ -8,22 +8,37 @@ use fc_common::{
 };
 use serde::Deserialize;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct NixJob {
   pub name:         String,
-  #[serde(alias = "drvPath")]
   pub drv_path:     String,
   pub system:       Option<String>,
   pub outputs:      Option<HashMap<String, String>>,
-  #[serde(alias = "inputDrvs")]
   pub input_drvs:   Option<HashMap<String, serde_json::Value>>,
   pub constituents: Option<Vec<String>>,
+}
+
+/// Raw deserialization target for nix-eval-jobs output.
+/// nix-eval-jobs emits both `attr` (attribute path) and `name` (derivation
+/// name) in the same JSON object. We deserialize them separately and prefer
+/// `attr` as the job identifier.
+#[derive(Deserialize)]
+struct RawNixJob {
+  name:         Option<String>,
+  attr:         Option<String>,
+  #[serde(alias = "drvPath")]
+  drv_path:     Option<String>,
+  system:       Option<String>,
+  outputs:      Option<HashMap<String, String>>,
+  #[serde(alias = "inputDrvs")]
+  input_drvs:   Option<HashMap<String, serde_json::Value>>,
+  constituents: Option<Vec<String>>,
 }
 
 /// An error reported by nix-eval-jobs for a single job.
 #[derive(Debug, Clone, Deserialize)]
 struct NixEvalError {
-  #[serde(alias = "attr")]
+  attr:  Option<String>,
   name:  Option<String>,
   error: String,
 }
@@ -49,7 +64,11 @@ pub fn parse_eval_output(stdout: &str) -> EvalResult {
       && parsed.get("error").is_some()
     {
       if let Ok(eval_err) = serde_json::from_str::<NixEvalError>(line) {
-        let name = eval_err.name.as_deref().unwrap_or("<unknown>");
+        let name = eval_err
+          .attr
+          .as_deref()
+          .or(eval_err.name.as_deref())
+          .unwrap_or("<unknown>");
         tracing::warn!(
           job = name,
           "nix-eval-jobs reported error: {}",
@@ -60,8 +79,20 @@ pub fn parse_eval_output(stdout: &str) -> EvalResult {
       continue;
     }
 
-    match serde_json::from_str::<NixJob>(line) {
-      Ok(job) => jobs.push(job),
+    match serde_json::from_str::<RawNixJob>(line) {
+      Ok(raw) => {
+        // drv_path is required for a valid job
+        if let Some(drv_path) = raw.drv_path {
+          jobs.push(NixJob {
+            name: raw.attr.or(raw.name).unwrap_or_default(),
+            drv_path,
+            system: raw.system,
+            outputs: raw.outputs,
+            input_drvs: raw.input_drvs,
+            constituents: raw.constituents,
+          });
+        }
+      },
       Err(e) => {
         tracing::warn!("Failed to parse nix-eval-jobs line: {e}");
       },
@@ -83,6 +114,10 @@ pub async fn evaluate(
   config: &EvaluatorConfig,
   inputs: &[JobsetInput],
 ) -> Result<EvalResult> {
+  // Validate nix expression before constructing any commands
+  fc_common::validate::validate_nix_expression(nix_expression)
+    .map_err(|e| CiError::NixEval(format!("Invalid nix expression: {e}")))?;
+
   if flake_mode {
     evaluate_flake(repo_path, nix_expression, timeout, config, inputs).await
   } else {
@@ -100,9 +135,11 @@ async fn evaluate_flake(
 ) -> Result<EvalResult> {
   let flake_ref = format!("{}#{}", repo_path.display(), nix_expression);
 
+  tracing::debug!(flake_ref = %flake_ref, "Running nix-eval-jobs");
+
   tokio::time::timeout(timeout, async {
     let mut cmd = tokio::process::Command::new("nix-eval-jobs");
-    cmd.arg("--flake").arg(&flake_ref);
+    cmd.arg("--flake").arg(&flake_ref).arg("--force-recurse");
 
     if config.restrict_eval {
       cmd.args(["--option", "restrict-eval", "true"]);
@@ -128,6 +165,16 @@ async fn evaluate_flake(
             error_count = result.error_count,
             "nix-eval-jobs reported errors for some jobs"
           );
+        }
+
+        if result.jobs.is_empty() && result.error_count == 0 {
+          let stderr = String::from_utf8_lossy(&out.stderr);
+          if !stderr.trim().is_empty() {
+            tracing::warn!(
+              stderr = %stderr,
+              "nix-eval-jobs returned no jobs, stderr output present"
+            );
+          }
         }
 
         Ok(result)
@@ -163,7 +210,7 @@ async fn evaluate_legacy(
   tokio::time::timeout(timeout, async {
     // Try nix-eval-jobs without --flake for legacy expressions
     let mut cmd = tokio::process::Command::new("nix-eval-jobs");
-    cmd.arg(&expr_path);
+    cmd.arg(&expr_path).arg("--force-recurse");
 
     if config.restrict_eval {
       cmd.args(["--option", "restrict-eval", "true"]);

@@ -93,7 +93,7 @@ async fn create_test_build(
   .expect("create build")
 }
 
-// ---- Existing tests ----
+// CRUD and lifecycle tests
 
 #[tokio::test]
 async fn test_project_crud() {
@@ -416,7 +416,7 @@ async fn test_not_found_errors() {
   ));
 }
 
-// ---- New hardening tests ----
+// Batch operations and edge cases
 
 #[tokio::test]
 async fn test_batch_get_completed_by_drv_paths() {

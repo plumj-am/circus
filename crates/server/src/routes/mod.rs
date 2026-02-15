@@ -45,7 +45,6 @@ static STYLE_CSS: &str = include_str!("../../static/style.css");
 
 struct RateLimitState {
   requests:     DashMap<IpAddr, Vec<Instant>>,
-  _rps:         u64,
   burst:        u32,
   last_cleanup: std::sync::atomic::AtomicU64,
 }
@@ -177,12 +176,11 @@ pub fn router(state: AppState, config: &ServerConfig) -> Router {
         ));
 
   // Add rate limiting if configured
-  if let (Some(rps), Some(burst)) =
+  if let (Some(_rps), Some(burst)) =
     (config.rate_limit_rps, config.rate_limit_burst)
   {
     let rl_state = Arc::new(RateLimitState {
       requests: DashMap::new(),
-      _rps: rps,
       burst,
       last_cleanup: std::sync::atomic::AtomicU64::new(0),
     });

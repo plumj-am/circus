@@ -402,7 +402,7 @@ const fn default_scheduling_shares() -> i32 {
 }
 
 fn default_role() -> String {
-  "admin".to_string()
+  "read-only".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -762,6 +762,17 @@ mod tests {
     let toml_str = toml::to_string_pretty(&config).unwrap();
     let parsed: Config = toml::from_str(&toml_str).unwrap();
     assert!(parsed.declarative.projects.is_empty());
+  }
+
+  #[test]
+  fn test_declarative_api_key_default_role_is_read_only() {
+    let toml_str = r#"
+            [[api_keys]]
+            name = "default-key"
+            key = "fc_test_123"
+        "#;
+    let config: DeclarativeConfig = toml::from_str(toml_str).unwrap();
+    assert_eq!(config.api_keys[0].role, "read-only");
   }
 
   #[test]

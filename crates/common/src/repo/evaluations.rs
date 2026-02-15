@@ -170,3 +170,20 @@ pub async fn count(pool: &PgPool) -> Result<i64> {
     .map_err(CiError::Database)?;
   Ok(row.0)
 }
+
+/// Get an evaluation by jobset_id and commit_hash.
+pub async fn get_by_jobset_and_commit(
+  pool: &PgPool,
+  jobset_id: Uuid,
+  commit_hash: &str,
+) -> Result<Option<Evaluation>> {
+  sqlx::query_as::<_, Evaluation>(
+    "SELECT * FROM evaluations WHERE jobset_id = $1 AND commit_hash = $2 \
+     ORDER BY evaluation_time DESC LIMIT 1",
+  )
+  .bind(jobset_id)
+  .bind(commit_hash)
+  .fetch_optional(pool)
+  .await
+  .map_err(CiError::Database)
+}

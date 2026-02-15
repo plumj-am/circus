@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::{auth_middleware::RequireAdmin, error::ApiError, state::AppState};
 
-// --- DTOs ---
+// Request/response DTOs
 
 #[derive(Debug, Deserialize)]
 pub struct CreateUserRequest {
@@ -92,7 +92,7 @@ pub struct StarredJobResponse {
   pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
-// --- Handlers ---
+// Admin user management handlers
 
 async fn list_users(
   _auth: RequireAdmin,
@@ -165,7 +165,7 @@ async fn delete_user(
   Ok(StatusCode::NO_CONTENT)
 }
 
-// --- Current User Handlers ---
+// Current user (self-service) handlers
 
 async fn get_current_user(
   extensions: axum::http::Extensions,
@@ -283,7 +283,7 @@ pub struct ChangePasswordRequest {
   pub new_password:     String,
 }
 
-// --- Starred Jobs Handlers ---
+// Starred jobs handlers
 
 async fn list_starred_jobs(
   State(state): State<AppState>,

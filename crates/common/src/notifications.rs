@@ -1,11 +1,20 @@
 //! Notification dispatch for build events
 
+use std::sync::OnceLock;
+
 use tracing::{error, info, warn};
 
 use crate::{
   config::{EmailConfig, NotificationsConfig},
   models::{Build, BuildStatus, Project},
 };
+
+/// Shared HTTP client for all notification dispatches.
+/// Avoids recreating connection pools on every build completion.
+fn http_client() -> &'static reqwest::Client {
+  static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+  CLIENT.get_or_init(reqwest::Client::new)
+}
 
 /// Dispatch all configured notifications for a completed build.
 pub async fn dispatch_build_finished(
@@ -113,8 +122,7 @@ async fn set_github_status(
       "context": format!("fc/{}", build.job_name),
   });
 
-  let client = reqwest::Client::new();
-  match client
+  match http_client()
     .post(&url)
     .header("Authorization", format!("token {token}"))
     .header("User-Agent", "fc-ci")
@@ -166,8 +174,7 @@ async fn set_gitea_status(
       "context": format!("fc/{}", build.job_name),
   });
 
-  let client = reqwest::Client::new();
-  match client
+  match http_client()
     .post(&url)
     .header("Authorization", format!("token {token}"))
     .json(&body)
@@ -226,8 +233,7 @@ async fn set_gitlab_status(
       "name": format!("fc/{}", build.job_name),
   });
 
-  let client = reqwest::Client::new();
-  match client
+  match http_client()
     .post(&url)
     .header("PRIVATE-TOKEN", token)
     .json(&body)

@@ -137,17 +137,20 @@ async fn latest_build(
 }
 
 fn shield_svg(subject: &str, status: &str, color: &str) -> String {
+  use std::fmt::Write;
+
   let subject_width = subject.len() * 7 + 10;
   let status_width = status.len() * 7 + 10;
   let total_width = subject_width + status_width;
   let subject_x = subject_width / 2;
   let status_x = subject_width + status_width / 2;
 
-  let mut svg = String::new();
-  svg.push_str(&format!(
+  let mut svg = String::with_capacity(768);
+  let _ = writeln!(
+    svg,
     "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{total_width}\" \
-     height=\"20\">\n"
-  ));
+     height=\"20\">"
+  );
   svg.push_str("  <linearGradient id=\"b\" x2=\"0\" y2=\"100%\">\n");
   svg.push_str(
     "    <stop offset=\"0\" stop-color=\"#bbb\" stop-opacity=\".1\"/>\n",
@@ -155,41 +158,43 @@ fn shield_svg(subject: &str, status: &str, color: &str) -> String {
   svg.push_str("    <stop offset=\"1\" stop-opacity=\".1\"/>\n");
   svg.push_str("  </linearGradient>\n");
   svg.push_str("  <mask id=\"a\">\n");
-  svg.push_str(&format!(
-    "    <rect width=\"{total_width}\" height=\"20\" rx=\"3\" \
-     fill=\"#fff\"/>\n"
-  ));
+  let _ = writeln!(
+    svg,
+    "    <rect width=\"{total_width}\" height=\"20\" rx=\"3\" fill=\"#fff\"/>"
+  );
   svg.push_str("  </mask>\n");
   svg.push_str("  <g mask=\"url(#a)\">\n");
-  svg.push_str(&format!(
-    "    <rect width=\"{subject_width}\" height=\"20\" fill=\"#555\"/>\n"
-  ));
-  svg.push_str(&format!(
+  let _ = writeln!(
+    svg,
+    "    <rect width=\"{subject_width}\" height=\"20\" fill=\"#555\"/>"
+  );
+  let _ = writeln!(
+    svg,
     "    <rect x=\"{subject_width}\" width=\"{status_width}\" height=\"20\" \
-     fill=\"{color}\"/>\n"
-  ));
-  svg.push_str(&format!(
-    "    <rect width=\"{total_width}\" height=\"20\" fill=\"url(#b)\"/>\n"
-  ));
+     fill=\"{color}\"/>"
+  );
+  let _ = writeln!(
+    svg,
+    "    <rect width=\"{total_width}\" height=\"20\" fill=\"url(#b)\"/>"
+  );
   svg.push_str("  </g>\n");
   svg.push_str(
     "  <g fill=\"#fff\" text-anchor=\"middle\" font-family=\"DejaVu \
      Sans,Verdana,Geneva,sans-serif\" font-size=\"11\">\n",
   );
-  svg.push_str(&format!(
+  let _ = writeln!(
+    svg,
     "    <text x=\"{subject_x}\" y=\"15\" fill=\"#010101\" \
-     fill-opacity=\".3\">{subject}</text>\n"
-  ));
-  svg.push_str(&format!(
-    "    <text x=\"{subject_x}\" y=\"14\">{subject}</text>\n"
-  ));
-  svg.push_str(&format!(
+     fill-opacity=\".3\">{subject}</text>"
+  );
+  let _ =
+    writeln!(svg, "    <text x=\"{subject_x}\" y=\"14\">{subject}</text>");
+  let _ = writeln!(
+    svg,
     "    <text x=\"{status_x}\" y=\"15\" fill=\"#010101\" \
-     fill-opacity=\".3\">{status}</text>\n"
-  ));
-  svg.push_str(&format!(
-    "    <text x=\"{status_x}\" y=\"14\">{status}</text>\n"
-  ));
+     fill-opacity=\".3\">{status}</text>"
+  );
+  let _ = writeln!(svg, "    <text x=\"{status_x}\" y=\"14\">{status}</text>");
   svg.push_str("  </g>\n");
   svg.push_str("</svg>");
   svg
@@ -199,4 +204,51 @@ pub fn router() -> Router<AppState> {
   Router::new()
     .route("/job/{project}/{jobset}/{job}/shield", get(build_badge))
     .route("/job/{project}/{jobset}/{job}/latest", get(latest_build))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_shield_svg_is_valid_svg() {
+    let svg = shield_svg("build", "passing", "#4c1");
+    assert!(svg.starts_with("<svg xmlns="));
+    assert!(svg.ends_with("</svg>"));
+    assert!(svg.contains("build"));
+    assert!(svg.contains("passing"));
+    assert!(svg.contains("#4c1"));
+  }
+
+  #[test]
+  fn test_shield_svg_dimensions() {
+    let svg = shield_svg("build", "failing", "#e05d44");
+    // "build" = 5 chars * 7 + 10 = 45
+    // "failing" = 7 chars * 7 + 10 = 59
+    // total = 104
+    assert!(svg.contains("width=\"104\""));
+  }
+
+  #[test]
+  fn test_shield_svg_text_positions() {
+    let svg = shield_svg("ci", "ok", "#4c1");
+    // "ci" = 2*7+10 = 24, subject_x = 12
+    // "ok" = 2*7+10 = 24, status_x = 24 + 12 = 36
+    assert!(svg.contains("x=\"12\""));
+    assert!(svg.contains("x=\"36\""));
+  }
+
+  #[test]
+  fn test_shield_svg_different_statuses() {
+    for (status, color) in [
+      ("passing", "#4c1"),
+      ("failing", "#e05d44"),
+      ("building", "#dfb317"),
+      ("not found", "#9f9f9f"),
+    ] {
+      let svg = shield_svg("build", status, color);
+      assert!(svg.contains(status), "SVG should contain status '{status}'");
+      assert!(svg.contains(color), "SVG should contain color '{color}'");
+    }
+  }
 }

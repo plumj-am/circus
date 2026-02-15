@@ -46,7 +46,7 @@ async fn delete_jobset(
   Ok(Json(serde_json::json!({ "deleted": true })))
 }
 
-// --- Jobset input routes ---
+// Jobset input routes
 
 async fn list_jobset_inputs(
   State(state): State<AppState>,

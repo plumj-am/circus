@@ -21,8 +21,6 @@ pub fn is_valid_nix_hash(hash: &str) -> bool {
       .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
 }
 
-// --- Validation trait and helpers ---
-
 static NAME_RE: LazyLock<Regex> =
   LazyLock::new(|| Regex::new(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$").unwrap());
 
@@ -35,6 +33,69 @@ static SYSTEM_RE: LazyLock<Regex> =
 const VALID_REPO_PREFIXES: &[&str] =
   &["https://", "http://", "git://", "ssh://", "file://"];
 const VALID_FORGE_TYPES: &[&str] = &["github", "gitea", "forgejo", "gitlab"];
+
+/// Known internal/metadata IP ranges and hostnames to block for SSRF
+/// protection.
+const INTERNAL_HOSTS: &[&str] = &[
+  "169.254.169.254", // AWS/GCP metadata
+  "metadata.google.internal",
+  "100.100.100.200", // Alibaba metadata
+];
+
+/// Extract the hostname from a URL (best-effort, no full URL parser needed).
+fn extract_host_from_url(url: &str) -> Option<String> {
+  // Strip scheme
+  let after_scheme = url.split("://").nth(1)?;
+  // Strip userinfo (user@host)
+  let after_user = after_scheme
+    .split_once('@')
+    .map_or(after_scheme, |(_, rest)| rest);
+  // Take host:port, strip port and path
+  let host_port = after_user.split('/').next()?;
+  let host = host_port.split(':').next()?;
+  if host.is_empty() {
+    return None;
+  }
+  Some(host.to_lowercase())
+}
+
+/// Check if a hostname is internal/metadata (SSRF targets).
+fn is_internal_host(host: &str) -> bool {
+  if INTERNAL_HOSTS.iter().any(|&h| host == h) {
+    return true;
+  }
+  // Block localhost variants
+  if host == "localhost"
+    || host == "127.0.0.1"
+    || host == "::1"
+    || host == "[::1]"
+  {
+    return true;
+  }
+  // Block link-local 169.254.x.x
+  if host.starts_with("169.254.") {
+    return true;
+  }
+  // Block 10.x.x.x
+  if host.starts_with("10.") {
+    return true;
+  }
+  // Block 172.16-31.x.x
+  if host.starts_with("172.") {
+    if let Some(second_octet) = host.split('.').nth(1) {
+      if let Ok(n) = second_octet.parse::<u8>() {
+        if (16..=31).contains(&n) {
+          return true;
+        }
+      }
+    }
+  }
+  // Block 192.168.x.x
+  if host.starts_with("192.168.") {
+    return true;
+  }
+  false
+}
 
 /// Trait for validating request DTOs before persisting.
 pub trait Validate {
@@ -67,6 +128,22 @@ fn validate_repository_url(url: &str) -> Result<(), String> {
         .to_string(),
     );
   }
+  // Reject file:// URLs for SSRF protection (local filesystem access)
+  if url.starts_with("file://") {
+    return Err(
+      "repository_url must not use file:// scheme for security reasons"
+        .to_string(),
+    );
+  }
+  // Reject URLs targeting common internal/metadata endpoints
+  if let Some(host) = extract_host_from_url(url) {
+    if is_internal_host(&host) {
+      return Err(
+        "repository_url must not target internal or metadata addresses"
+          .to_string(),
+      );
+    }
+  }
   Ok(())
 }
 
@@ -77,7 +154,7 @@ fn validate_description(desc: &str) -> Result<(), String> {
   Ok(())
 }
 
-fn validate_nix_expression(expr: &str) -> Result<(), String> {
+pub fn validate_nix_expression(expr: &str) -> Result<(), String> {
   if expr.is_empty() {
     return Err("nix_expression cannot be empty".to_string());
   }
@@ -86,6 +163,17 @@ fn validate_nix_expression(expr: &str) -> Result<(), String> {
   }
   if expr.contains('\0') {
     return Err("nix_expression must not contain null bytes".to_string());
+  }
+  // Reject path traversal sequences
+  if expr.contains("..") {
+    return Err(
+      "nix_expression must not contain path traversal sequences (..)"
+        .to_string(),
+    );
+  }
+  // Reject absolute paths - nix expressions should be relative attribute paths
+  if expr.starts_with('/') {
+    return Err("nix_expression must not be an absolute path".to_string());
   }
   Ok(())
 }
@@ -144,8 +232,6 @@ fn validate_forge_type(forge_type: &str) -> Result<(), String> {
   }
   Ok(())
 }
-
-// --- Implementations ---
 
 use crate::models::{
   CreateBuild,
@@ -305,8 +391,6 @@ mod tests {
 
   use super::*;
 
-  // --- is_valid_store_path ---
-
   #[test]
   fn valid_store_path() {
     assert!(is_valid_store_path(
@@ -363,8 +447,6 @@ mod tests {
   fn store_path_rejects_double_dot_embedded() {
     assert!(!is_valid_store_path("/nix/store/abc..def"));
   }
-
-  // --- is_valid_nix_hash ---
 
   #[test]
   fn valid_nix_hash_lowercase_alpha() {
@@ -425,8 +507,6 @@ mod tests {
   fn nix_hash_rejects_sql_injection_attempt() {
     assert!(!is_valid_nix_hash("' OR 1=1; DROP TABLE builds;--"));
   }
-
-  // --- Validate trait tests ---
 
   #[test]
   fn test_create_project_valid() {
@@ -628,5 +708,90 @@ mod tests {
       jobset_id:  Uuid::new_v4(),
     };
     assert!(c.validate().is_ok());
+  }
+
+  #[test]
+  fn test_nix_expression_valid() {
+    assert!(validate_nix_expression("packages").is_ok());
+    assert!(validate_nix_expression("checks.x86_64-linux").is_ok());
+    assert!(validate_nix_expression("hydraJobs").is_ok());
+  }
+
+  #[test]
+  fn test_nix_expression_rejects_path_traversal() {
+    assert!(validate_nix_expression("../../../etc/passwd").is_err());
+    assert!(validate_nix_expression("packages/..").is_err());
+    assert!(validate_nix_expression("a..b").is_err());
+  }
+
+  #[test]
+  fn test_nix_expression_rejects_absolute_path() {
+    assert!(validate_nix_expression("/etc/passwd").is_err());
+    assert!(validate_nix_expression("/nix/store/something").is_err());
+  }
+
+  #[test]
+  fn test_nix_expression_rejects_empty() {
+    assert!(validate_nix_expression("").is_err());
+  }
+
+  #[test]
+  fn test_nix_expression_rejects_null_bytes() {
+    assert!(validate_nix_expression("packages\0evil").is_err());
+  }
+
+  #[test]
+  fn test_repository_url_rejects_file_scheme() {
+    assert!(validate_repository_url("file:///etc/passwd").is_err());
+  }
+
+  #[test]
+  fn test_repository_url_rejects_localhost() {
+    assert!(validate_repository_url("http://localhost/repo.git").is_err());
+    assert!(validate_repository_url("http://127.0.0.1/repo.git").is_err());
+  }
+
+  #[test]
+  fn test_repository_url_rejects_metadata_endpoint() {
+    assert!(
+      validate_repository_url("http://169.254.169.254/latest/meta-data")
+        .is_err()
+    );
+  }
+
+  #[test]
+  fn test_repository_url_rejects_private_networks() {
+    assert!(validate_repository_url("http://10.0.0.1/repo.git").is_err());
+    assert!(validate_repository_url("http://192.168.1.1/repo.git").is_err());
+    assert!(validate_repository_url("http://172.16.0.1/repo.git").is_err());
+  }
+
+  #[test]
+  fn test_repository_url_accepts_valid_https() {
+    assert!(validate_repository_url("https://github.com/test/repo").is_ok());
+    assert!(
+      validate_repository_url("https://gitlab.com/test/repo.git").is_ok()
+    );
+    assert!(validate_repository_url("git://example.com/repo.git").is_ok());
+    assert!(
+      validate_repository_url("ssh://git@github.com/test/repo.git").is_ok()
+    );
+  }
+
+  #[test]
+  fn test_extract_host_from_url() {
+    assert_eq!(
+      extract_host_from_url("https://github.com/repo"),
+      Some("github.com".to_string())
+    );
+    assert_eq!(
+      extract_host_from_url("http://10.0.0.1:8080/repo"),
+      Some("10.0.0.1".to_string())
+    );
+    assert_eq!(
+      extract_host_from_url("ssh://user@host.com/repo"),
+      Some("host.com".to_string())
+    );
+    assert_eq!(extract_host_from_url("not-a-url"), None);
   }
 }

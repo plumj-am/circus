@@ -87,7 +87,32 @@ fn test_parse_error_without_name() {
   assert_eq!(result.error_count, 1);
 }
 
-// --- Inputs hash computation ---
+#[test]
+fn test_parse_nix_eval_jobs_attr_field() {
+  // nix-eval-jobs uses "attr" instead of "name" for the job identifier
+  let line = r#"{"attr":"x86_64-linux.hello","drvPath":"/nix/store/abc123-hello.drv","system":"x86_64-linux"}"#;
+  let result = fc_evaluator::nix::parse_eval_output(line);
+  assert_eq!(result.jobs.len(), 1);
+  assert_eq!(result.jobs[0].name, "x86_64-linux.hello");
+  assert_eq!(result.jobs[0].drv_path, "/nix/store/abc123-hello.drv");
+}
+
+#[test]
+fn test_parse_nix_eval_jobs_both_attr_and_name() {
+  // nix-eval-jobs with --force-recurse outputs both "attr" and "name" fields.
+  // "attr" is the attribute path, "name" is the derivation name. We prefer
+  // "attr" as the job identifier.
+  let line = r#"{"attr":"x86_64-linux.hello","attrPath":["x86_64-linux","hello"],"drvPath":"/nix/store/abc123-hello.drv","name":"fc-test-hello","outputs":{"out":"/nix/store/abc123-hello"},"system":"x86_64-linux"}"#;
+  let result = fc_evaluator::nix::parse_eval_output(line);
+  assert_eq!(result.jobs.len(), 1);
+  assert_eq!(result.jobs[0].name, "x86_64-linux.hello");
+  assert_eq!(result.jobs[0].drv_path, "/nix/store/abc123-hello.drv");
+  assert_eq!(result.jobs[0].system.as_deref(), Some("x86_64-linux"));
+  let outputs = result.jobs[0].outputs.as_ref().unwrap();
+  assert_eq!(outputs.get("out").unwrap(), "/nix/store/abc123-hello");
+}
+
+// Inputs hash computation
 
 #[test]
 fn test_inputs_hash_deterministic() {

@@ -133,7 +133,7 @@ pkgs.testers.nixosTest {
         )
         assert code.strip() == "200", f"Expected 200, got {code.strip()}"
 
-    ## 3C: API key lifecycle test
+    # API key lifecycle test
     with subtest("API key lifecycle: create, use, delete, verify 401"):
         # Create a new key via admin API
         result = machine.succeed(
@@ -173,7 +173,7 @@ pkgs.testers.nixosTest {
         )
         assert code.strip() == "401", f"Expected 401 after key deletion, got {code.strip()}"
 
-    # ---- 3D: CRUD lifecycle test ----
+    # CRUD lifecycle test
     with subtest("CRUD lifecycle: project -> jobset -> list -> delete -> 404"):
         # Create project
         result = machine.succeed(
@@ -215,7 +215,7 @@ pkgs.testers.nixosTest {
         )
         assert code.strip() == "404", f"Expected 404 after deletion, got {code.strip()}"
 
-    # ---- 3E: Edge case tests ----
+    # Edge case tests
     with subtest("Duplicate project name returns 409"):
         machine.succeed(
             "curl -sf -X POST http://127.0.0.1:3000/api/v1/projects "
@@ -249,7 +249,7 @@ pkgs.testers.nixosTest {
         )
         assert code.strip() == "400", f"Expected 400 for XSS name, got {code.strip()}"
 
-    # ---- 3F: Security fuzzing ----
+    # Security fuzzing
     with subtest("SQL injection in search query returns 0 results"):
         result = machine.succeed(
             "curl -sf 'http://127.0.0.1:3000/api/v1/search?q=test%27%20OR%201%3D1%20--' | jq '.projects | length'"
@@ -291,7 +291,7 @@ pkgs.testers.nixosTest {
         )
         assert code.strip() == "400", f"Expected 400 for null bytes, got {code.strip()}"
 
-    # ---- 3G: Dashboard page smoke tests ----
+    # Dashboard page smoke tests
     with subtest("All dashboard pages return 200"):
         pages = ["/", "/projects", "/evaluations", "/builds", "/queue", "/channels", "/admin", "/login"]
         for page in pages:

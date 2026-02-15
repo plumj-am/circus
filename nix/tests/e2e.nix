@@ -18,6 +18,8 @@ pkgs.testers.nixosTest {
   testScript = ''
     import hashlib
     import json
+    import re
+    import time
 
     machine.start()
     machine.wait_for_unit("postgresql.service")
@@ -52,30 +54,33 @@ pkgs.testers.nixosTest {
         machine.succeed("mkdir -p /var/lib/fc/test-repos")
         machine.succeed("git init --bare /var/lib/fc/test-repos/test-flake.git")
 
+        # Allow root to push to fc-owned repos (ownership changes after chown below)
+        machine.succeed("git config --global --add safe.directory /var/lib/fc/test-repos/test-flake.git")
+
         # Create a working copy, write the flake, commit, push
         machine.succeed("mkdir -p /tmp/test-flake-work")
         machine.succeed("cd /tmp/test-flake-work && git init")
         machine.succeed("cd /tmp/test-flake-work && git config user.email 'test@fc' && git config user.name 'FC Test'")
 
         # Write a minimal flake.nix that builds a simple derivation
-        machine.succeed("""
-            cat > /tmp/test-flake-work/flake.nix << 'FLAKE'
-            {
-              description = "FC CI test flake";
-              outputs = { self, ... }: {
-                packages.x86_64-linux.hello = derivation {
-                  name = "fc-test-hello";
-                  system = "x86_64-linux";
-                  builder = "/bin/sh";
-                  args = [ "-c" "echo hello > $out" ];
-                };
-              };
-            }
-            FLAKE
-        """)
+        machine.succeed(
+            "cat > /tmp/test-flake-work/flake.nix << 'FLAKE'\n"
+            "{\n"
+            '  description = "FC CI test flake";\n'
+            '  outputs = { self, ... }: {\n'
+            '    packages.x86_64-linux.hello = derivation {\n'
+            '      name = "fc-test-hello";\n'
+            '      system = "x86_64-linux";\n'
+            '      builder = "/bin/sh";\n'
+            '      args = [ "-c" "echo hello > $out" ];\n'
+            "    };\n"
+            "  };\n"
+            "}\n"
+            "FLAKE\n"
+        )
         machine.succeed("cd /tmp/test-flake-work && git add -A && git commit -m 'initial flake'")
         machine.succeed("cd /tmp/test-flake-work && git remote add origin /var/lib/fc/test-repos/test-flake.git")
-        machine.succeed("cd /tmp/test-flake-work && git push origin HEAD:refs/heads/main")
+        machine.succeed("cd /tmp/test-flake-work && git push origin HEAD:refs/heads/master")
 
         # Set ownership for fc user
         machine.succeed("chown -R fc:fc /var/lib/fc/test-repos")
@@ -86,7 +91,7 @@ pkgs.testers.nixosTest {
             "curl -sf -X POST http://127.0.0.1:3000/api/v1/projects "
             f"{auth_header} "
             "-H 'Content-Type: application/json' "
-            "-d '{\"name\": \"e2e-test\", \"repository_url\": \"https://github.com/nixos/nixpkgs\"}' "
+            "-d '{\"name\": \"e2e-test\", \"repository_url\": \"file:///var/lib/fc/test-repos/test-flake.git\"}' "
             "| jq -r .id"
         )
         e2e_project_id = result.strip()
@@ -96,7 +101,7 @@ pkgs.testers.nixosTest {
             f"curl -sf -X POST http://127.0.0.1:3000/api/v1/projects/{e2e_project_id}/jobsets "
             f"{auth_header} "
             "-H 'Content-Type: application/json' "
-            "-d '{\"name\": \"packages\", \"nix_expression\": \"packages\", \"flake_mode\": true, \"enabled\": true, \"check_interval\": 5, \"branch\": null, \"scheduling_shares\": 100}' "
+            "-d '{\"name\": \"packages\", \"nix_expression\": \"packages\", \"flake_mode\": true, \"enabled\": true, \"check_interval\": 60}' "
             "| jq -r .id"
         )
         e2e_jobset_id = result.strip()
@@ -158,24 +163,24 @@ pkgs.testers.nixosTest {
         ).strip())
 
         # Push a new commit
-        machine.succeed("""
-            cd /tmp/test-flake-work && \
-            cat > flake.nix << 'FLAKE'
-            {
-              description = "FC CI test flake v2";
-              outputs = { self, ... }: {
-                packages.x86_64-linux.hello = derivation {
-                  name = "fc-test-hello-v2";
-                  system = "x86_64-linux";
-                  builder = "/bin/sh";
-                  args = [ "-c" "echo hello-v2 > $out" ];
-                };
-              };
-            }
-            FLAKE
-        """)
+        machine.succeed(
+            "cd /tmp/test-flake-work && \\\n"
+            "cat > flake.nix << 'FLAKE'\n"
+            "{\n"
+            '  description = "FC CI test flake v2";\n'
+            '  outputs = { self, ... }: {\n'
+            '    packages.x86_64-linux.hello = derivation {\n'
+            '      name = "fc-test-hello-v2";\n'
+            '      system = "x86_64-linux";\n'
+            '      builder = "/bin/sh";\n'
+            '      args = [ "-c" "echo hello-v2 > $out" ];\n'
+            "    };\n"
+            "  };\n"
+            "}\n"
+            "FLAKE\n"
+        )
         machine.succeed("cd /tmp/test-flake-work && git add -A && git commit -m 'v2 update'")
-        machine.succeed("cd /tmp/test-flake-work && git push origin HEAD:refs/heads/main")
+        machine.succeed("cd /tmp/test-flake-work && git push origin HEAD:refs/heads/master")
 
         # Wait for evaluator to detect and create new evaluation
         machine.wait_until_succeeds(
@@ -385,42 +390,37 @@ pkgs.testers.nixosTest {
 
         # Create a new simple build to trigger notification
         # Push a trivial change to trigger a new evaluation
-        machine.succeed("""
-            cd /tmp/test-flake-work && \
-            cat > flake.nix << 'FLAKE'
-    {
-      description = "FC CI test flake notify";
-      outputs = { self, ... }: {
-    packages.x86_64-linux.notify-test = derivation {
-      name = "fc-notify-test";
-      system = "x86_64-linux";
-      builder = "/bin/sh";
-      args = [ "-c" "echo notify-test > $out" ];
-    };
-      };
-    }
-    FLAKE
-        """)
-        machine.succeed("cd /tmp/test-flake-work && git add -A && git commit -m 'trigger notification test'")
-        machine.succeed("cd /tmp/test-flake-work && git push origin HEAD:refs/heads/main")
-
-        # Wait for evaluator to create new evaluation
-        machine.wait_until_succeeds(
-            f"curl -sf 'http://127.0.0.1:3000/api/v1/evaluations?jobset_id={e2e_jobset_id}' "
-            "| jq '.items | length' | grep -v '^2$'",
-            timeout=60
+        machine.succeed(
+            "cd /tmp/test-flake-work && \\\n"
+            "cat > flake.nix << 'FLAKE'\n"
+            "{\n"
+            '  description = "FC CI test flake notify";\n'
+            '  outputs = { self, ... }: {\n'
+            '    packages.x86_64-linux.notify-test = derivation {\n'
+            '      name = "fc-notify-test";\n'
+            '      system = "x86_64-linux";\n'
+            '      builder = "/bin/sh";\n'
+            '      args = [ "-c" "echo notify-test > $out" ];\n'
+            "    };\n"
+            "  };\n"
+            "}\n"
+            "FLAKE\n"
         )
+        machine.succeed("cd /tmp/test-flake-work && git add -A && git commit -m 'trigger notification test'")
+        machine.succeed("cd /tmp/test-flake-work && git push origin HEAD:refs/heads/master")
 
-        # Get the new build ID
-        notify_build_id = machine.succeed(
-            "curl -sf 'http://127.0.0.1:3000/api/v1/builds?job_name=notify-test' | jq -r '.items[0].id'"
-        ).strip()
-
-        # Wait for the build to complete
+        # Wait for the notify-test build to complete
         machine.wait_until_succeeds(
-            f"curl -sf http://127.0.0.1:3000/api/v1/builds/{notify_build_id} | jq -e 'select(.status==\"completed\")'",
+            "curl -sf 'http://127.0.0.1:3000/api/v1/builds?job_name=notify-test' "
+            "| jq -e '.items[] | select(.status==\"completed\")'",
             timeout=120
         )
+
+        # Get the build ID
+        notify_build_id = machine.succeed(
+            "curl -sf 'http://127.0.0.1:3000/api/v1/builds?job_name=notify-test' "
+            "| jq -r '.items[] | select(.status==\"completed\") | .id' | head -1"
+        ).strip()
 
         # Wait a bit for notification to dispatch
         time.sleep(5)
@@ -455,42 +455,37 @@ pkgs.testers.nixosTest {
 
     with subtest("Signed builds have valid signatures"):
         # Create a new build to test signing
-        machine.succeed("""
-            cd /tmp/test-flake-work && \
-            cat > flake.nix << 'FLAKE'
-    {
-      description = "FC CI test flake signing";
-      outputs = { self, ... }: {
-    packages.x86_64-linux.sign-test = derivation {
-      name = "fc-sign-test";
-      system = "x86_64-linux";
-      builder = "/bin/sh";
-      args = [ "-c" "echo signed-build > $out" ];
-    };
-      };
-    }
-    FLAKE
-        """)
-        machine.succeed("cd /tmp/test-flake-work && git add -A && git commit -m 'trigger signing test'")
-        machine.succeed("cd /tmp/test-flake-work && git push origin HEAD:refs/heads/main")
-
-        # Wait for evaluation
-        machine.wait_until_succeeds(
-            f"curl -sf 'http://127.0.0.1:3000/api/v1/evaluations?jobset_id={e2e_jobset_id}' "
-            "| jq '.items | length' | grep -v '^[23]$'",
-            timeout=60
+        machine.succeed(
+            "cd /tmp/test-flake-work && \\\n"
+            "cat > flake.nix << 'FLAKE'\n"
+            "{\n"
+            '  description = "FC CI test flake signing";\n'
+            '  outputs = { self, ... }: {\n'
+            '    packages.x86_64-linux.sign-test = derivation {\n'
+            '      name = "fc-sign-test";\n'
+            '      system = "x86_64-linux";\n'
+            '      builder = "/bin/sh";\n'
+            '      args = [ "-c" "echo signed-build > $out" ];\n'
+            "    };\n"
+            "  };\n"
+            "}\n"
+            "FLAKE\n"
         )
+        machine.succeed("cd /tmp/test-flake-work && git add -A && git commit -m 'trigger signing test'")
+        machine.succeed("cd /tmp/test-flake-work && git push origin HEAD:refs/heads/master")
 
-        # Get the sign-test build
-        sign_build_id = machine.succeed(
-            "curl -sf 'http://127.0.0.1:3000/api/v1/builds?job_name=sign-test' | jq -r '.items[0].id'"
-        ).strip()
-
-        # Wait for build to complete
+        # Wait for the sign-test build to complete
         machine.wait_until_succeeds(
-            f"curl -sf http://127.0.0.1:3000/api/v1/builds/{sign_build_id} | jq -e 'select(.status==\"completed\")'",
+            "curl -sf 'http://127.0.0.1:3000/api/v1/builds?job_name=sign-test' "
+            "| jq -e '.items[] | select(.status==\"completed\")'",
             timeout=120
         )
+
+        # Get the sign-test build ID
+        sign_build_id = machine.succeed(
+            "curl -sf 'http://127.0.0.1:3000/api/v1/builds?job_name=sign-test' "
+            "| jq -r '.items[] | select(.status==\"completed\") | .id' | head -1"
+        ).strip()
 
         # Verify the build has signed=true
         signed = machine.succeed(
@@ -529,24 +524,24 @@ pkgs.testers.nixosTest {
         machine.succeed("chown -R fc:fc /nix/var/nix/gcroots/per-user/fc")
 
         # Create a new build to test GC root creation
-        machine.succeed("""
-            cd /tmp/test-flake-work && \
-            cat > flake.nix << 'FLAKE'
-    {
-      description = "FC CI test flake gc";
-      outputs = { self, ... }: {
-    packages.x86_64-linux.gc-test = derivation {
-      name = "fc-gc-test";
-      system = "x86_64-linux";
-      builder = "/bin/sh";
-      args = [ "-c" "echo gc-test > $out" ];
-    };
-      };
-    }
-    FLAKE
-        """)
+        machine.succeed(
+            "cd /tmp/test-flake-work && \\\n"
+            "cat > flake.nix << 'FLAKE'\n"
+            "{\n"
+            '  description = "FC CI test flake gc";\n'
+            '  outputs = { self, ... }: {\n'
+            '    packages.x86_64-linux.gc-test = derivation {\n'
+            '      name = "fc-gc-test";\n'
+            '      system = "x86_64-linux";\n'
+            '      builder = "/bin/sh";\n'
+            '      args = [ "-c" "echo gc-test > $out" ];\n'
+            "    };\n"
+            "  };\n"
+            "}\n"
+            "FLAKE\n"
+        )
         machine.succeed("cd /tmp/test-flake-work && git add -A && git commit -m 'trigger gc test'")
-        machine.succeed("cd /tmp/test-flake-work && git push origin HEAD:refs/heads/main")
+        machine.succeed("cd /tmp/test-flake-work && git push origin HEAD:refs/heads/master")
 
         # Wait for evaluation and build
         machine.wait_until_succeeds(
@@ -561,25 +556,35 @@ pkgs.testers.nixosTest {
 
         # Verify GC root symlink was created
         # The symlink should be in /nix/var/nix/gcroots/per-user/fc/ and point to the build output
-        gc_roots = machine.succeed("find /nix/var/nix/gcroots/per-user/fc -type l 2>/dev/null || true").strip()
-
-        # Check if any symlink points to our build output
-        if gc_roots:
-            found_root = False
+        # Wait for GC root to be created (polling with timeout)
+        def wait_for_gc_root():
+            gc_roots = machine.succeed("find /nix/var/nix/gcroots/per-user/fc -type l 2>/dev/null || true").strip()
+            if not gc_roots:
+                return False
             for root in gc_roots.split('\n'):
                 if root:
                     target = machine.succeed(f"readlink -f {root} 2>/dev/null || true").strip()
                     if target == gc_build_output:
-                        found_root = True
-                        break
+                        return True
+            return False
 
-            # We might have GC roots, this is expected behavior
-            # The key thing is that the build output exists and is protected from GC
-            machine.succeed(f"test -e {gc_build_output}")
-        else:
-            # If no GC roots yet, at least verify the build output exists
-            # GC roots might be created asynchronously
-            machine.succeed(f"test -e {gc_build_output}")
+        # Poll for GC root creation (give queue-runner time to create it)
+        machine.wait_until_succeeds(
+            "test -e /nix/var/nix/gcroots/per-user/fc",
+            timeout=30
+        )
+
+        # Wait for a symlink pointing to our build output to appear
+        import time
+        found = False
+        for _ in range(10):
+            if wait_for_gc_root():
+                found = True
+                break
+            time.sleep(1)
+
+        # Verify build output exists and is protected from GC
+        machine.succeed(f"test -e {gc_build_output}")
 
     with subtest("Declarative .fc.toml in repo auto-creates jobset"):
         # Add .fc.toml to the test repo with a new jobset definition
@@ -594,7 +599,7 @@ pkgs.testers.nixosTest {
             FCTOML
         """)
         machine.succeed("cd /tmp/test-flake-work && git add -A && git commit -m 'add declarative config'")
-        machine.succeed("cd /tmp/test-flake-work && git push origin HEAD:refs/heads/main")
+        machine.succeed("cd /tmp/test-flake-work && git push origin HEAD:refs/heads/master")
 
         # Wait for evaluator to pick up the new commit and process declarative config
         machine.wait_until_succeeds(

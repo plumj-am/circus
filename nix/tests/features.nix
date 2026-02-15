@@ -16,6 +16,7 @@ pkgs.testers.nixosTest {
   # Feature tests: logging, CSS, setup wizard, probe, metrics improvements
   testScript = ''
     import hashlib
+    import re
 
     machine.start()
     machine.wait_for_unit("postgresql.service")

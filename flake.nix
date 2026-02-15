@@ -85,16 +85,23 @@
 
     checks = forAllSystems (system: let
       pkgs = nixpkgs.legacyPackages.${system};
+      vmTests = {
+        # Split VM integration tests
+        service-startup = pkgs.callPackage ./nix/tests/startup.nix {inherit self;};
+        basic-api = pkgs.callPackage ./nix/tests/basic-api.nix {inherit self;};
+        auth-rbac = pkgs.callPackage ./nix/tests/auth-rbac.nix {inherit self;};
+        api-crud = pkgs.callPackage ./nix/tests/api-crud.nix {inherit self;};
+        features = pkgs.callPackage ./nix/tests/features.nix {inherit self;};
+        webhooks = pkgs.callPackage ./nix/tests/webhooks.nix {inherit self;};
+        e2e = pkgs.callPackage ./nix/tests/e2e.nix {inherit self;};
+        declarative = pkgs.callPackage ./nix/tests/declarative.nix {inherit self;};
+      };
     in {
-      # Split VM integration tests
-      service-startup = pkgs.callPackage ./nix/tests/startup.nix {inherit self;};
-      basic-api = pkgs.callPackage ./nix/tests/basic-api.nix {inherit self;};
-      auth-rbac = pkgs.callPackage ./nix/tests/auth-rbac.nix {inherit self;};
-      api-crud = pkgs.callPackage ./nix/tests/api-crud.nix {inherit self;};
-      features = pkgs.callPackage ./nix/tests/features.nix {inherit self;};
-      webhooks = pkgs.callPackage ./nix/tests/webhooks.nix {inherit self;};
-      e2e = pkgs.callPackage ./nix/tests/e2e.nix {inherit self;};
-      declarative = pkgs.callPackage ./nix/tests/declarative.nix {inherit self;};
+      inherit (vmTests) service-startup basic-api auth-rbac api-crud features webhooks e2e declarative;
+      full = pkgs.symlinkJoin {
+        name = "vm-tests-full";
+        paths = builtins.attrValues vmTests;
+      };
     });
 
     devShells = forAllSystems (system: let
@@ -125,10 +132,20 @@
         runtimeInputs = [
           pkgs.alejandra
           pkgs.fd
+          pkgs.prettier
+          pkgs.deno
+          pkgs.taplo
         ];
 
         text = ''
+          # Format Nix with Alejandra
           fd "$@" -t f -e nix -x alejandra -q '{}'
+
+          # Format TOML with Taplo
+          fd "$@" -t f -e toml -x taplo fmt '{}'
+
+          # Format CSS with Prettier
+           fd "$@" -t f -e css -x prettier --write '{}'
         '';
       });
   };
