@@ -132,23 +132,20 @@ async fn narinfo(
 
   let file_hash = nar_hash;
 
+  use std::fmt::Write;
+
+  let refs_joined = refs.join(" ");
   let mut narinfo_text = format!(
     "StorePath: {store_path}\nURL: nar/{hash}.nar.zst\nCompression: \
      zstd\nFileHash: {file_hash}\nFileSize: {nar_size}\nNarHash: \
-     {nar_hash}\nNarSize: {nar_size}\nReferences: {refs}\n",
-    store_path = store_path,
-    hash = hash,
-    file_hash = file_hash,
-    nar_size = nar_size,
-    nar_hash = nar_hash,
-    refs = refs.join(" "),
+     {nar_hash}\nNarSize: {nar_size}\nReferences: {refs_joined}\n",
   );
 
   if let Some(deriver) = deriver {
-    narinfo_text.push_str(&format!("Deriver: {deriver}\n"));
+    let _ = write!(narinfo_text, "Deriver: {deriver}\n");
   }
   if let Some(ca) = ca {
-    narinfo_text.push_str(&format!("CA: {ca}\n"));
+    let _ = write!(narinfo_text, "CA: {ca}\n");
   }
 
   // Optionally sign if secret key is configured
@@ -248,7 +245,10 @@ async fn serve_nar_zst(
     _ => return Ok(StatusCode::NOT_FOUND.into_response()),
   };
 
-  // Use two piped processes instead of sh -c to prevent command injection
+  // Use two piped processes instead of sh -c to prevent command injection.
+  // nix uses std::process (sync) for piping stdout to zstd stdin.
+  // zstd uses tokio::process with kill_on_drop(true) to ensure cleanup
+  // if the client disconnects.
   let mut nix_child = std::process::Command::new("nix")
     .args(["store", "dump-path", &store_path])
     .stdout(std::process::Stdio::piped())
@@ -270,6 +270,7 @@ async fn serve_nar_zst(
     .stdin(nix_stdout)
     .stdout(std::process::Stdio::piped())
     .stderr(std::process::Stdio::null())
+    .kill_on_drop(true)
     .spawn()
     .map_err(|_| {
       ApiError(fc_common::CiError::Build(
@@ -316,6 +317,7 @@ async fn serve_nar(
     .args(["store", "dump-path", &store_path])
     .stdout(std::process::Stdio::piped())
     .stderr(std::process::Stdio::null())
+    .kill_on_drop(true)
     .spawn();
 
   let mut child = match child {

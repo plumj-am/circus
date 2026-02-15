@@ -7,6 +7,14 @@ use fc_common::{
 };
 use sqlx::PgPool;
 
+/// Maximum session lifetime before automatic eviction (24 hours).
+const SESSION_MAX_AGE: std::time::Duration =
+  std::time::Duration::from_secs(24 * 60 * 60);
+
+/// How often the background cleanup task runs (every 5 minutes).
+const SESSION_CLEANUP_INTERVAL: std::time::Duration =
+  std::time::Duration::from_secs(5 * 60);
+
 /// Session data supporting both API key and user authentication
 #[derive(Clone)]
 pub struct SessionData {
@@ -68,4 +76,28 @@ pub struct AppState {
   pub config:      Config,
   pub sessions:    Arc<DashMap<String, SessionData>>,
   pub http_client: reqwest::Client,
+}
+
+impl AppState {
+  /// Spawn a background task that periodically evicts expired sessions.
+  /// This prevents unbounded memory growth from the in-memory session store.
+  pub fn spawn_session_cleanup(&self) {
+    let sessions = self.sessions.clone();
+    tokio::spawn(async move {
+      loop {
+        tokio::time::sleep(SESSION_CLEANUP_INTERVAL).await;
+        let before = sessions.len();
+        sessions
+          .retain(|_, session| session.created_at.elapsed() < SESSION_MAX_AGE);
+        let evicted = before - sessions.len();
+        if evicted > 0 {
+          tracing::debug!(
+            evicted = evicted,
+            remaining = sessions.len(),
+            "Evicted expired sessions"
+          );
+        }
+      }
+    });
+  }
 }

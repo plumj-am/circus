@@ -63,6 +63,9 @@ async fn main() -> anyhow::Result<()> {
     http_client: reqwest::Client::new(),
   };
 
+  // Start background session cleanup to prevent memory leaks
+  state.spawn_session_cleanup();
+
   let app = routes::router(state, &config.server);
 
   let bind_addr = format!("{host}:{port}");
