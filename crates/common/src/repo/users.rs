@@ -453,7 +453,7 @@ pub async fn validate_session(
     .execute(pool)
     .await
     {
-      tracing::warn!("Failed to update session last_used_at: {e}");
+      tracing::warn!(token_hash = %token_hash, "Failed to update session last_used_at: {e}");
     }
   }
 

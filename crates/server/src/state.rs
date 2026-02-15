@@ -89,7 +89,7 @@ impl AppState {
         let before = sessions.len();
         sessions
           .retain(|_, session| session.created_at.elapsed() < SESSION_MAX_AGE);
-        let evicted = before - sessions.len();
+        let evicted = before.saturating_sub(sessions.len());
         if evicted > 0 {
           tracing::debug!(
             evicted = evicted,
