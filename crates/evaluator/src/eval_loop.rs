@@ -528,6 +528,7 @@ async fn check_declarative_config(
         branch: None,
         scheduling_shares: None,
         state: None,
+        keep_nr: None,
       };
       if let Err(e) = repo::jobsets::upsert(pool, input).await {
         tracing::warn!("Failed to upsert declarative jobset: {e}");

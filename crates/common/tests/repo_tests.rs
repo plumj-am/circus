@@ -50,6 +50,7 @@ async fn create_test_jobset(
     branch: None,
     scheduling_shares: None,
     state: None,
+    keep_nr: None,
   })
   .await
   .expect("create jobset")
@@ -193,6 +194,7 @@ async fn test_jobset_crud() {
     branch:            None,
     scheduling_shares: None,
     state:             None,
+    keep_nr:           None,
   })
   .await
   .expect("create jobset");
@@ -222,6 +224,7 @@ async fn test_jobset_crud() {
     branch:            None,
     scheduling_shares: None,
     state:             None,
+    keep_nr:           None,
   })
   .await
   .expect("update jobset");

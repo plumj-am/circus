@@ -282,6 +282,7 @@ async fn test_fair_share_scheduling() {
       branch:            None,
       scheduling_shares: Some(200),
       state:             None,
+      keep_nr:           None,
     })
     .await
     .expect("create jobset hi");
@@ -297,6 +298,7 @@ async fn test_fair_share_scheduling() {
       branch:            None,
       scheduling_shares: Some(100),
       state:             None,
+      keep_nr:           None,
     })
     .await
     .expect("create jobset lo");
@@ -487,6 +489,7 @@ async fn test_atomic_build_claiming() {
       branch:            None,
       scheduling_shares: None,
       state:             None,
+      keep_nr:           None,
     })
     .await
     .expect("create jobset");
@@ -579,6 +582,7 @@ async fn test_orphan_build_reset() {
       branch:            None,
       scheduling_shares: None,
       state:             None,
+      keep_nr:           None,
     })
     .await
     .expect("create jobset");
@@ -684,6 +688,7 @@ async fn test_get_cancelled_among() {
       branch:            None,
       scheduling_shares: None,
       state:             None,
+      keep_nr:           None,
     })
     .await
     .expect("create jobset");

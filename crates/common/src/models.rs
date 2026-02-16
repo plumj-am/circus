@@ -30,6 +30,7 @@ pub struct Jobset {
   pub updated_at:        DateTime<Utc>,
   pub state:             JobsetState,
   pub last_checked_at:   Option<DateTime<Utc>>,
+  pub keep_nr:           i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -119,6 +120,7 @@ pub struct Build {
   pub constituents:               Option<serde_json::Value>,
   pub builder_id:                 Option<Uuid>,
   pub signed:                     bool,
+  pub keep:                       bool,
 }
 
 #[derive(
@@ -334,6 +336,7 @@ pub struct ActiveJobset {
   pub updated_at:        DateTime<Utc>,
   pub state:             JobsetState,
   pub last_checked_at:   Option<DateTime<Utc>>,
+  pub keep_nr:           i32,
   pub project_name:      String,
   pub repository_url:    String,
 }
@@ -410,18 +413,21 @@ pub struct Channel {
 /// Remote builder for multi-machine / multi-arch builds.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct RemoteBuilder {
-  pub id:                 Uuid,
-  pub name:               String,
-  pub ssh_uri:            String,
-  pub systems:            Vec<String>,
-  pub max_jobs:           i32,
-  pub speed_factor:       i32,
-  pub supported_features: Vec<String>,
-  pub mandatory_features: Vec<String>,
-  pub enabled:            bool,
-  pub public_host_key:    Option<String>,
-  pub ssh_key_file:       Option<String>,
-  pub created_at:         DateTime<Utc>,
+  pub id:                    Uuid,
+  pub name:                  String,
+  pub ssh_uri:               String,
+  pub systems:               Vec<String>,
+  pub max_jobs:              i32,
+  pub speed_factor:          i32,
+  pub supported_features:    Vec<String>,
+  pub mandatory_features:    Vec<String>,
+  pub enabled:               bool,
+  pub public_host_key:       Option<String>,
+  pub ssh_key_file:          Option<String>,
+  pub created_at:            DateTime<Utc>,
+  pub consecutive_failures:  i32,
+  pub disabled_until:        Option<DateTime<Utc>>,
+  pub last_failure:          Option<DateTime<Utc>>,
 }
 
 /// User account for authentication and personalization
@@ -546,6 +552,7 @@ pub struct CreateJobset {
   pub branch:            Option<String>,
   pub scheduling_shares: Option<i32>,
   pub state:             Option<JobsetState>,
+  pub keep_nr:           Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -558,6 +565,7 @@ pub struct UpdateJobset {
   pub branch:            Option<String>,
   pub scheduling_shares: Option<i32>,
   pub state:             Option<JobsetState>,
+  pub keep_nr:           Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

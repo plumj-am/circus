@@ -137,6 +137,7 @@ pub async fn run(pool: &PgPool, config: &DeclarativeConfig) -> Result<()> {
         branch: decl_jobset.branch.clone(),
         scheduling_shares: Some(decl_jobset.scheduling_shares),
         state,
+        keep_nr: decl_jobset.keep_nr,
       })
       .await?;
 

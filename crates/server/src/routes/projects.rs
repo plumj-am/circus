@@ -173,6 +173,7 @@ async fn create_project_jobset(
     branch: body.branch,
     scheduling_shares: body.scheduling_shares,
     state: body.state,
+    keep_nr: None,
   };
   input
     .validate()
@@ -265,6 +266,7 @@ async fn setup_project(
       branch:            None,
       scheduling_shares: None,
       state:             None,
+      keep_nr:           None,
     };
     input
       .validate()

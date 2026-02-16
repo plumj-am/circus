@@ -365,6 +365,8 @@ pub struct DeclarativeJobset {
   /// Scheduling priority shares (default 100, higher = more priority)
   #[serde(default = "default_scheduling_shares")]
   pub scheduling_shares: i32,
+  /// Number of recent successful evaluations to retain (default 3)
+  pub keep_nr:           Option<i32>,
   /// Jobset inputs for parameterized evaluations
   #[serde(default)]
   pub inputs:            Vec<DeclarativeJobsetInput>,
@@ -762,6 +764,7 @@ mod tests {
           state:             None,
           branch:            None,
           scheduling_shares: 100,
+          keep_nr:           None,
           inputs:            vec![],
         }],
         notifications:  vec![],

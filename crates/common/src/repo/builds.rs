@@ -374,6 +374,34 @@ pub async fn get_completed_by_drv_paths(
   )
 }
 
+/// Return the set of build IDs that have `keep = true` (GC-pinned).
+pub async fn list_pinned_ids(
+  pool: &PgPool,
+) -> Result<std::collections::HashSet<Uuid>> {
+  let rows: Vec<(Uuid,)> =
+    sqlx::query_as("SELECT id FROM builds WHERE keep = true")
+      .fetch_all(pool)
+      .await
+      .map_err(CiError::Database)?;
+  Ok(rows.into_iter().map(|(id,)| id).collect())
+}
+
+/// Set the `keep` (GC pin) flag on a build.
+pub async fn set_keep(
+  pool: &PgPool,
+  id: Uuid,
+  keep: bool,
+) -> Result<Build> {
+  sqlx::query_as::<_, Build>(
+    "UPDATE builds SET keep = $1 WHERE id = $2 RETURNING *",
+  )
+  .bind(keep)
+  .bind(id)
+  .fetch_optional(pool)
+  .await?
+  .ok_or_else(|| CiError::NotFound(format!("Build {id} not found")))
+}
+
 /// Set the `builder_id` for a build.
 pub async fn set_builder(
   pool: &PgPool,

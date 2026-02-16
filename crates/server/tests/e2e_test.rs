@@ -64,6 +64,7 @@ async fn test_e2e_project_eval_build_flow() {
     branch:            None,
     scheduling_shares: None,
     state:             None,
+    keep_nr:           None,
   })
   .await
   .expect("create jobset");

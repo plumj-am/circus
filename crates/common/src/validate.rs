@@ -608,6 +608,7 @@ mod tests {
       branch:            None,
       scheduling_shares: None,
       state:             None,
+      keep_nr:           None,
     };
     assert!(j.validate().is_ok());
   }
@@ -624,6 +625,7 @@ mod tests {
       branch:            None,
       scheduling_shares: None,
       state:             None,
+      keep_nr:           None,
     };
     assert!(j.validate().is_err());
   }

@@ -70,18 +70,55 @@ pub async fn list_enabled(pool: &PgPool) -> Result<Vec<RemoteBuilder>> {
 }
 
 /// Find a suitable builder for the given system.
+/// Excludes builders that are temporarily disabled due to consecutive failures.
 pub async fn find_for_system(
   pool: &PgPool,
   system: &str,
 ) -> Result<Vec<RemoteBuilder>> {
   sqlx::query_as::<_, RemoteBuilder>(
     "SELECT * FROM remote_builders WHERE enabled = true AND $1 = ANY(systems) \
+     AND (disabled_until IS NULL OR disabled_until < NOW()) \
      ORDER BY speed_factor DESC",
   )
   .bind(system)
   .fetch_all(pool)
   .await
   .map_err(CiError::Database)
+}
+
+/// Record a build failure for a remote builder.
+/// Increments consecutive_failures (capped at 4), sets last_failure,
+/// and computes disabled_until with exponential backoff.
+/// Backoff formula (from Hydra): delta = 60 * 3^(min(failures, 4) - 1) seconds.
+pub async fn record_failure(pool: &PgPool, id: Uuid) -> Result<RemoteBuilder> {
+  sqlx::query_as::<_, RemoteBuilder>(
+    "UPDATE remote_builders SET \
+     consecutive_failures = LEAST(consecutive_failures + 1, 4), \
+     last_failure = NOW(), \
+     disabled_until = NOW() + make_interval(secs => \
+       60.0 * power(3, LEAST(consecutive_failures + 1, 4) - 1) + (random() * 30)::int \
+     ) \
+     WHERE id = $1 RETURNING *",
+  )
+  .bind(id)
+  .fetch_optional(pool)
+  .await?
+  .ok_or_else(|| CiError::NotFound(format!("Remote builder {id} not found")))
+}
+
+/// Record a build success for a remote builder.
+/// Resets consecutive_failures and clears disabled_until.
+pub async fn record_success(pool: &PgPool, id: Uuid) -> Result<RemoteBuilder> {
+  sqlx::query_as::<_, RemoteBuilder>(
+    "UPDATE remote_builders SET \
+     consecutive_failures = 0, \
+     disabled_until = NULL \
+     WHERE id = $1 RETURNING *",
+  )
+  .bind(id)
+  .fetch_optional(pool)
+  .await?
+  .ok_or_else(|| CiError::NotFound(format!("Remote builder {id} not found")))
 }
 
 pub async fn update(

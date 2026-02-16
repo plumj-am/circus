@@ -18,11 +18,12 @@ pub async fn create(pool: &PgPool, input: CreateJobset) -> Result<Jobset> {
   let flake_mode = input.flake_mode.unwrap_or(true);
   let check_interval = input.check_interval.unwrap_or(60);
   let scheduling_shares = input.scheduling_shares.unwrap_or(100);
+  let keep_nr = input.keep_nr.unwrap_or(3);
 
   sqlx::query_as::<_, Jobset>(
     "INSERT INTO jobsets (project_id, name, nix_expression, enabled, \
-     flake_mode, check_interval, branch, scheduling_shares, state) VALUES \
-     ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
+     flake_mode, check_interval, branch, scheduling_shares, state, keep_nr) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *",
   )
   .bind(input.project_id)
   .bind(&input.name)
@@ -33,6 +34,7 @@ pub async fn create(pool: &PgPool, input: CreateJobset) -> Result<Jobset> {
   .bind(&input.branch)
   .bind(scheduling_shares)
   .bind(state.as_str())
+  .bind(keep_nr)
   .fetch_one(pool)
   .await
   .map_err(|e| {
@@ -106,11 +108,12 @@ pub async fn update(
   let scheduling_shares = input
     .scheduling_shares
     .unwrap_or(existing.scheduling_shares);
+  let keep_nr = input.keep_nr.unwrap_or(existing.keep_nr);
 
   sqlx::query_as::<_, Jobset>(
     "UPDATE jobsets SET name = $1, nix_expression = $2, enabled = $3, \
      flake_mode = $4, check_interval = $5, branch = $6, scheduling_shares = \
-     $7, state = $8 WHERE id = $9 RETURNING *",
+     $7, state = $8, keep_nr = $9 WHERE id = $10 RETURNING *",
   )
   .bind(&name)
   .bind(&nix_expression)
@@ -120,6 +123,7 @@ pub async fn update(
   .bind(&branch)
   .bind(scheduling_shares)
   .bind(state.as_str())
+  .bind(keep_nr)
   .bind(id)
   .fetch_one(pool)
   .await
@@ -160,15 +164,17 @@ pub async fn upsert(pool: &PgPool, input: CreateJobset) -> Result<Jobset> {
   let flake_mode = input.flake_mode.unwrap_or(true);
   let check_interval = input.check_interval.unwrap_or(60);
   let scheduling_shares = input.scheduling_shares.unwrap_or(100);
+  let keep_nr = input.keep_nr.unwrap_or(3);
 
   sqlx::query_as::<_, Jobset>(
     "INSERT INTO jobsets (project_id, name, nix_expression, enabled, \
-     flake_mode, check_interval, branch, scheduling_shares, state) VALUES \
-     ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (project_id, name) DO \
-     UPDATE SET nix_expression = EXCLUDED.nix_expression, enabled = \
-     EXCLUDED.enabled, flake_mode = EXCLUDED.flake_mode, check_interval = \
-     EXCLUDED.check_interval, branch = EXCLUDED.branch, scheduling_shares = \
-     EXCLUDED.scheduling_shares, state = EXCLUDED.state RETURNING *",
+     flake_mode, check_interval, branch, scheduling_shares, state, keep_nr) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT \
+     (project_id, name) DO UPDATE SET nix_expression = \
+     EXCLUDED.nix_expression, enabled = EXCLUDED.enabled, flake_mode = \
+     EXCLUDED.flake_mode, check_interval = EXCLUDED.check_interval, branch = \
+     EXCLUDED.branch, scheduling_shares = EXCLUDED.scheduling_shares, state = \
+     EXCLUDED.state, keep_nr = EXCLUDED.keep_nr RETURNING *",
   )
   .bind(input.project_id)
   .bind(&input.name)
@@ -179,6 +185,7 @@ pub async fn upsert(pool: &PgPool, input: CreateJobset) -> Result<Jobset> {
   .bind(&input.branch)
   .bind(scheduling_shares)
   .bind(state.as_str())
+  .bind(keep_nr)
   .fetch_one(pool)
   .await
   .map_err(CiError::Database)

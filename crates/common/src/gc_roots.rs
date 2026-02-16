@@ -1,18 +1,22 @@
 //! GC root management - prevents nix-store --gc from deleting build outputs
 
 use std::{
+  collections::HashSet,
   os::unix::fs::symlink,
   path::{Path, PathBuf},
   time::Duration,
 };
 
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
+use uuid::Uuid;
 
 /// Remove GC root symlinks with mtime older than `max_age`. Returns count
-/// removed.
+/// removed. Symlinks whose filename matches a UUID in `pinned_build_ids` are
+/// skipped regardless of age.
 pub fn cleanup_old_roots(
   roots_dir: &Path,
   max_age: Duration,
+  pinned_build_ids: &HashSet<Uuid>,
 ) -> std::io::Result<u64> {
   if !roots_dir.exists() {
     return Ok(0);
@@ -23,6 +27,17 @@ pub fn cleanup_old_roots(
 
   for entry in std::fs::read_dir(roots_dir)? {
     let entry = entry?;
+
+    // Check if this root is pinned (filename is a build UUID with keep=true)
+    if let Some(name) = entry.file_name().to_str() {
+      if let Ok(build_id) = name.parse::<Uuid>() {
+        if pinned_build_ids.contains(&build_id) {
+          debug!(build_id = %build_id, "Skipping pinned GC root");
+          continue;
+        }
+      }
+    }
+
     let metadata = match entry.metadata() {
       Ok(m) => m,
       Err(_) => continue,
