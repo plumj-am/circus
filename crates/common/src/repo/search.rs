@@ -49,6 +49,15 @@ pub enum BuildStatusFilter {
   Succeeded,
   Failed,
   Cancelled,
+  DependencyFailed,
+  Aborted,
+  FailedWithOutput,
+  Timeout,
+  CachedFailure,
+  UnsupportedSystem,
+  LogLimitExceeded,
+  NarSizeLimitExceeded,
+  NonDeterministic,
 }
 
 /// Search filters for builds
@@ -411,6 +420,15 @@ async fn search_builds(
         BuildStatusFilter::Succeeded => "succeeded",
         BuildStatusFilter::Failed => "failed",
         BuildStatusFilter::Cancelled => "cancelled",
+        BuildStatusFilter::DependencyFailed => "dependency_failed",
+        BuildStatusFilter::Aborted => "aborted",
+        BuildStatusFilter::FailedWithOutput => "failed_with_output",
+        BuildStatusFilter::Timeout => "timeout",
+        BuildStatusFilter::CachedFailure => "cached_failure",
+        BuildStatusFilter::UnsupportedSystem => "unsupported_system",
+        BuildStatusFilter::LogLimitExceeded => "log_limit_exceeded",
+        BuildStatusFilter::NarSizeLimitExceeded => "nar_size_limit_exceeded",
+        BuildStatusFilter::NonDeterministic => "non_deterministic",
       };
       query_builder.push(" AND status = ");
       query_builder.push_bind(status_str);

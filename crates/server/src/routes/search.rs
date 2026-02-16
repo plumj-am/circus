@@ -267,6 +267,17 @@ async fn advanced_search_handler(
         "succeeded" => Some(BuildStatusFilter::Succeeded),
         "failed" => Some(BuildStatusFilter::Failed),
         "cancelled" => Some(BuildStatusFilter::Cancelled),
+        "dependency_failed" => Some(BuildStatusFilter::DependencyFailed),
+        "aborted" => Some(BuildStatusFilter::Aborted),
+        "failed_with_output" => Some(BuildStatusFilter::FailedWithOutput),
+        "timeout" => Some(BuildStatusFilter::Timeout),
+        "cached_failure" => Some(BuildStatusFilter::CachedFailure),
+        "unsupported_system" => Some(BuildStatusFilter::UnsupportedSystem),
+        "log_limit_exceeded" => Some(BuildStatusFilter::LogLimitExceeded),
+        "nar_size_limit_exceeded" => {
+          Some(BuildStatusFilter::NarSizeLimitExceeded)
+        },
+        "non_deterministic" => Some(BuildStatusFilter::NonDeterministic),
         _ => None,
       }
     });
