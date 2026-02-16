@@ -5,8 +5,9 @@ use fc_common::{
   config::{Config, GcConfig},
   database::Database,
   gc_roots,
+  repo,
 };
-use fc_queue_runner::worker::WorkerPool;
+use fc_queue_runner::worker::{ActiveBuilds, WorkerPool};
 
 #[derive(Parser)]
 #[command(name = "fc-queue-runner")]
@@ -78,6 +79,8 @@ async fn main() -> anyhow::Result<()> {
     wakeup.clone(),
   );
 
+  let active_builds = worker_pool.active_builds().clone();
+
   tokio::select! {
       result = fc_queue_runner::runner_loop::run(db.pool().clone(), worker_pool, poll_interval, wakeup, strict_errors, failed_paths_cache) => {
           if let Err(e) = result {
@@ -86,6 +89,7 @@ async fn main() -> anyhow::Result<()> {
       }
       () = gc_loop(gc_config_for_loop) => {}
       () = failed_paths_cleanup_loop(db.pool().clone(), failed_paths_ttl, failed_paths_cache) => {}
+      () = cancel_checker_loop(db.pool().clone(), active_builds) => {}
       () = shutdown_signal() => {
           tracing::info!("Shutdown signal received, draining in-flight builds...");
           worker_pool_for_drain.drain();
@@ -171,6 +175,34 @@ async fn failed_paths_cleanup_loop(
       Ok(_) => {},
       Err(e) => {
         tracing::error!("Failed paths cache cleanup failed: {e}");
+      },
+    }
+  }
+}
+
+async fn cancel_checker_loop(pool: sqlx::PgPool, active_builds: ActiveBuilds) {
+  let interval = Duration::from_secs(2);
+  loop {
+    tokio::time::sleep(interval).await;
+
+    let build_ids: Vec<uuid::Uuid> =
+      active_builds.iter().map(|entry| *entry.key()).collect();
+
+    if build_ids.is_empty() {
+      continue;
+    }
+
+    match repo::builds::get_cancelled_among(&pool, &build_ids).await {
+      Ok(cancelled_ids) => {
+        for id in cancelled_ids {
+          if let Some((_, token)) = active_builds.remove(&id) {
+            tracing::info!(build_id = %id, "Triggering cancellation for running build");
+            token.cancel();
+          }
+        }
+      },
+      Err(e) => {
+        tracing::warn!("Failed to check for cancelled builds: {e}");
       },
     }
   }

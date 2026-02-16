@@ -874,6 +874,7 @@ dependencies = [
  "chrono",
  "clap",
  "config",
+ "dashmap",
  "fc-common",
  "serde",
  "serde_json",

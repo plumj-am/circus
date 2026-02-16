@@ -1,5 +1,6 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
+use dashmap::DashMap;
 use fc_common::{
   alerts::AlertManager,
   config::{
@@ -24,6 +25,10 @@ use fc_common::{
 };
 use sqlx::PgPool;
 use tokio::sync::Semaphore;
+use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
+
+pub type ActiveBuilds = Arc<DashMap<Uuid, CancellationToken>>;
 
 pub struct WorkerPool {
   semaphore:            Arc<Semaphore>,
@@ -37,7 +42,8 @@ pub struct WorkerPool {
   signing_config:       Arc<SigningConfig>,
   cache_upload_config:  Arc<CacheUploadConfig>,
   alert_manager:        Arc<Option<AlertManager>>,
-  drain_token:          tokio_util::sync::CancellationToken,
+  drain_token:          CancellationToken,
+  active_builds:        ActiveBuilds,
 }
 
 impl WorkerPool {
@@ -68,7 +74,8 @@ impl WorkerPool {
       signing_config: Arc::new(signing_config),
       cache_upload_config: Arc::new(cache_upload_config),
       alert_manager: Arc::new(alert_manager),
-      drain_token: tokio_util::sync::CancellationToken::new(),
+      drain_token: CancellationToken::new(),
+      active_builds: Arc::new(DashMap::new()),
     }
   }
 
@@ -95,6 +102,10 @@ impl WorkerPool {
     .await;
   }
 
+  pub fn active_builds(&self) -> &ActiveBuilds {
+    &self.active_builds
+  }
+
   #[tracing::instrument(skip(self, build), fields(build_id = %build.id, job = %build.job_name))]
   pub fn dispatch(&self, build: Build) {
     if self.drain_token.is_cancelled() {
@@ -112,29 +123,45 @@ impl WorkerPool {
     let signing_config = self.signing_config.clone();
     let cache_upload_config = self.cache_upload_config.clone();
     let alert_manager = self.alert_manager.clone();
+    let active_builds = self.active_builds.clone();
+    let cancel_token = CancellationToken::new();
+    let build_id = build.id;
+
+    active_builds.insert(build_id, cancel_token.clone());
 
     tokio::spawn(async move {
-      let _permit = match semaphore.acquire().await {
-        Ok(p) => p,
-        Err(_) => return,
+      let result = async {
+        let _permit = match semaphore.acquire().await {
+          Ok(p) => p,
+          Err(_) => return,
+        };
+
+        if let Err(e) = run_build(
+          &pool,
+          &build,
+          &work_dir,
+          timeout,
+          &log_config,
+          &gc_config,
+          &notifications_config,
+          &signing_config,
+          &cache_upload_config,
+          &alert_manager,
+        )
+        .await
+        {
+          tracing::error!(build_id = %build.id, "Build dispatch failed: {e}");
+        }
       };
 
-      if let Err(e) = run_build(
-        &pool,
-        &build,
-        &work_dir,
-        timeout,
-        &log_config,
-        &gc_config,
-        &notifications_config,
-        &signing_config,
-        &cache_upload_config,
-        &alert_manager,
-      )
-      .await
-      {
-        tracing::error!(build_id = %build.id, "Build dispatch failed: {e}");
+      tokio::select! {
+        () = result => {}
+        () = cancel_token.cancelled() => {
+          tracing::info!(build_id = %build_id, "Build cancelled, aborting");
+        }
       }
+
+      active_builds.remove(&build_id);
     });
   }
 }
