@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::Context;
 use chrono::Utc;
@@ -16,10 +16,15 @@ use fc_common::{
 };
 use futures::stream::{self, StreamExt};
 use sqlx::PgPool;
+use tokio::sync::Notify;
 use tracing::info;
 use uuid::Uuid;
 
-pub async fn run(pool: PgPool, config: EvaluatorConfig) -> anyhow::Result<()> {
+pub async fn run(
+  pool: PgPool,
+  config: EvaluatorConfig,
+  wakeup: Arc<Notify>,
+) -> anyhow::Result<()> {
   let poll_interval = Duration::from_secs(config.poll_interval);
   let nix_timeout = Duration::from_secs(config.nix_timeout);
   let git_timeout = Duration::from_secs(config.git_timeout);
@@ -28,7 +33,8 @@ pub async fn run(pool: PgPool, config: EvaluatorConfig) -> anyhow::Result<()> {
     if let Err(e) = run_cycle(&pool, &config, nix_timeout, git_timeout).await {
       tracing::error!("Evaluation cycle failed: {e}");
     }
-    tokio::time::sleep(poll_interval).await;
+    // Wake on NOTIFY or fall back to regular poll interval
+    let _ = tokio::time::timeout(poll_interval, wakeup.notified()).await;
   }
 }
 

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use clap::Parser;
 use fc_common::{Config, Database};
 
@@ -29,8 +31,15 @@ async fn main() -> anyhow::Result<()> {
   let pool = db.pool().clone();
   let eval_config = config.evaluator;
 
+  let wakeup = Arc::new(tokio::sync::Notify::new());
+  let listener_handle = fc_common::pg_notify::spawn_listener(
+    db.pool(),
+    &[fc_common::pg_notify::CHANNEL_JOBSETS_CHANGED],
+    wakeup.clone(),
+  );
+
   tokio::select! {
-      result = fc_evaluator::eval_loop::run(pool, eval_config) => {
+      result = fc_evaluator::eval_loop::run(pool, eval_config, wakeup) => {
           if let Err(e) = result {
               tracing::error!("Evaluator loop failed: {e}");
           }
@@ -39,6 +48,9 @@ async fn main() -> anyhow::Result<()> {
           tracing::info!("Shutdown signal received");
       }
   }
+
+  listener_handle.abort();
+  let _ = listener_handle.await;
 
   tracing::info!("Evaluator shutting down, closing database pool");
   db.close().await;
