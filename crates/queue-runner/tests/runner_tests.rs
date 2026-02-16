@@ -426,13 +426,15 @@ async fn test_fair_share_scheduling() {
     .await
     .expect("list pending after running");
 
-  if !pending2.is_empty() {
-    assert_eq!(
-      pending2[0].evaluation_id, eval_lo.id,
-      "underserved lo-share jobset should be scheduled first when hi-share is \
-       over-served"
-    );
-  }
+  assert!(
+    !pending2.is_empty(),
+    "expected pending builds from lo-share jobset"
+  );
+  assert_eq!(
+    pending2[0].evaluation_id, eval_lo.id,
+    "underserved lo-share jobset should be scheduled first when hi-share is \
+     over-served"
+  );
 
   // Clean up
   let _ = fc_common::repo::projects::delete(&pool, project_hi.id).await;
