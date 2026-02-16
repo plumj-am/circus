@@ -3,6 +3,7 @@
   pkgs,
   lib,
 }: let
+  inherit (lib.modules) mkForce;
   fc-packages = self.packages.${pkgs.stdenv.hostPlatform.system};
 
   # Demo password file to demonstrate passwordFile option
@@ -24,6 +25,7 @@
 
     services.fc-ci = {
       enable = true;
+
       package = fc-packages.fc-server;
       evaluatorPackage = fc-packages.fc-evaluator;
       queueRunnerPackage = fc-packages.fc-queue-runner;
@@ -41,9 +43,9 @@
         signing.enabled = false;
         server = {
           # Bind to all interfaces so port forwarding works
-          host = lib.mkForce "0.0.0.0";
+          host = mkForce "0.0.0.0";
           port = 3000;
-          cors_permissive = lib.mkForce true;
+          cors_permissive = mkForce true;
         };
       };
 
@@ -113,7 +115,7 @@
       '';
     };
 
-    # --- Useful tools inside the VM ---
+    # Useful tools inside the VM
     environment.systemPackages = with pkgs; [
       curl
       jq
@@ -124,42 +126,14 @@
       zstd
     ];
 
-    # --- Misc VM settings ---
+    # Misc VM settings
     networking.hostName = "fc-demo";
     networking.firewall.allowedTCPPorts = [3000];
     services.getty.autologinUser = "root";
-
-    # Show a helpful MOTD
-    environment.etc."motd".text = ''
-      ┌─────────────────────────────────────────────────────────────┐
-      │  Dashboard:  http://localhost:3000                          │
-      │  API:        http://localhost:3000/api/v1                   │
-      │                                                             │
-      │  Web login: admin / AdminPassword123! (admin)               │
-      │             demo / DemoPassword123! (read-only)             │
-      │  Admin API key:     fc_demo_admin_key                       │
-      │  Read-only API key: fc_demo_readonly_key                    │
-      │                                                             │
-      │  Useful commands:                                           │
-      │    $ systemctl status fc-server                             │
-      │    $ journalctl -u fc-server -f                             │
-      │    $ curl -sf localhost:3000/health | jq                    │
-      │    $ curl -sf localhost:3000/metrics                        │
-      │                                                             │
-      │  Press Ctrl-a x to quit QEMU.                               │
-      └─────────────────────────────────────────────────────────────┘
-    '';
-
     system.stateVersion = "26.11";
   });
 in
   pkgs.writeShellApplication {
     name = "run-fc-demo-vm";
-    text = ''
-      echo "Starting FC CI demo VM..."
-      echo "Dashboard will be available at http://localhost:3000"
-      echo "Press Ctrl-a x to quit."
-      echo ""
-      exec ${nixos.config.system.build.vm}/bin/run-fc-demo-vm
-    '';
+    text = "exec ${nixos.config.system.build.vm}/bin/run-fc-demo-vm";
   }

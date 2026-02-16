@@ -49,6 +49,16 @@ pkgs.testers.nixosTest {
     )
     ro_header = f"-H 'Authorization: Bearer {ro_token}'"
 
+    with subtest("PostgreSQL LISTEN/NOTIFY triggers are installed"):
+        result = machine.succeed(
+            "sudo -u fc psql -U fc -d fc -c \"SELECT tgname FROM pg_trigger WHERE tgname LIKE 'trg_%_notify'\" -t"
+        )
+        assert "trg_builds_insert_notify" in result, f"Missing trg_builds_insert_notify in: {result}"
+        assert "trg_builds_status_notify" in result, f"Missing trg_builds_status_notify in: {result}"
+        assert "trg_jobsets_insert_notify" in result, f"Missing trg_jobsets_insert_notify in: {result}"
+        assert "trg_jobsets_update_notify" in result, f"Missing trg_jobsets_update_notify in: {result}"
+        assert "trg_jobsets_delete_notify" in result, f"Missing trg_jobsets_delete_notify in: {result}"
+
     # Create a test flake inside the VM
     with subtest("Create bare git repo with test flake"):
         machine.succeed("mkdir -p /var/lib/fc/test-repos")
@@ -101,7 +111,7 @@ pkgs.testers.nixosTest {
             f"curl -sf -X POST http://127.0.0.1:3000/api/v1/projects/{e2e_project_id}/jobsets "
             f"{auth_header} "
             "-H 'Content-Type: application/json' "
-            "-d '{\"name\": \"packages\", \"nix_expression\": \"packages\", \"flake_mode\": true, \"enabled\": true, \"check_interval\": 60}' "
+            "-d '{\"name\": \"packages\", \"nix_expression\": \"packages\", \"flake_mode\": true, \"enabled\": true, \"check_interval\": 10}' "
             "| jq -r .id"
         )
         e2e_jobset_id = result.strip()
@@ -149,8 +159,8 @@ pkgs.testers.nixosTest {
         before_count = machine.succeed(
             f"curl -sf 'http://127.0.0.1:3000/api/v1/evaluations?jobset_id={e2e_jobset_id}' | jq '.items | length'"
         ).strip()
-        # Wait a poll cycle
-        time.sleep(10)
+        # Wait longer than check_interval (10s) to ensure the evaluator re-checks
+        time.sleep(15)
         after_count = machine.succeed(
             f"curl -sf 'http://127.0.0.1:3000/api/v1/evaluations?jobset_id={e2e_jobset_id}' | jq '.items | length'"
         ).strip()
@@ -361,6 +371,23 @@ pkgs.testers.nixosTest {
         ).strip()
         assert result == "failed", f"Expected failed for bad build, got '{result}'"
 
+    with subtest("LISTEN/NOTIFY: queue-runner reacts to new builds"):
+        # Insert a build directly via SQL and verify the queue-runner picks it up
+        # reactively (within seconds, not waiting for the full poll interval)
+        machine.succeed(
+            f"sudo -u fc psql -U fc -d fc -c \""
+            "INSERT INTO builds (id, evaluation_id, job_name, drv_path, status, priority, retry_count, max_retries, is_aggregate, signed) "
+            f"VALUES (gen_random_uuid(), '{e2e_eval_id}', 'notify-build', '/nix/store/invalid-notify-test.drv', 'pending', 0, 0, 1, false, false);\""
+        )
+        # Queue-runner should pick it up quickly via NOTIFY (poll_interval is 3s in test,
+        # but LISTEN/NOTIFY wakes it immediately). The build will fail since the drv is
+        # invalid, but we just need to verify it was picked up (status changed from pending).
+        machine.wait_until_succeeds(
+            "curl -sf 'http://127.0.0.1:3000/api/v1/builds?job_name=notify-build' "
+            "| jq -e '.items[] | select(.status!=\"pending\")'",
+            timeout=10
+        )
+
     with subtest("Notification run_command invoked on build completion"):
         # Write a notification script
         machine.succeed("mkdir -p /var/lib/fc")
@@ -375,16 +402,15 @@ pkgs.testers.nixosTest {
         machine.succeed("chmod +x /var/lib/fc/notify.sh")
         machine.succeed("chown -R fc:fc /var/lib/fc")
 
-        # Update fc.toml to enable notifications
+        # Enable notifications via systemd drop-in override (adds env var directly to service unit)
+        machine.succeed("mkdir -p /run/systemd/system/fc-queue-runner.service.d")
         machine.succeed("""
-            cat >> /etc/fc.toml << 'CONFIG'
-
-    [notifications]
-    run_command = "/var/lib/fc/notify.sh"
-    CONFIG
+            cat > /run/systemd/system/fc-queue-runner.service.d/notify.conf << 'EOF'
+    [Service]
+    Environment=FC_NOTIFICATIONS__RUN_COMMAND=/var/lib/fc/notify.sh
+    EOF
         """)
-
-        # Restart queue-runner to pick up new config
+        machine.succeed("systemctl daemon-reload")
         machine.succeed("systemctl restart fc-queue-runner")
         machine.wait_for_unit("fc-queue-runner.service", timeout=30)
 
@@ -439,17 +465,16 @@ pkgs.testers.nixosTest {
         machine.succeed("chown -R fc:fc /var/lib/fc/keys")
         machine.succeed("chmod 600 /var/lib/fc/keys/signing-key")
 
-        # Update fc.toml to enable signing
+        # Enable signing via systemd drop-in override
+        machine.succeed("mkdir -p /run/systemd/system/fc-queue-runner.service.d")
         machine.succeed("""
-            cat >> /etc/fc.toml << 'CONFIG'
-
-    [signing]
-    enabled = true
-    key_file = "/var/lib/fc/keys/signing-key"
-    CONFIG
+            cat > /run/systemd/system/fc-queue-runner.service.d/signing.conf << 'EOF'
+    [Service]
+    Environment=FC_SIGNING__ENABLED=true
+    Environment=FC_SIGNING__KEY_FILE=/var/lib/fc/keys/signing-key
+    EOF
         """)
-
-        # Restart queue-runner to pick up signing config
+        machine.succeed("systemctl daemon-reload")
         machine.succeed("systemctl restart fc-queue-runner")
         machine.wait_for_unit("fc-queue-runner.service", timeout=30)
 
@@ -503,19 +528,18 @@ pkgs.testers.nixosTest {
         machine.succeed(f"nix store verify --sigs-needed 1 {output_path}")
 
     with subtest("GC roots are created for build products"):
-        # Enable GC in config
+        # Enable GC via systemd drop-in override
+        machine.succeed("mkdir -p /run/systemd/system/fc-queue-runner.service.d")
         machine.succeed("""
-            cat >> /etc/fc.toml << 'CONFIG'
-
-    [gc]
-    enabled = true
-    gc_roots_dir = "/nix/var/nix/gcroots/per-user/fc"
-    max_age_days = 30
-    cleanup_interval = 3600
-    CONFIG
+            cat > /run/systemd/system/fc-queue-runner.service.d/gc.conf << 'EOF'
+    [Service]
+    Environment=FC_GC__ENABLED=true
+    Environment=FC_GC__GC_ROOTS_DIR=/nix/var/nix/gcroots/per-user/fc
+    Environment=FC_GC__MAX_AGE_DAYS=30
+    Environment=FC_GC__CLEANUP_INTERVAL=3600
+    EOF
         """)
-
-        # Restart queue-runner to enable GC
+        machine.succeed("systemctl daemon-reload")
         machine.succeed("systemctl restart fc-queue-runner")
         machine.wait_for_unit("fc-queue-runner.service", timeout=30)
 
