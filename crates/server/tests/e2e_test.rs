@@ -153,7 +153,7 @@ async fn test_e2e_project_eval_build_flow() {
   fc_common::repo::builds::complete(
     &pool,
     build2.id,
-    BuildStatus::Completed,
+    BuildStatus::Succeeded,
     None,
     Some("/nix/store/e2e000-world"),
     None,
@@ -206,7 +206,7 @@ async fn test_e2e_project_eval_build_flow() {
   fc_common::repo::builds::complete(
     &pool,
     build1.id,
-    BuildStatus::Completed,
+    BuildStatus::Succeeded,
     None,
     Some("/nix/store/e2e000-hello"),
     None,
@@ -233,7 +233,7 @@ async fn test_e2e_project_eval_build_flow() {
   let final_build1 = fc_common::repo::builds::get(&pool, build1.id)
     .await
     .expect("get build1");
-  assert_eq!(final_build1.status, BuildStatus::Completed);
+  assert_eq!(final_build1.status, BuildStatus::Succeeded);
   assert_eq!(
     final_build1.build_output_path.as_deref(),
     Some("/nix/store/e2e000-hello")

@@ -314,14 +314,14 @@ async fn test_evaluation_and_build_lifecycle() {
   let completed = repo::builds::complete(
     &pool,
     build.id,
-    BuildStatus::Completed,
+    BuildStatus::Succeeded,
     None,
     Some("/nix/store/output"),
     None,
   )
   .await
   .expect("complete build");
-  assert!(matches!(completed.status, BuildStatus::Completed));
+  assert!(matches!(completed.status, BuildStatus::Succeeded));
 
   // Create build step
   let step = repo::build_steps::create(&pool, CreateBuildStep {
@@ -445,7 +445,7 @@ async fn test_batch_get_completed_by_drv_paths() {
   repo::builds::complete(
     &pool,
     b1.id,
-    BuildStatus::Completed,
+    BuildStatus::Succeeded,
     None,
     None,
     None,
@@ -456,7 +456,7 @@ async fn test_batch_get_completed_by_drv_paths() {
   repo::builds::complete(
     &pool,
     b2.id,
-    BuildStatus::Completed,
+    BuildStatus::Succeeded,
     None,
     None,
     None,
@@ -534,7 +534,7 @@ async fn test_batch_check_deps_for_builds() {
   repo::builds::complete(
     &pool,
     dep_build.id,
-    BuildStatus::Completed,
+    BuildStatus::Succeeded,
     None,
     None,
     None,
@@ -801,7 +801,7 @@ async fn test_dedup_by_drv_path() {
   repo::builds::complete(
     &pool,
     build.id,
-    BuildStatus::Completed,
+    BuildStatus::Succeeded,
     None,
     None,
     None,

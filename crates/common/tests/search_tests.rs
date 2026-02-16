@@ -153,7 +153,7 @@ async fn test_build_search_with_filters() {
   repo::builds::complete(
     &pool,
     build1.id,
-    BuildStatus::Completed,
+    BuildStatus::Succeeded,
     None,
     None,
     None,
