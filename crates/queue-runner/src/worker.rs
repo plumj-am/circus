@@ -102,6 +102,10 @@ impl WorkerPool {
     .await;
   }
 
+  pub fn worker_count(&self) -> usize {
+    self.worker_count
+  }
+
   pub fn active_builds(&self) -> &ActiveBuilds {
     &self.active_builds
   }

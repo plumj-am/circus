@@ -29,7 +29,8 @@ pub async fn run(
   }
 
   loop {
-    match repo::builds::list_pending(&pool, 10).await {
+    let wc = worker_pool.worker_count() as i32;
+    match repo::builds::list_pending(&pool, 10, wc).await {
       Ok(builds) => {
         if !builds.is_empty() {
           tracing::info!("Found {} pending builds", builds.len());
