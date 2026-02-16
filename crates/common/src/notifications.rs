@@ -48,8 +48,9 @@ pub async fn dispatch_build_finished(
   }
 
   // 5. Email notification
+  let is_failure = !build.status.is_success();
   if let Some(ref email_config) = config.email
-    && (!email_config.on_failure_only || build.status == BuildStatus::Failed)
+    && (!email_config.on_failure_only || is_failure)
   {
     send_email_notification(email_config, build, project).await;
   }
@@ -57,10 +58,18 @@ pub async fn dispatch_build_finished(
 
 async fn run_command_notification(cmd: &str, build: &Build, project: &Project) {
   let status_str = match build.status {
-    BuildStatus::Completed => "success",
-    BuildStatus::Failed => "failure",
+    BuildStatus::Succeeded | BuildStatus::CachedFailure => "success",
+    BuildStatus::Failed
+    | BuildStatus::DependencyFailed
+    | BuildStatus::FailedWithOutput
+    | BuildStatus::Timeout
+    | BuildStatus::LogLimitExceeded
+    | BuildStatus::NarSizeLimitExceeded
+    | BuildStatus::NonDeterministic => "failure",
     BuildStatus::Cancelled => "cancelled",
-    _ => "unknown",
+    BuildStatus::Aborted => "aborted",
+    BuildStatus::UnsupportedSystem => "skipped",
+    BuildStatus::Pending | BuildStatus::Running => "pending",
   };
 
   let result = tokio::process::Command::new("sh")
@@ -107,11 +116,21 @@ async fn set_github_status(
   };
 
   let (state, description) = match build.status {
-    BuildStatus::Completed => ("success", "Build succeeded"),
-    BuildStatus::Failed => ("failure", "Build failed"),
+    BuildStatus::Succeeded | BuildStatus::CachedFailure => {
+      ("success", "Build succeeded")
+    },
+    BuildStatus::Failed
+    | BuildStatus::DependencyFailed
+    | BuildStatus::FailedWithOutput
+    | BuildStatus::NonDeterministic => ("failure", "Build failed"),
     BuildStatus::Running => ("pending", "Build in progress"),
     BuildStatus::Pending => ("pending", "Build queued"),
     BuildStatus::Cancelled => ("error", "Build cancelled"),
+    BuildStatus::Aborted => ("error", "Build aborted"),
+    BuildStatus::Timeout => ("error", "Build timed out"),
+    BuildStatus::UnsupportedSystem => ("error", "Unsupported system"),
+    BuildStatus::LogLimitExceeded => ("error", "Log limit exceeded"),
+    BuildStatus::NarSizeLimitExceeded => ("error", "NAR size limit exceeded"),
   };
 
   let url =
@@ -160,11 +179,21 @@ async fn set_gitea_status(
   };
 
   let (state, description) = match build.status {
-    BuildStatus::Completed => ("success", "Build succeeded"),
-    BuildStatus::Failed => ("failure", "Build failed"),
+    BuildStatus::Succeeded | BuildStatus::CachedFailure => {
+      ("success", "Build succeeded")
+    },
+    BuildStatus::Failed
+    | BuildStatus::DependencyFailed
+    | BuildStatus::FailedWithOutput
+    | BuildStatus::NonDeterministic => ("failure", "Build failed"),
     BuildStatus::Running => ("pending", "Build in progress"),
     BuildStatus::Pending => ("pending", "Build queued"),
     BuildStatus::Cancelled => ("error", "Build cancelled"),
+    BuildStatus::Aborted => ("error", "Build aborted"),
+    BuildStatus::Timeout => ("error", "Build timed out"),
+    BuildStatus::UnsupportedSystem => ("error", "Unsupported system"),
+    BuildStatus::LogLimitExceeded => ("error", "Log limit exceeded"),
+    BuildStatus::NarSizeLimitExceeded => ("error", "NAR size limit exceeded"),
   };
 
   let url = format!("{base_url}/api/v1/repos/{owner}/{repo}/statuses/{commit}");
@@ -211,11 +240,21 @@ async fn set_gitlab_status(
 
   // GitLab uses different state names
   let (state, description) = match build.status {
-    BuildStatus::Completed => ("success", "Build succeeded"),
-    BuildStatus::Failed => ("failed", "Build failed"),
+    BuildStatus::Succeeded | BuildStatus::CachedFailure => {
+      ("success", "Build succeeded")
+    },
+    BuildStatus::Failed
+    | BuildStatus::DependencyFailed
+    | BuildStatus::FailedWithOutput
+    | BuildStatus::NonDeterministic => ("failed", "Build failed"),
     BuildStatus::Running => ("running", "Build in progress"),
     BuildStatus::Pending => ("pending", "Build queued"),
     BuildStatus::Cancelled => ("canceled", "Build cancelled"),
+    BuildStatus::Aborted => ("canceled", "Build aborted"),
+    BuildStatus::Timeout => ("failed", "Build timed out"),
+    BuildStatus::UnsupportedSystem => ("skipped", "Unsupported system"),
+    BuildStatus::LogLimitExceeded => ("failed", "Log limit exceeded"),
+    BuildStatus::NarSizeLimitExceeded => ("failed", "NAR size limit exceeded"),
   };
 
   // URL-encode the project path for the API
@@ -318,10 +357,18 @@ async fn send_email_notification(
   };
 
   let status_str = match build.status {
-    BuildStatus::Completed => "SUCCESS",
-    BuildStatus::Failed => "FAILURE",
+    BuildStatus::Succeeded | BuildStatus::CachedFailure => "SUCCESS",
+    BuildStatus::Failed
+    | BuildStatus::DependencyFailed
+    | BuildStatus::FailedWithOutput
+    | BuildStatus::Timeout
+    | BuildStatus::LogLimitExceeded
+    | BuildStatus::NarSizeLimitExceeded
+    | BuildStatus::NonDeterministic => "FAILURE",
     BuildStatus::Cancelled => "CANCELLED",
-    _ => "UNKNOWN",
+    BuildStatus::Aborted => "ABORTED",
+    BuildStatus::UnsupportedSystem => "UNSUPPORTED",
+    BuildStatus::Pending | BuildStatus::Running => "PENDING",
   };
 
   let subject = format!(
