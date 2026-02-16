@@ -5,6 +5,7 @@ use fc_common::{
   repo,
 };
 use sqlx::PgPool;
+use tokio::sync::Notify;
 
 use crate::worker::WorkerPool;
 
@@ -12,6 +13,7 @@ pub async fn run(
   pool: PgPool,
   worker_pool: Arc<WorkerPool>,
   poll_interval: Duration,
+  wakeup: Arc<Notify>,
 ) -> anyhow::Result<()> {
   // Reset orphaned builds from previous crashes (older than 5 minutes)
   match repo::builds::reset_orphaned(&pool, 300).await {
@@ -185,6 +187,7 @@ pub async fn run(
         tracing::error!("Failed to fetch pending builds: {e}");
       },
     }
-    tokio::time::sleep(poll_interval).await;
+    // Wake on NOTIFY or fall back to regular poll interval
+    let _ = tokio::time::timeout(poll_interval, wakeup.notified()).await;
   }
 }

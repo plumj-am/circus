@@ -68,8 +68,15 @@ async fn main() -> anyhow::Result<()> {
 
   let worker_pool_for_drain = worker_pool.clone();
 
+  let wakeup = Arc::new(tokio::sync::Notify::new());
+  let listener_handle = fc_common::pg_notify::spawn_listener(
+    db.pool(),
+    &[fc_common::pg_notify::CHANNEL_BUILDS_CHANGED],
+    wakeup.clone(),
+  );
+
   tokio::select! {
-      result = fc_queue_runner::runner_loop::run(db.pool().clone(), worker_pool, poll_interval) => {
+      result = fc_queue_runner::runner_loop::run(db.pool().clone(), worker_pool, poll_interval, wakeup) => {
           if let Err(e) = result {
               tracing::error!("Runner loop failed: {e}");
           }
@@ -82,6 +89,9 @@ async fn main() -> anyhow::Result<()> {
           tracing::info!("All in-flight builds completed");
       }
   }
+
+  listener_handle.abort();
+  let _ = listener_handle.await;
 
   tracing::info!("Queue runner shutting down, closing database pool");
   db.close().await;
