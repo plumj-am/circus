@@ -293,7 +293,7 @@ async fn test_evaluation_and_build_lifecycle() {
   assert_eq!(build.system.as_deref(), Some("x86_64-linux"));
 
   // List pending
-  let pending = repo::builds::list_pending(&pool, 10)
+  let pending = repo::builds::list_pending(&pool, 10, 4)
     .await
     .expect("list pending");
   assert!(pending.iter().any(|b| b.id == build.id));
