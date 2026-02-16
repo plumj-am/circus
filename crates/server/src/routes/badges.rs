@@ -61,11 +61,24 @@ async fn build_badge(
   let (label, color) = match build {
     Some(b) => {
       match b.status {
-        fc_common::BuildStatus::Completed => ("passing", "#4c1"),
+        fc_common::BuildStatus::Succeeded => ("passing", "#4c1"),
         fc_common::BuildStatus::Failed => ("failing", "#e05d44"),
         fc_common::BuildStatus::Running => ("building", "#dfb317"),
         fc_common::BuildStatus::Pending => ("queued", "#dfb317"),
         fc_common::BuildStatus::Cancelled => ("cancelled", "#9f9f9f"),
+        fc_common::BuildStatus::DependencyFailed => ("dep failed", "#e05d44"),
+        fc_common::BuildStatus::Aborted => ("aborted", "#9f9f9f"),
+        fc_common::BuildStatus::FailedWithOutput => {
+          ("failed output", "#e05d44")
+        },
+        fc_common::BuildStatus::Timeout => ("timeout", "#e05d44"),
+        fc_common::BuildStatus::CachedFailure => ("cached fail", "#e05d44"),
+        fc_common::BuildStatus::UnsupportedSystem => ("unsupported", "#9f9f9f"),
+        fc_common::BuildStatus::LogLimitExceeded => ("log limit", "#e05d44"),
+        fc_common::BuildStatus::NarSizeLimitExceeded => {
+          ("nar limit", "#e05d44")
+        },
+        fc_common::BuildStatus::NonDeterministic => ("non-det", "#e05d44"),
       }
     },
     None => ("not found", "#9f9f9f"),

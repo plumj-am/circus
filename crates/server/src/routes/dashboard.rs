@@ -207,11 +207,30 @@ fn eval_view_with_context(
 
 fn status_badge(s: &BuildStatus) -> (String, String) {
   match s {
-    BuildStatus::Completed => ("Completed".into(), "completed".into()),
+    BuildStatus::Succeeded => ("Succeeded".into(), "succeeded".into()),
     BuildStatus::Failed => ("Failed".into(), "failed".into()),
     BuildStatus::Running => ("Running".into(), "running".into()),
     BuildStatus::Pending => ("Pending".into(), "pending".into()),
     BuildStatus::Cancelled => ("Cancelled".into(), "cancelled".into()),
+    BuildStatus::DependencyFailed => {
+      ("Dependency Failed".into(), "failed".into())
+    },
+    BuildStatus::Aborted => ("Aborted".into(), "aborted".into()),
+    BuildStatus::FailedWithOutput => {
+      ("Failed w/ Output".into(), "failed".into())
+    },
+    BuildStatus::Timeout => ("Timeout".into(), "failed".into()),
+    BuildStatus::CachedFailure => ("Cached Failure".into(), "failed".into()),
+    BuildStatus::UnsupportedSystem => {
+      ("Unsupported System".into(), "skipped".into())
+    },
+    BuildStatus::LogLimitExceeded => ("Log Limit".into(), "failed".into()),
+    BuildStatus::NarSizeLimitExceeded => {
+      ("NAR Size Limit".into(), "failed".into())
+    },
+    BuildStatus::NonDeterministic => {
+      ("Non-deterministic".into(), "failed".into())
+    },
   }
 }
 
