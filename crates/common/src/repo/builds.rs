@@ -276,13 +276,13 @@ pub async fn cancel_cascade(pool: &PgPool, id: Uuid) -> Result<Vec<Build>> {
 }
 
 /// Restart a build by resetting it to pending state.
-/// Only works for failed, succeeded, or cancelled builds.
+/// Only works for failed, succeeded, cancelled, or cached_failure builds.
 pub async fn restart(pool: &PgPool, id: Uuid) -> Result<Build> {
-  sqlx::query_as::<_, Build>(
+  let build = sqlx::query_as::<_, Build>(
     "UPDATE builds SET status = 'pending', started_at = NULL, completed_at = \
      NULL, log_path = NULL, build_output_path = NULL, error_message = NULL, \
      retry_count = retry_count + 1 WHERE id = $1 AND status IN ('failed', \
-     'succeeded', 'cancelled') RETURNING *",
+     'succeeded', 'cancelled', 'cached_failure') RETURNING *",
   )
   .bind(id)
   .fetch_optional(pool)
@@ -291,7 +291,15 @@ pub async fn restart(pool: &PgPool, id: Uuid) -> Result<Build> {
     CiError::NotFound(format!(
       "Build {id} not found or not in a restartable state"
     ))
-  })
+  })?;
+
+  if let Err(e) =
+    super::failed_paths_cache::invalidate(pool, &build.drv_path).await
+  {
+    tracing::warn!(build_id = %id, "Failed to invalidate failed paths cache: {e}");
+  }
+
+  Ok(build)
 }
 
 /// Mark a build's outputs as signed.

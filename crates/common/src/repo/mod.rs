@@ -6,6 +6,7 @@ pub mod build_steps;
 pub mod builds;
 pub mod channels;
 pub mod evaluations;
+pub mod failed_paths_cache;
 pub mod jobset_inputs;
 pub mod jobsets;
 pub mod notification_configs;
