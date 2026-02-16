@@ -14,6 +14,7 @@ pub async fn run(
   worker_pool: Arc<WorkerPool>,
   poll_interval: Duration,
   wakeup: Arc<Notify>,
+  strict_errors: bool,
 ) -> anyhow::Result<()> {
   // Reset orphaned builds from previous crashes (older than 5 minutes)
   match repo::builds::reset_orphaned(&pool, 300).await {
@@ -184,6 +185,9 @@ pub async fn run(
         }
       },
       Err(e) => {
+        if strict_errors {
+          return Err(anyhow::anyhow!("Failed to fetch pending builds: {e}"));
+        }
         tracing::error!("Failed to fetch pending builds: {e}");
       },
     }

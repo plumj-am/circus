@@ -29,8 +29,13 @@ pub async fn run(
   let nix_timeout = Duration::from_secs(config.nix_timeout);
   let git_timeout = Duration::from_secs(config.git_timeout);
 
+  let strict = config.strict_errors;
+
   loop {
     if let Err(e) = run_cycle(&pool, &config, nix_timeout, git_timeout).await {
+      if strict {
+        return Err(e);
+      }
       tracing::error!("Evaluation cycle failed: {e}");
     }
     // Wake on NOTIFY or fall back to regular poll interval
@@ -180,36 +185,12 @@ async fn evaluate_jobset(
         "Inputs unchanged (hash: {}), skipping evaluation",
         &inputs_hash[..16],
     );
-    // Create evaluation record even when skipped so system tracks this check
-    // Handle duplicate key conflict gracefully (another evaluator may have
-    // created it) - fall through to process existing evaluation instead of
-    // skipping
-    if let Err(e) = repo::evaluations::create(pool, CreateEvaluation {
-      jobset_id:      jobset.id,
-      commit_hash:    commit_hash.clone(),
-      pr_number:      None,
-      pr_head_branch: None,
-      pr_base_branch: None,
-      pr_action:      None,
-    })
-    .await
-    {
-      if !matches!(e, CiError::Conflict(_)) {
-        return Err(e.into());
-      }
-      tracing::info!(
-          jobset = %jobset.name,
-          commit = %commit_hash,
-          "Evaluation already exists (concurrent creation in inputs_hash path), will process"
-      );
-    } else {
-      // Successfully created new evaluation, can skip
-      repo::jobsets::update_last_checked(pool, jobset.id).await?;
-      return Ok(());
-    }
+    repo::jobsets::update_last_checked(pool, jobset.id).await?;
+    return Ok(());
   }
 
-  // Also skip if commit hasn't changed (backward compat)
+  // Also skip if commit hasn't changed and inputs_hash matches (backward
+  // compat for evaluations created before inputs_hash was indexed)
   if let Some(latest) = repo::evaluations::get_latest(pool, jobset.id).await?
     && latest.commit_hash == commit_hash
     && latest.inputs_hash.as_deref() == Some(&inputs_hash)
@@ -220,111 +201,8 @@ async fn evaluate_jobset(
         "Inputs unchanged (hash: {}), skipping evaluation",
         &inputs_hash[..16],
     );
-    // Create evaluation record even when skipped so system tracks this check
-    // Handle duplicate key conflict gracefully (another evaluator may have
-    // created it) - fall through to process existing evaluation instead of
-    // skipping
-    if let Err(e) = repo::evaluations::create(pool, CreateEvaluation {
-      jobset_id:      jobset.id,
-      commit_hash:    commit_hash.clone(),
-      pr_number:      None,
-      pr_head_branch: None,
-      pr_base_branch: None,
-      pr_action:      None,
-    })
-    .await
-    {
-      if !matches!(e, CiError::Conflict(_)) {
-        return Err(e.into());
-      }
-      tracing::info!(
-          jobset = %jobset.name,
-          commit = %commit_hash,
-          "Evaluation already exists (concurrent creation in commit path), will process"
-      );
-      let existing = repo::evaluations::get_by_jobset_and_commit(
-        pool,
-        jobset.id,
-        &commit_hash,
-      )
-      .await?
-      .ok_or_else(|| {
-        anyhow::anyhow!(
-          "Evaluation conflict but not found: {}/{}",
-          jobset.id,
-          commit_hash
-        )
-      })?;
-
-      if existing.status == EvaluationStatus::Completed {
-        // Check if we need to re-evaluate due to no builds
-        let builds =
-          repo::builds::list_for_evaluation(pool, existing.id).await?;
-        if builds.is_empty() {
-          info!(
-            "Evaluation completed with 0 builds, re-running nix evaluation \
-             jobset={} commit={}",
-            jobset.name, commit_hash
-          );
-          // Update existing evaluation status to Running
-          repo::evaluations::update_status(
-            pool,
-            existing.id,
-            EvaluationStatus::Running,
-            None,
-          )
-          .await?;
-          // Use existing evaluation instead of creating new one
-          let eval = existing;
-          // Run nix evaluation and create builds from the result
-          let eval_result = crate::nix::evaluate(
-            &repo_path,
-            &jobset.nix_expression,
-            jobset.flake_mode,
-            nix_timeout,
-            config,
-            &inputs,
-          )
-          .await?;
-
-          create_builds_from_eval(pool, eval.id, &eval_result).await?;
-
-          repo::evaluations::update_status(
-            pool,
-            eval.id,
-            EvaluationStatus::Completed,
-            None,
-          )
-          .await?;
-
-          repo::jobsets::update_last_checked(pool, jobset.id).await?;
-          return Ok(());
-        } else {
-          info!(
-            "Evaluation already completed with {} builds, skipping nix \
-             evaluation jobset={} commit={}",
-            builds.len(),
-            jobset.name,
-            commit_hash
-          );
-          repo::jobsets::update_last_checked(pool, jobset.id).await?;
-          return Ok(());
-        }
-      }
-
-      // Existing evaluation is pending or running, update status and continue
-      repo::evaluations::update_status(
-        pool,
-        existing.id,
-        EvaluationStatus::Running,
-        None,
-      )
-      .await?;
-    } else {
-      // Successfully created new evaluation, can skip
-      repo::jobsets::update_last_checked(pool, jobset.id).await?;
-      return Ok(());
-    }
+    repo::jobsets::update_last_checked(pool, jobset.id).await?;
+    return Ok(());
   }
 
   tracing::info!(

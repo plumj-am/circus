@@ -82,11 +82,13 @@ in {
           poll_interval = 5;
           work_dir = "/var/lib/fc/evaluator";
           nix_timeout = 60;
+          strict_errors = true;
         };
 
         queue_runner = {
           poll_interval = 3;
           work_dir = "/var/lib/fc/queue-runner";
+          strict_errors = true;
         };
       };
 

@@ -62,6 +62,10 @@ pub struct EvaluatorConfig {
   pub work_dir:             PathBuf,
   pub restrict_eval:        bool,
   pub allow_ifd:            bool,
+
+  /// Whether to abort on the first evaluation cycle error instead of logging
+  /// and retrying.
+  pub strict_errors: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +74,11 @@ pub struct QueueRunnerConfig {
   pub poll_interval: u64,
   pub build_timeout: u64,
   pub work_dir:      PathBuf,
+
+  /// When true, abort on the first runner loop error instead of logging and
+  /// retrying.
+  #[serde(default)]
+  pub strict_errors: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -504,6 +513,7 @@ impl Default for EvaluatorConfig {
       work_dir:             PathBuf::from("/tmp/fc-evaluator"),
       restrict_eval:        true,
       allow_ifd:            false,
+      strict_errors:        false,
     }
   }
 }
@@ -515,6 +525,7 @@ impl Default for QueueRunnerConfig {
       poll_interval: 5,
       build_timeout: 3600,
       work_dir:      PathBuf::from("/tmp/fc-queue-runner"),
+      strict_errors: false,
     }
   }
 }

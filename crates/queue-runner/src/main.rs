@@ -35,6 +35,7 @@ async fn main() -> anyhow::Result<()> {
   let workers = cli.workers.unwrap_or(qr_config.workers);
   let poll_interval = Duration::from_secs(qr_config.poll_interval);
   let build_timeout = Duration::from_secs(qr_config.build_timeout);
+  let strict_errors = qr_config.strict_errors;
   let work_dir = qr_config.work_dir;
 
   // Ensure the work directory exists
@@ -76,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
   );
 
   tokio::select! {
-      result = fc_queue_runner::runner_loop::run(db.pool().clone(), worker_pool, poll_interval, wakeup) => {
+      result = fc_queue_runner::runner_loop::run(db.pool().clone(), worker_pool, poll_interval, wakeup, strict_errors) => {
           if let Err(e) = result {
               tracing::error!("Runner loop failed: {e}");
           }
