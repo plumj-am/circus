@@ -229,6 +229,26 @@ pub async fn count_filtered(
   Ok(row.0)
 }
 
+/// Return the subset of the given build IDs whose status is 'cancelled'.
+/// Used by the cancel-checker loop to detect builds cancelled while running.
+pub async fn get_cancelled_among(
+  pool: &PgPool,
+  build_ids: &[Uuid],
+) -> Result<Vec<Uuid>> {
+  if build_ids.is_empty() {
+    return Ok(Vec::new());
+  }
+  let rows: Vec<(Uuid,)> = sqlx::query_as(
+    "SELECT id FROM builds WHERE id = ANY($1) AND status = 'cancelled'",
+  )
+  .bind(build_ids)
+  .fetch_all(pool)
+  .await
+  .map_err(CiError::Database)?;
+
+  Ok(rows.into_iter().map(|(id,)| id).collect())
+}
+
 pub async fn cancel(pool: &PgPool, id: Uuid) -> Result<Build> {
   sqlx::query_as::<_, Build>(
     "UPDATE builds SET status = 'cancelled', completed_at = NOW() WHERE id = \
