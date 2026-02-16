@@ -121,15 +121,147 @@ pub struct Build {
   pub signed:                     bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, PartialEq, Eq)]
+#[derive(
+  Debug, Clone, Copy, Serialize, Deserialize, sqlx::Type, PartialEq, Eq,
+)]
 #[serde(rename_all = "lowercase")]
 #[sqlx(type_name = "text", rename_all = "lowercase")]
 pub enum BuildStatus {
   Pending,
   Running,
-  Completed,
+  Succeeded,
   Failed,
+  DependencyFailed,
+  Aborted,
   Cancelled,
+  FailedWithOutput,
+  Timeout,
+  CachedFailure,
+  UnsupportedSystem,
+  LogLimitExceeded,
+  NarSizeLimitExceeded,
+  NonDeterministic,
+}
+
+impl BuildStatus {
+  /// Returns true if the build has completed (not pending or running).
+  pub fn is_finished(&self) -> bool {
+    !matches!(self, Self::Pending | Self::Running)
+  }
+
+  /// Returns true if the build succeeded.
+  /// Note: Does NOT include CachedFailure - a cached failure is still a
+  /// failure.
+  pub fn is_success(&self) -> bool {
+    matches!(self, Self::Succeeded)
+  }
+
+  /// Returns true if the build completed without needing a retry.
+  /// This includes both successful builds and cached failures.
+  pub fn is_terminal(&self) -> bool {
+    matches!(
+      self,
+      Self::Succeeded
+        | Self::Failed
+        | Self::CachedFailure
+        | Self::DependencyFailed
+        | Self::Aborted
+        | Self::Cancelled
+        | Self::FailedWithOutput
+        | Self::Timeout
+        | Self::UnsupportedSystem
+        | Self::LogLimitExceeded
+        | Self::NarSizeLimitExceeded
+        | Self::NonDeterministic
+    )
+  }
+
+  /// Returns the database integer representation of this status.
+  /// Note: This uses an internal numbering scheme (0-13), not Hydra exit codes.
+  pub fn as_i32(&self) -> i32 {
+    match self {
+      Self::Pending => 0,
+      Self::Running => 1,
+      Self::Succeeded => 2,
+      Self::Failed => 3,
+      Self::DependencyFailed => 4,
+      Self::Aborted => 5,
+      Self::Cancelled => 6,
+      Self::FailedWithOutput => 7,
+      Self::Timeout => 8,
+      Self::CachedFailure => 9,
+      Self::UnsupportedSystem => 10,
+      Self::LogLimitExceeded => 11,
+      Self::NarSizeLimitExceeded => 12,
+      Self::NonDeterministic => 13,
+    }
+  }
+
+  /// Converts a database integer to BuildStatus.
+  /// This is the inverse of as_i32() for reading from the database.
+  pub fn from_i32(code: i32) -> Option<Self> {
+    match code {
+      0 => Some(Self::Pending),
+      1 => Some(Self::Running),
+      2 => Some(Self::Succeeded),
+      3 => Some(Self::Failed),
+      4 => Some(Self::DependencyFailed),
+      5 => Some(Self::Aborted),
+      6 => Some(Self::Cancelled),
+      7 => Some(Self::FailedWithOutput),
+      8 => Some(Self::Timeout),
+      9 => Some(Self::CachedFailure),
+      10 => Some(Self::UnsupportedSystem),
+      11 => Some(Self::LogLimitExceeded),
+      12 => Some(Self::NarSizeLimitExceeded),
+      13 => Some(Self::NonDeterministic),
+      _ => None,
+    }
+  }
+
+  /// Converts a Hydra-compatible exit code to a BuildStatus.
+  /// Note: These codes follow Hydra's conventions and differ from
+  /// as_i32/from_i32.
+  pub fn from_exit_code(exit_code: i32) -> Self {
+    match exit_code {
+      0 => Self::Succeeded,
+      1 => Self::Failed,
+      2 => Self::DependencyFailed,
+      3 => Self::Aborted,
+      4 => Self::Cancelled,
+      5 => Self::Aborted, // Obsolete in Hydra, treat as aborted
+      6 => Self::FailedWithOutput,
+      7 => Self::Timeout,
+      8 => Self::CachedFailure,
+      9 => Self::UnsupportedSystem,
+      10 => Self::LogLimitExceeded,
+      11 => Self::NarSizeLimitExceeded,
+      12 => Self::NonDeterministic,
+      _ => Self::Failed,
+    }
+  }
+}
+
+impl std::fmt::Display for BuildStatus {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let s = match self {
+      Self::Pending => "pending",
+      Self::Running => "running",
+      Self::Succeeded => "succeeded",
+      Self::Failed => "failed",
+      Self::DependencyFailed => "dependency failed",
+      Self::Aborted => "aborted",
+      Self::Cancelled => "cancelled",
+      Self::FailedWithOutput => "failed with output",
+      Self::Timeout => "timeout",
+      Self::CachedFailure => "cached failure",
+      Self::UnsupportedSystem => "unsupported system",
+      Self::LogLimitExceeded => "log limit exceeded",
+      Self::NarSizeLimitExceeded => "nar size limit exceeded",
+      Self::NonDeterministic => "non-deterministic",
+    };
+    write!(f, "{}", s)
+  }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
