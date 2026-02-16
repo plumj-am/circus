@@ -124,8 +124,8 @@ pub struct Build {
 #[derive(
   Debug, Clone, Copy, Serialize, Deserialize, sqlx::Type, PartialEq, Eq,
 )]
-#[serde(rename_all = "lowercase")]
-#[sqlx(type_name = "text", rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "text", rename_all = "snake_case")]
 pub enum BuildStatus {
   Pending,
   Running,
