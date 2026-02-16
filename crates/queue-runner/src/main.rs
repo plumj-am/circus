@@ -36,6 +36,8 @@ async fn main() -> anyhow::Result<()> {
   let poll_interval = Duration::from_secs(qr_config.poll_interval);
   let build_timeout = Duration::from_secs(qr_config.build_timeout);
   let strict_errors = qr_config.strict_errors;
+  let failed_paths_cache = qr_config.failed_paths_cache;
+  let failed_paths_ttl = qr_config.failed_paths_ttl;
   let work_dir = qr_config.work_dir;
 
   // Ensure the work directory exists
@@ -77,12 +79,13 @@ async fn main() -> anyhow::Result<()> {
   );
 
   tokio::select! {
-      result = fc_queue_runner::runner_loop::run(db.pool().clone(), worker_pool, poll_interval, wakeup, strict_errors) => {
+      result = fc_queue_runner::runner_loop::run(db.pool().clone(), worker_pool, poll_interval, wakeup, strict_errors, failed_paths_cache) => {
           if let Err(e) = result {
               tracing::error!("Runner loop failed: {e}");
           }
       }
       () = gc_loop(gc_config_for_loop) => {}
+      () = failed_paths_cleanup_loop(db.pool().clone(), failed_paths_ttl, failed_paths_cache) => {}
       () = shutdown_signal() => {
           tracing::info!("Shutdown signal received, draining in-flight builds...");
           worker_pool_for_drain.drain();
@@ -143,6 +146,31 @@ async fn gc_loop(gc_config: GcConfig) {
       Ok(_) => {},
       Err(e) => {
         tracing::error!("GC cleanup failed: {e}");
+      },
+    }
+  }
+}
+
+async fn failed_paths_cleanup_loop(
+  pool: sqlx::PgPool,
+  ttl: u64,
+  enabled: bool,
+) {
+  if !enabled {
+    return std::future::pending().await;
+  }
+
+  let interval = std::time::Duration::from_secs(3600);
+  loop {
+    tokio::time::sleep(interval).await;
+    match fc_common::repo::failed_paths_cache::cleanup_expired(&pool, ttl).await
+    {
+      Ok(count) if count > 0 => {
+        tracing::info!(count, "Cleaned up expired failed paths cache entries");
+      },
+      Ok(_) => {},
+      Err(e) => {
+        tracing::error!("Failed paths cache cleanup failed: {e}");
       },
     }
   }

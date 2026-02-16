@@ -15,6 +15,7 @@ pub async fn run(
   poll_interval: Duration,
   wakeup: Arc<Notify>,
   strict_errors: bool,
+  failed_paths_cache: bool,
 ) -> anyhow::Result<()> {
   // Reset orphaned builds from previous crashes (older than 5 minutes)
   match repo::builds::reset_orphaned(&pool, 300).await {
@@ -110,6 +111,37 @@ pub async fn run(
               continue;
             },
             _ => {},
+          }
+
+          // Failed paths cache: skip known-failing derivations
+          if failed_paths_cache {
+            if let Ok(true) = repo::failed_paths_cache::is_cached_failure(
+              &pool,
+              &build.drv_path,
+            )
+            .await
+            {
+              tracing::info!(
+                  build_id = %build.id, drv = %build.drv_path,
+                  "Cached failure: skipping known-failing derivation"
+              );
+              if let Err(e) = repo::builds::start(&pool, build.id).await {
+                tracing::warn!(build_id = %build.id, "Failed to start cached-failure build: {e}");
+              }
+              if let Err(e) = repo::builds::complete(
+                &pool,
+                build.id,
+                BuildStatus::CachedFailure,
+                None,
+                None,
+                Some("Build skipped: derivation is in failed paths cache"),
+              )
+              .await
+              {
+                tracing::warn!(build_id = %build.id, "Failed to complete cached-failure build: {e}");
+              }
+              continue;
+            }
           }
 
           // Dependency-aware scheduling: skip if deps not met

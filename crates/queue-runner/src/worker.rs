@@ -744,6 +744,17 @@ async fn run_build(
         )
         .await?;
 
+        if let Err(e) = repo::failed_paths_cache::insert(
+          pool,
+          &build.drv_path,
+          failure_status,
+          build.id,
+        )
+        .await
+        {
+          tracing::warn!(build_id = %build.id, "Failed to cache failed path: {e}");
+        }
+
         tracing::warn!(build_id = %build.id, "Build failed: {:?}", failure_status);
       }
     },
