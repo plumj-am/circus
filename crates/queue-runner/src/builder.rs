@@ -111,6 +111,7 @@ pub async fn run_nix_build_remote(
 
     Ok::<_, CiError>(BuildResult {
       success: status.success(),
+      exit_code: status.code(),
       stdout: stdout_buf,
       stderr: stderr_buf,
       output_paths,
@@ -131,6 +132,7 @@ pub async fn run_nix_build_remote(
 
 pub struct BuildResult {
   pub success:      bool,
+  pub exit_code:    Option<i32>,
   pub stdout:       String,
   pub stderr:       String,
   pub output_paths: Vec<String>,
@@ -288,6 +290,7 @@ pub async fn run_nix_build(
 
     Ok::<_, CiError>(BuildResult {
       success: status.success(),
+      exit_code: status.code(),
       stdout: stdout_buf,
       stderr: stderr_buf,
       output_paths,

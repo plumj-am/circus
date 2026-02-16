@@ -688,7 +688,7 @@ async fn run_build(
         repo::builds::complete(
           pool,
           build.id,
-          BuildStatus::Completed,
+          BuildStatus::Succeeded,
           log_path.as_deref(),
           primary_output,
           None,
@@ -730,17 +730,21 @@ async fn run_build(
           return Ok(());
         }
 
+        let failure_status = build_result
+          .exit_code
+          .map(BuildStatus::from_exit_code)
+          .unwrap_or(BuildStatus::Failed);
         repo::builds::complete(
           pool,
           build.id,
-          BuildStatus::Failed,
+          failure_status,
           log_path.as_deref(),
           None,
           Some(&build_result.stderr),
         )
         .await?;
 
-        tracing::warn!(build_id = %build.id, "Build failed");
+        tracing::warn!(build_id = %build.id, "Build failed: {:?}", failure_status);
       }
     },
     Err(e) => {
@@ -771,9 +775,7 @@ async fn run_build(
 
   // Dispatch notifications after build completion
   let updated_build = repo::builds::get(pool, build.id).await?;
-  if updated_build.status == BuildStatus::Completed
-    || updated_build.status == BuildStatus::Failed
-  {
+  if updated_build.status.is_finished() {
     if let Some((project, commit_hash)) =
       get_project_for_build(pool, build).await
     {
@@ -787,7 +789,7 @@ async fn run_build(
     }
 
     // Auto-promote channels if all builds in the evaluation are done
-    if updated_build.status == BuildStatus::Completed
+    if updated_build.status.is_success()
       && let Ok(eval) = repo::evaluations::get(pool, build.evaluation_id).await
     {
       if let Err(e) =

@@ -49,7 +49,7 @@ pub async fn run(
                 if let Err(e) = repo::builds::complete(
                   &pool,
                   build.id,
-                  BuildStatus::Completed,
+                  BuildStatus::Succeeded,
                   None,
                   None,
                   None,
@@ -95,7 +95,7 @@ pub async fn run(
               if let Err(e) = repo::builds::complete(
                 &pool,
                 build.id,
-                BuildStatus::Completed,
+                BuildStatus::Succeeded,
                 existing.log_path.as_deref(),
                 existing.build_output_path.as_deref(),
                 None,
