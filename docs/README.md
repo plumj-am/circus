@@ -27,10 +27,10 @@ FC follows Hydra's three-daemon model with a shared PostgreSQL database:
 
 ```mermaid
 flowchart LR
-    A[Git Repo] --> B[Evaluator<br/>(polls, clones, runs nix-eval-jobs)]
-    B --> C[Evaluation + Build Records<br/>in DB]
-    C --> D[Queue Runner<br/>(claims builds atomically,<br/>runs nix build)]
-    D --> E[BuildSteps<br/>and BuildProducts]
+    A["Git Repo"] --> B["Evaluator<br/>(polls, clones, runs nix-eval-jobs)"]
+    B --> C["Evaluation + Build Records<br/>in DB"]
+    C --> D["Queue Runner<br/>(claims builds atomically,<br/>runs nix build)"]
+    D --> E["BuildSteps<br/>and BuildProducts"]
 ```
 
 See the [design document] for more details on the architecture, similarities and
