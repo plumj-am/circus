@@ -387,11 +387,7 @@ pub async fn list_pinned_ids(
 }
 
 /// Set the `keep` (GC pin) flag on a build.
-pub async fn set_keep(
-  pool: &PgPool,
-  id: Uuid,
-  keep: bool,
-) -> Result<Build> {
+pub async fn set_keep(pool: &PgPool, id: Uuid, keep: bool) -> Result<Build> {
   sqlx::query_as::<_, Build>(
     "UPDATE builds SET keep = $1 WHERE id = $2 RETURNING *",
   )

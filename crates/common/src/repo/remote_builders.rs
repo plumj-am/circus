@@ -77,8 +77,8 @@ pub async fn find_for_system(
 ) -> Result<Vec<RemoteBuilder>> {
   sqlx::query_as::<_, RemoteBuilder>(
     "SELECT * FROM remote_builders WHERE enabled = true AND $1 = ANY(systems) \
-     AND (disabled_until IS NULL OR disabled_until < NOW()) \
-     ORDER BY speed_factor DESC",
+     AND (disabled_until IS NULL OR disabled_until < NOW()) ORDER BY \
+     speed_factor DESC",
   )
   .bind(system)
   .fetch_all(pool)
@@ -92,13 +92,11 @@ pub async fn find_for_system(
 /// Backoff formula (from Hydra): delta = 60 * 3^(min(failures, 4) - 1) seconds.
 pub async fn record_failure(pool: &PgPool, id: Uuid) -> Result<RemoteBuilder> {
   sqlx::query_as::<_, RemoteBuilder>(
-    "UPDATE remote_builders SET \
-     consecutive_failures = LEAST(consecutive_failures + 1, 4), \
-     last_failure = NOW(), \
-     disabled_until = NOW() + make_interval(secs => \
-       60.0 * power(3, LEAST(consecutive_failures + 1, 4) - 1) + (random() * 30)::int \
-     ) \
-     WHERE id = $1 RETURNING *",
+    "UPDATE remote_builders SET consecutive_failures = \
+     LEAST(consecutive_failures + 1, 4), last_failure = NOW(), disabled_until \
+     = NOW() + make_interval(secs => 60.0 * power(3, \
+     LEAST(consecutive_failures + 1, 4) - 1) + (random() * 30)::int ) WHERE \
+     id = $1 RETURNING *",
   )
   .bind(id)
   .fetch_optional(pool)
@@ -110,10 +108,8 @@ pub async fn record_failure(pool: &PgPool, id: Uuid) -> Result<RemoteBuilder> {
 /// Resets consecutive_failures and clears disabled_until.
 pub async fn record_success(pool: &PgPool, id: Uuid) -> Result<RemoteBuilder> {
   sqlx::query_as::<_, RemoteBuilder>(
-    "UPDATE remote_builders SET \
-     consecutive_failures = 0, \
-     disabled_until = NULL \
-     WHERE id = $1 RETURNING *",
+    "UPDATE remote_builders SET consecutive_failures = 0, disabled_until = \
+     NULL WHERE id = $1 RETURNING *",
   )
   .bind(id)
   .fetch_optional(pool)

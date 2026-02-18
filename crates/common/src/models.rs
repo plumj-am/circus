@@ -413,21 +413,21 @@ pub struct Channel {
 /// Remote builder for multi-machine / multi-arch builds.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct RemoteBuilder {
-  pub id:                    Uuid,
-  pub name:                  String,
-  pub ssh_uri:               String,
-  pub systems:               Vec<String>,
-  pub max_jobs:              i32,
-  pub speed_factor:          i32,
-  pub supported_features:    Vec<String>,
-  pub mandatory_features:    Vec<String>,
-  pub enabled:               bool,
-  pub public_host_key:       Option<String>,
-  pub ssh_key_file:          Option<String>,
-  pub created_at:            DateTime<Utc>,
-  pub consecutive_failures:  i32,
-  pub disabled_until:        Option<DateTime<Utc>>,
-  pub last_failure:          Option<DateTime<Utc>>,
+  pub id:                   Uuid,
+  pub name:                 String,
+  pub ssh_uri:              String,
+  pub systems:              Vec<String>,
+  pub max_jobs:             i32,
+  pub speed_factor:         i32,
+  pub supported_features:   Vec<String>,
+  pub mandatory_features:   Vec<String>,
+  pub enabled:              bool,
+  pub public_host_key:      Option<String>,
+  pub ssh_key_file:         Option<String>,
+  pub created_at:           DateTime<Utc>,
+  pub consecutive_failures: i32,
+  pub disabled_until:       Option<DateTime<Utc>>,
+  pub last_failure:         Option<DateTime<Utc>>,
 }
 
 /// User account for authentication and personalization
