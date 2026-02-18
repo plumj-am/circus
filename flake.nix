@@ -138,6 +138,7 @@
           pkgs.prettier
           pkgs.deno
           pkgs.taplo
+          pkgs.sql-formatter
         ];
 
         text = ''
@@ -148,7 +149,13 @@
           fd "$@" -t f -e toml -x taplo fmt '{}'
 
           # Format CSS with Prettier
-           fd "$@" -t f -e css -x prettier --write '{}'
+          fd "$@" -t f -e css -x prettier --write '{}'
+
+          # Format SQL with sql-format
+          fd "$@" -t f -e css -x sql-formatter '{}'
+
+          # Format Markdown with Deno
+          fd "$@" -t f -e md -x deno fmt -q '{}'
         '';
       });
   };
