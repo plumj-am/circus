@@ -23,9 +23,9 @@ pub async fn dispatch_build_finished(
   commit_hash: &str,
   config: &NotificationsConfig,
 ) {
-  // 1. Run command notification
-  if let Some(ref cmd) = config.run_command {
-    run_command_notification(cmd, build, project).await;
+  // 1. Generic webhook notification
+  if let Some(ref url) = config.webhook_url {
+    webhook_notification(url, build, project, commit_hash).await;
   }
 
   // 2. GitHub commit status
@@ -56,7 +56,12 @@ pub async fn dispatch_build_finished(
   }
 }
 
-async fn run_command_notification(cmd: &str, build: &Build, project: &Project) {
+async fn webhook_notification(
+  url: &str,
+  build: &Build,
+  project: &Project,
+  commit_hash: &str,
+) {
   let status_str = match build.status {
     BuildStatus::Succeeded | BuildStatus::CachedFailure => "success",
     BuildStatus::Failed
@@ -72,32 +77,29 @@ async fn run_command_notification(cmd: &str, build: &Build, project: &Project) {
     BuildStatus::Pending | BuildStatus::Running => "pending",
   };
 
-  let result = tokio::process::Command::new("sh")
-    .arg("-c")
-    .arg(cmd)
-    .env("FC_BUILD_ID", build.id.to_string())
-    .env("FC_BUILD_STATUS", status_str)
-    .env("FC_BUILD_JOB", &build.job_name)
-    .env("FC_BUILD_DRV", &build.drv_path)
-    .env("FC_PROJECT_NAME", &project.name)
-    .env("FC_PROJECT_URL", &project.repository_url)
-    .env(
-      "FC_BUILD_OUTPUT",
-      build.build_output_path.as_deref().unwrap_or(""),
-    )
-    .output()
-    .await;
+  let payload = serde_json::json!({
+    "build_id":     build.id,
+    "build_status": status_str,
+    "build_job":    build.job_name,
+    "build_drv":    build.drv_path,
+    "build_output": build.build_output_path.as_deref().unwrap_or(""),
+    "project_name": project.name,
+    "project_url":  project.repository_url,
+    "commit_hash":  commit_hash,
+  });
 
-  match result {
-    Ok(output) => {
-      if output.status.success() {
-        info!(build_id = %build.id, "RunCommand completed successfully");
-      } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        warn!(build_id = %build.id, "RunCommand failed: {stderr}");
-      }
+  match http_client().post(url).json(&payload).send().await {
+    Ok(resp) if resp.status().is_success() => {
+      info!(build_id = %build.id, "Webhook notification sent");
     },
-    Err(e) => error!(build_id = %build.id, "RunCommand execution failed: {e}"),
+    Ok(resp) => {
+      warn!(
+        build_id = %build.id,
+        status = %resp.status(),
+        "Webhook notification rejected"
+      );
+    },
+    Err(e) => error!(build_id = %build.id, "Webhook notification failed: {e}"),
   }
 }
 

@@ -4,8 +4,9 @@ This directory contains SQL migrations for the FC database.
 
 ## Migration Files
 
-- `001_initial_schema.sql`: Creates the core database schema including projects,
-  jobsets, evaluations, builds, and related tables.
+- `0001_schema.sql`: Full schema, all tables, indexes, triggers, and views.
+- `0002_example.sql`: Example stub for the next migration when we make a stable
+  release.
 
 ## Running Migrations
 
@@ -22,5 +23,3 @@ fc-migrate validate postgresql://user:password@localhost/fc_ci
 # Create a new migration
 fc-migrate create migration_name
 ```
-
-TODO: add or generate schema overviews
