@@ -95,9 +95,12 @@
         webhooks = pkgs.callPackage ./nix/tests/webhooks.nix {inherit self;};
         e2e = pkgs.callPackage ./nix/tests/e2e.nix {inherit self;};
         declarative = pkgs.callPackage ./nix/tests/declarative.nix {inherit self;};
+        gc-pinning = pkgs.callPackage ./nix/tests/gc-pinning.nix {inherit self;};
+        machine-health = pkgs.callPackage ./nix/tests/machine-health.nix {inherit self;};
+        channel-tarball = pkgs.callPackage ./nix/tests/channel-tarball.nix {inherit self;};
       };
     in {
-      inherit (vmTests) service-startup basic-api auth-rbac api-crud features webhooks e2e declarative;
+      inherit (vmTests) service-startup basic-api auth-rbac api-crud features webhooks e2e declarative gc-pinning machine-health channel-tarball;
       full = pkgs.symlinkJoin {
         name = "vm-tests-full";
         paths = builtins.attrValues vmTests;

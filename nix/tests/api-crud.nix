@@ -254,6 +254,9 @@ pkgs.testers.nixosTest {
         )
         assert code.strip() == "403", f"Expected 403 for read-only restart, got {code.strip()}"
 
+    # Stop the queue runner so it cannot claim the build before we bump it
+    machine.systemctl("stop fc-queue-runner.service")
+
     # Create a pending build to test bump
     with subtest("Create pending build for bump test"):
         machine.succeed(
@@ -288,7 +291,9 @@ pkgs.testers.nixosTest {
         )
         assert "cancelled" in result.strip().lower(), f"Expected cancelled, got: {result.strip()}"
 
-    # Evaluation comparison ----
+    machine.systemctl("start fc-queue-runner.service")
+
+    # Evaluation comparison
     with subtest("Trigger second evaluation for comparison"):
         result = machine.succeed(
             "curl -sf -X POST http://127.0.0.1:3000/api/v1/evaluations/trigger "
@@ -322,7 +327,7 @@ pkgs.testers.nixosTest {
         assert len(data["new_jobs"]) >= 1, f"Expected at least 1 new job, got {data['new_jobs']}"
         assert any(j["job_name"] == "new-pkg" for j in data["new_jobs"]), "new-pkg should be in new_jobs"
 
-    # Channel CRUD lifecycle ----
+    # Channel CRUD lifecycle
     with subtest("Create channel via API"):
         result = machine.succeed(
             "curl -sf -X POST http://127.0.0.1:3000/api/v1/channels "

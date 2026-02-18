@@ -46,7 +46,7 @@ pkgs.testers.nixosTest {
     )
     ro_header = f"-H 'Authorization: Bearer {ro_token}'"
 
-    # Structured logging ----
+    # Structured logging
     with subtest("Server produces structured log output"):
         # The server should log via tracing with the configured format
         result = machine.succeed("journalctl -u fc-server --no-pager -n 50 2>&1")
@@ -54,7 +54,7 @@ pkgs.testers.nixosTest {
         assert "INFO" in result or "info" in result, \
             "Expected structured log lines with INFO level in journalctl output"
 
-    # Static CSS serving ----
+    # Static CSS serving
     with subtest("Static CSS endpoint returns 200 with correct content type"):
         code = machine.succeed(
             "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/static/style.css"
