@@ -1,12 +1,17 @@
+use std::fmt::Write;
+
 use axum::{
   Json,
   Router,
+  body::Body,
   extract::{Path, State},
+  http::StatusCode,
+  response::{IntoResponse, Response},
   routing::{get, post},
 };
 use fc_common::{
   Validate,
-  models::{Channel, CreateChannel},
+  models::{BuildStatus, Channel, CreateChannel},
 };
 use uuid::Uuid;
 
@@ -102,10 +107,129 @@ async fn promote_channel(
   Ok(Json(channel))
 }
 
+/// Generate and serve `nixexprs.tar.xz` for Nix channel compatibility.
+/// Contains a `default.nix` with fake derivations pointing at store paths,
+/// enabling `nix-channel --add <url>`.
+async fn nixexprs_tarball(
+  State(state): State<AppState>,
+  Path(id): Path<Uuid>,
+) -> Result<Response, ApiError> {
+  let channel = fc_common::repo::channels::get(&state.pool, id)
+    .await
+    .map_err(ApiError)?;
+
+  let evaluation_id = channel.current_evaluation_id.ok_or_else(|| {
+    ApiError(fc_common::CiError::NotFound(
+      "Channel has no current evaluation".to_string(),
+    ))
+  })?;
+
+  let builds =
+    fc_common::repo::builds::list_for_evaluation(&state.pool, evaluation_id)
+      .await
+      .map_err(ApiError)?;
+
+  let succeeded: Vec<_> = builds
+    .iter()
+    .filter(|b| b.status == BuildStatus::Succeeded)
+    .collect();
+
+  if succeeded.is_empty() {
+    return Err(ApiError(fc_common::CiError::NotFound(
+      "No succeeded builds in current evaluation".to_string(),
+    )));
+  }
+
+  // Generate default.nix
+  let approx_size = 256 + succeeded.len() * 200;
+  let mut nix_src = String::with_capacity(approx_size);
+  let _ = writeln!(nix_src, "{{ system ? builtins.currentSystem }}:");
+  let _ = writeln!(nix_src, "let");
+  let _ = writeln!(nix_src, "  mkFakeDerivation = attrs:");
+  let _ = writeln!(
+    nix_src,
+    "    let d = derivation (attrs // {{ builder = \"builtin:fetchurl\"; \
+     preferLocalBuild = true; }});"
+  );
+  let _ = writeln!(
+    nix_src,
+    "    in d // {{ type = \"derivation\"; inherit (d) outPath drvPath name \
+     system; outputSpecified = true; }};"
+  );
+  let _ = writeln!(nix_src, "in {{");
+
+  for build in &succeeded {
+    let output_path = match &build.build_output_path {
+      Some(p) => p,
+      None => continue,
+    };
+    let system = build.system.as_deref().unwrap_or("x86_64-linux");
+    // Sanitize job_name for use as a Nix attribute (replace dots/slashes)
+    let attr_name = build.job_name.replace('.', "-").replace('/', "-");
+    let _ = writeln!(
+      nix_src,
+      "  \"{attr_name}\" = mkFakeDerivation {{ name = \"{}\"; system = \
+       \"{system}\"; outPath = \"{output_path}\"; }};",
+      build.job_name.replace('"', "\\\""),
+    );
+  }
+
+  let _ = writeln!(nix_src, "}}");
+
+  // Build tar.xz archive in memory
+  let xz_data =
+    tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
+      let mut xz_buf = Vec::new();
+      {
+        let xz_writer = xz2::write::XzEncoder::new(&mut xz_buf, 6);
+        let mut tar_builder = tar::Builder::new(xz_writer);
+
+        let nix_bytes = nix_src.as_bytes();
+        let mut header = tar::Header::new_gnu();
+        header.set_size(nix_bytes.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+
+        tar_builder
+          .append_data(&mut header, "default.nix", nix_bytes)
+          .map_err(|e| format!("Failed to append to tar: {e}"))?;
+
+        let xz_writer = tar_builder
+          .into_inner()
+          .map_err(|e| format!("Failed to finish tar: {e}"))?;
+        xz_writer
+          .finish()
+          .map_err(|e| format!("Failed to finish xz: {e}"))?;
+      }
+      Ok(xz_buf)
+    })
+    .await
+    .map_err(|e| {
+      ApiError(fc_common::CiError::Build(format!("Task join error: {e}")))
+    })?
+    .map_err(|e| ApiError(fc_common::CiError::Build(e)))?;
+
+  Ok(
+    (
+      StatusCode::OK,
+      [
+        ("content-type", "application/x-xz"),
+        (
+          "content-disposition",
+          "attachment; filename=\"nixexprs.tar.xz\"",
+        ),
+      ],
+      Body::from(xz_data),
+    )
+      .into_response(),
+  )
+}
+
 pub fn router() -> Router<AppState> {
   Router::new()
     .route("/channels", get(list_channels).post(create_channel))
     .route("/channels/{id}", get(get_channel).delete(delete_channel))
+    .route("/channels/{id}/nixexprs.tar.xz", get(nixexprs_tarball))
     .route(
       "/channels/{channel_id}/promote/{eval_id}",
       post(promote_channel),

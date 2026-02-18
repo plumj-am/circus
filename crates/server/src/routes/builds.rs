@@ -5,7 +5,7 @@ use axum::{
   extract::{Path, Query, State},
   http::{Extensions, StatusCode},
   response::{IntoResponse, Response},
-  routing::{get, post},
+  routing::{get, post, put},
 };
 use fc_common::{
   Build,
@@ -302,6 +302,24 @@ async fn download_build_product(
   }
 }
 
+async fn set_keep_flag(
+  _auth: crate::auth_middleware::RequireAdmin,
+  State(state): State<AppState>,
+  Path((id, value)): Path<(Uuid, bool)>,
+) -> Result<Json<Build>, ApiError> {
+  let build = fc_common::repo::builds::set_keep(&state.pool, id, value)
+    .await
+    .map_err(ApiError)?;
+
+  tracing::info!(
+      build_id = %id,
+      keep = value,
+      "Build keep flag updated"
+  );
+
+  Ok(Json(build))
+}
+
 pub fn router() -> Router<AppState> {
   Router::new()
     .route("/builds", get(list_builds))
@@ -311,6 +329,7 @@ pub fn router() -> Router<AppState> {
     .route("/builds/{id}/cancel", post(cancel_build))
     .route("/builds/{id}/restart", post(restart_build))
     .route("/builds/{id}/bump", post(bump_build))
+    .route("/builds/{id}/keep/{value}", put(set_keep_flag))
     .route("/builds/{id}/steps", get(list_build_steps))
     .route("/builds/{id}/products", get(list_build_products))
     .route(

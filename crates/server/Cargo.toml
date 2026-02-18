@@ -26,6 +26,7 @@ serde_json.workspace         = true
 sha2.workspace               = true
 sqlx.workspace               = true
 subtle.workspace             = true
+tar.workspace                = true
 thiserror.workspace          = true
 tokio.workspace              = true
 tokio-util.workspace         = true
@@ -34,6 +35,7 @@ tower-http.workspace         = true
 tracing.workspace            = true
 tracing-subscriber.workspace = true
 uuid.workspace               = true
+xz2.workspace                = true
 
 # Our crates
 fc-common.workspace = true
