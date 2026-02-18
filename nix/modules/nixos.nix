@@ -33,6 +33,7 @@
               state = j.state;
               branch = j.branch;
               scheduling_shares = j.schedulingShares;
+              keep_nr = j.keepNr;
               inputs = map (i:
                 filterAttrs (_: v: v != null) {
                   name = i.name;
@@ -171,6 +172,12 @@
         type = int;
         default = 100;
         description = "Scheduling priority shares. Higher values = more priority.";
+      };
+
+      keepNr = mkOption {
+        type = int;
+        default = 3;
+        description = "Number of recent successful evaluations to retain for GC pinning.";
       };
 
       inputs = mkOption {
