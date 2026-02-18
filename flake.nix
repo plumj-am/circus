@@ -152,7 +152,7 @@
           fd "$@" -t f -e css -x prettier --write '{}'
 
           # Format SQL with sql-format
-          fd "$@" -t f -e css -x sql-formatter '{}'
+          fd "$@" -t f -e sql -x sql-formatter --fix '{}' -l postgresql
 
           # Format Markdown with Deno
           fd "$@" -t f -e md -x deno fmt -q '{}'
