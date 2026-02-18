@@ -427,13 +427,25 @@ async fn try_remote_build(
     .await;
 
     match result {
-      Ok(r) => return Some(r),
+      Ok(r) => {
+        if let Err(e) =
+          repo::remote_builders::record_success(pool, builder.id).await
+        {
+          tracing::warn!(builder = %builder.name, "Failed to record builder success: {e}");
+        }
+        return Some(r);
+      },
       Err(e) => {
         tracing::warn!(
             build_id = %build.id,
             builder = %builder.name,
             "Remote build failed: {e}, trying next builder"
         );
+        if let Err(e) =
+          repo::remote_builders::record_failure(pool, builder.id).await
+        {
+          tracing::warn!(builder = %builder.name, "Failed to record builder failure: {e}");
+        }
       },
     }
   }

@@ -87,7 +87,7 @@ async fn main() -> anyhow::Result<()> {
               tracing::error!("Runner loop failed: {e}");
           }
       }
-      () = gc_loop(gc_config_for_loop) => {}
+      () = gc_loop(gc_config_for_loop, db.pool().clone()) => {}
       () = failed_paths_cleanup_loop(db.pool().clone(), failed_paths_ttl, failed_paths_cache) => {}
       () = cancel_checker_loop(db.pool().clone(), active_builds) => {}
       () = shutdown_signal() => {
@@ -118,7 +118,7 @@ async fn cleanup_stale_logs(log_dir: &std::path::Path) {
   }
 }
 
-async fn gc_loop(gc_config: GcConfig) {
+async fn gc_loop(gc_config: GcConfig, pool: sqlx::PgPool) {
   if !gc_config.enabled {
     return std::future::pending().await;
   }
@@ -127,7 +127,17 @@ async fn gc_loop(gc_config: GcConfig) {
 
   loop {
     tokio::time::sleep(interval).await;
-    match gc_roots::cleanup_old_roots(&gc_config.gc_roots_dir, max_age) {
+
+    let pinned = match repo::builds::list_pinned_ids(&pool).await {
+      Ok(ids) => ids,
+      Err(e) => {
+        tracing::warn!("Failed to fetch pinned build IDs for GC: {e}");
+        std::collections::HashSet::new()
+      },
+    };
+
+    match gc_roots::cleanup_old_roots(&gc_config.gc_roots_dir, max_age, &pinned)
+    {
       Ok(count) if count > 0 => {
         tracing::info!(count, "Cleaned up old GC roots");
         // Optionally run nix-collect-garbage
