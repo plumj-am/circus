@@ -268,6 +268,14 @@ async fn evaluate_jobset(
              evaluation jobset={} commit={}",
             build_count, jobset.name, commit_hash
           );
+          if let Err(e) =
+            repo::jobsets::update_last_checked(pool, jobset.id).await
+          {
+            tracing::warn!(
+              jobset = %jobset.name,
+              "Failed to update last_checked_at: {e}"
+            );
+          }
           return Ok(());
         } else {
           info!(

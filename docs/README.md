@@ -223,7 +223,7 @@ development.
 | `cache`         | `secret_key_file`      | none                                          | Signing key for binary cache              |
 | `signing`       | `enabled`              | `false`                                       | Sign build outputs                        |
 | `signing`       | `key_file`             | none                                          | Signing key file path                     |
-| `notifications` | `run_command`          | none                                          | Command to run on build completion        |
+| `notifications` | `webhook_url`          | none                                          | HTTP endpoint to POST build status JSON   |
 | `notifications` | `github_token`         | none                                          | GitHub token for commit status updates    |
 | `notifications` | `gitea_url`            | none                                          | Gitea/Forgejo instance URL                |
 | `notifications` | `gitea_token`          | none                                          | Gitea/Forgejo API token                   |

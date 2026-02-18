@@ -238,7 +238,7 @@
           options = {
             notificationType = mkOption {
               type = str;
-              description = "Notification type: github_status, email, gitlab_status, gitea_status, run_command.";
+              description = "Notification type: github_status, email, gitlab_status, gitea_status, webhook.";
             };
             config = mkOption {
               type = settingsType;

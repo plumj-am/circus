@@ -293,17 +293,19 @@ pkgs.testers.nixosTest {
             f"{ro_header}"
         ).strip()
         assert code == "403", f"Expected 403 for read-only input delete, got {code}"
+        # Clean up: admin deletes the temp input so it doesn't affect future
+        # inputs_hash computations and evaluator cache lookups
+        machine.succeed(
+            "curl -sf -o /dev/null "
+            f"-X DELETE http://127.0.0.1:3000/api/v1/projects/{e2e_project_id}/jobsets/{e2e_jobset_id}/inputs/{tmp_input_id} "
+            f"{auth_header}"
+        )
 
-    # Notifications are dispatched after builds complete (already tested above).
-    # Verify run_command notifications work:
-    with subtest("Notification run_command is invoked on build completion"):
-        # This tests that the notification system dispatches properly.
-        # The actual run_command config is not set in this VM, so we just verify
-        # the build status was updated correctly after notification dispatch.
+    with subtest("Build status is succeeded"):
         result = machine.succeed(
             f"curl -sf http://127.0.0.1:3000/api/v1/builds/{e2e_build_id} | jq -r .status"
         ).strip()
-        assert result == "succeeded", f"Expected succeeded after notification, got {result}"
+        assert result == "succeeded", f"Expected succeeded, got {result}"
 
     with subtest("Channel auto-promotion after all builds complete"):
         # Create a channel tracking the E2E jobset
@@ -388,34 +390,43 @@ pkgs.testers.nixosTest {
             timeout=10
         )
 
-    with subtest("Notification run_command invoked on build completion"):
-        # Write a notification script
-        machine.succeed("mkdir -p /var/lib/fc")
-        machine.succeed("""
-            cat > /var/lib/fc/notify.sh << 'SCRIPT'
-    #!/bin/sh
-    echo "BUILD_STATUS=$FC_BUILD_STATUS" >> /var/lib/fc/notify-output
-    echo "BUILD_ID=$FC_BUILD_ID" >> /var/lib/fc/notify-output
-    echo "BUILD_JOB=$FC_BUILD_JOB" >> /var/lib/fc/notify-output
-    SCRIPT
-        """)
-        machine.succeed("chmod +x /var/lib/fc/notify.sh")
-        machine.succeed("chown -R fc:fc /var/lib/fc")
+    with subtest("Webhook notification fires on build completion"):
+        # Start a minimal HTTP server on the VM to receive the webhook POST.
+        # Writes the request body to /tmp/webhook.json so we can inspect it.
+        machine.succeed(
+            "cat > /tmp/webhook-server.py << 'PYEOF'\n"
+            "import http.server, json\n"
+            "class H(http.server.BaseHTTPRequestHandler):\n"
+            "    def do_POST(self):\n"
+            "        n = int(self.headers.get('Content-Length', 0))\n"
+            "        body = self.rfile.read(n)\n"
+            "        open('/tmp/webhook.json', 'wb').write(body)\n"
+            "        self.send_response(200)\n"
+            "        self.end_headers()\n"
+            "    def log_message(self, *a): pass\n"
+            "http.server.HTTPServer(('127.0.0.1', 9998), H).serve_forever()\n"
+            "PYEOF\n"
+        )
+        machine.succeed("python3 /tmp/webhook-server.py &")
+        machine.wait_until_succeeds(
+            "curl -sf -X POST -H 'Content-Length: 2' -d '{}' http://127.0.0.1:9998/",
+            timeout=10
+        )
+        machine.succeed("rm -f /tmp/webhook.json")
 
-        # Enable notifications via systemd drop-in override (adds env var directly to service unit)
+        # Configure queue-runner to send webhook notifications
         machine.succeed("mkdir -p /run/systemd/system/fc-queue-runner.service.d")
-        machine.succeed("""
-            cat > /run/systemd/system/fc-queue-runner.service.d/notify.conf << 'EOF'
-    [Service]
-    Environment=FC_NOTIFICATIONS__RUN_COMMAND=/var/lib/fc/notify.sh
-    EOF
-        """)
+        machine.succeed(
+            "cat > /run/systemd/system/fc-queue-runner.service.d/webhook.conf << 'EOF'\n"
+            "[Service]\n"
+            "Environment=FC_NOTIFICATIONS__WEBHOOK_URL=http://127.0.0.1:9998/notify\n"
+            "EOF\n"
+        )
         machine.succeed("systemctl daemon-reload")
         machine.succeed("systemctl restart fc-queue-runner")
         machine.wait_for_unit("fc-queue-runner.service", timeout=30)
 
-        # Create a new simple build to trigger notification
-        # Push a trivial change to trigger a new evaluation
+        # Push a new commit to trigger a fresh evaluation and build
         machine.succeed(
             "cd /tmp/test-flake-work && \\\n"
             "cat > flake.nix << 'FLAKE'\n"
@@ -432,31 +443,16 @@ pkgs.testers.nixosTest {
             "}\n"
             "FLAKE\n"
         )
-        machine.succeed("cd /tmp/test-flake-work && git add -A && git commit -m 'trigger notification test'")
+        machine.succeed("cd /tmp/test-flake-work && git add -A && git commit -m 'trigger webhook notification test'")
         machine.succeed("cd /tmp/test-flake-work && git push origin HEAD:refs/heads/master")
 
-        # Wait for the notify-test build to succeed
-        machine.wait_until_succeeds(
-            "curl -sf 'http://127.0.0.1:3000/api/v1/builds?job_name=notify-test' "
-            "| jq -e '.items[] | select(.status==\"succeeded\")'",
-            timeout=120
-        )
-
-        # Get the build ID
-        notify_build_id = machine.succeed(
-            "curl -sf 'http://127.0.0.1:3000/api/v1/builds?job_name=notify-test' "
-            "| jq -r '.items[] | select(.status==\"succeeded\") | .id' | head -1"
-        ).strip()
-
-        # Wait a bit for notification to dispatch
-        time.sleep(5)
-
-        # Verify the notification script was executed
-        machine.wait_for_file("/var/lib/fc/notify-output")
-        output = machine.succeed("cat /var/lib/fc/notify-output")
-        assert "BUILD_STATUS=success" in output, \
-            f"Expected BUILD_STATUS=success in notification output, got: {output}"
-        assert notify_build_id in output, f"Expected build ID {notify_build_id} in output, got: {output}"
+        # Wait for the webhook to arrive (the build must complete first)
+        machine.wait_until_succeeds("test -e /tmp/webhook.json", timeout=120)
+        payload = json.loads(machine.succeed("cat /tmp/webhook.json"))
+        assert payload["build_status"] == "success", \
+            f"Expected build_status=success in webhook payload, got: {payload}"
+        assert "build_id" in payload, f"Missing build_id in webhook payload: {payload}"
+        assert "build_job" in payload, f"Missing build_job in webhook payload: {payload}"
 
     with subtest("Generate signing key and configure signing"):
         # Generate a Nix signing key
@@ -467,13 +463,13 @@ pkgs.testers.nixosTest {
 
         # Enable signing via systemd drop-in override
         machine.succeed("mkdir -p /run/systemd/system/fc-queue-runner.service.d")
-        machine.succeed("""
-            cat > /run/systemd/system/fc-queue-runner.service.d/signing.conf << 'EOF'
-    [Service]
-    Environment=FC_SIGNING__ENABLED=true
-    Environment=FC_SIGNING__KEY_FILE=/var/lib/fc/keys/signing-key
-    EOF
-        """)
+        machine.succeed(
+            "cat > /run/systemd/system/fc-queue-runner.service.d/signing.conf << 'EOF'\n"
+            "[Service]\n"
+            "Environment=FC_SIGNING__ENABLED=true\n"
+            "Environment=FC_SIGNING__KEY_FILE=/var/lib/fc/keys/signing-key\n"
+            "EOF\n"
+        )
         machine.succeed("systemctl daemon-reload")
         machine.succeed("systemctl restart fc-queue-runner")
         machine.wait_for_unit("fc-queue-runner.service", timeout=30)
@@ -530,15 +526,15 @@ pkgs.testers.nixosTest {
     with subtest("GC roots are created for build products"):
         # Enable GC via systemd drop-in override
         machine.succeed("mkdir -p /run/systemd/system/fc-queue-runner.service.d")
-        machine.succeed("""
-            cat > /run/systemd/system/fc-queue-runner.service.d/gc.conf << 'EOF'
-    [Service]
-    Environment=FC_GC__ENABLED=true
-    Environment=FC_GC__GC_ROOTS_DIR=/nix/var/nix/gcroots/per-user/fc
-    Environment=FC_GC__MAX_AGE_DAYS=30
-    Environment=FC_GC__CLEANUP_INTERVAL=3600
-    EOF
-        """)
+        machine.succeed(
+            "cat > /run/systemd/system/fc-queue-runner.service.d/gc.conf << 'EOF'\n"
+            "[Service]\n"
+            "Environment=FC_GC__ENABLED=true\n"
+            "Environment=FC_GC__GC_ROOTS_DIR=/nix/var/nix/gcroots/per-user/fc\n"
+            "Environment=FC_GC__MAX_AGE_DAYS=30\n"
+            "Environment=FC_GC__CLEANUP_INTERVAL=3600\n"
+            "EOF\n"
+        )
         machine.succeed("systemctl daemon-reload")
         machine.succeed("systemctl restart fc-queue-runner")
         machine.wait_for_unit("fc-queue-runner.service", timeout=30)
@@ -599,7 +595,6 @@ pkgs.testers.nixosTest {
         )
 
         # Wait for a symlink pointing to our build output to appear
-        import time
         found = False
         for _ in range(10):
             if wait_for_gc_root():
@@ -612,16 +607,16 @@ pkgs.testers.nixosTest {
 
     with subtest("Declarative .fc.toml in repo auto-creates jobset"):
         # Add .fc.toml to the test repo with a new jobset definition
-        machine.succeed("""
-            cd /tmp/test-flake-work && \
-            cat > .fc.toml << 'FCTOML'
-            [[jobsets]]
-            name = "declarative-checks"
-            nix_expression = "checks"
-            flake_mode = true
-            enabled = true
-            FCTOML
-        """)
+        machine.succeed(
+            "cd /tmp/test-flake-work && "
+            "cat > .fc.toml << 'FCTOML'\n"
+            "[[jobsets]]\n"
+            'name = "declarative-checks"\n'
+            'nix_expression = "checks"\n'
+            "flake_mode = true\n"
+            "enabled = true\n"
+            "FCTOML\n"
+        )
         machine.succeed("cd /tmp/test-flake-work && git add -A && git commit -m 'add declarative config'")
         machine.succeed("cd /tmp/test-flake-work && git push origin HEAD:refs/heads/master")
 
