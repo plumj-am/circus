@@ -267,9 +267,7 @@ async fn set_github_status(
   build: &Build,
 ) {
   // Parse owner/repo from URL
-  let (owner, repo) = if let Some(v) = parse_github_repo(repo_url) {
-    v
-  } else {
+  let Some((owner, repo)) = parse_github_repo(repo_url) else {
     warn!("Cannot parse GitHub owner/repo from {repo_url}");
     return;
   };
@@ -330,9 +328,7 @@ async fn set_gitea_status(
   build: &Build,
 ) {
   // Parse owner/repo from URL (try to extract from the gitea URL)
-  let (owner, repo) = if let Some(v) = parse_gitea_repo(repo_url, base_url) {
-    v
-  } else {
+  let Some((owner, repo)) = parse_gitea_repo(repo_url, base_url) else {
     warn!("Cannot parse Gitea owner/repo from {repo_url}");
     return;
   };
@@ -390,9 +386,7 @@ async fn set_gitlab_status(
   build: &Build,
 ) {
   // Parse project path from URL
-  let project_path = if let Some(p) = parse_gitlab_project(repo_url, base_url) {
-    p
-  } else {
+  let Some(project_path) = parse_gitlab_project(repo_url, base_url) else {
     warn!("Cannot parse GitLab project from {repo_url}");
     return;
   };
@@ -606,6 +600,10 @@ async fn send_email_notification(
 }
 
 /// Process a notification task from the retry queue
+///
+/// # Errors
+///
+/// Returns error if notification delivery fails.
 pub async fn process_notification_task(
   task: &crate::models::NotificationTask,
 ) -> Result<(), String> {
@@ -618,7 +616,7 @@ pub async fn process_notification_task(
         .as_str()
         .ok_or("Missing url in webhook payload")?;
       let status_str = match payload["build_status"].as_str() {
-        Some("succeeded") | Some("cached_failure") => "success",
+        Some("succeeded" | "cached_failure") => "success",
         Some("failed") => "failure",
         Some("cancelled") => "cancelled",
         Some("aborted") => "aborted",
@@ -667,9 +665,7 @@ pub async fn process_notification_task(
         .ok_or_else(|| format!("Cannot parse GitHub repo from {repo_url}"))?;
 
       let (state, description) = match payload["build_status"].as_str() {
-        Some("succeeded") | Some("cached_failure") => {
-          ("success", "Build succeeded")
-        },
+        Some("succeeded" | "cached_failure") => ("success", "Build succeeded"),
         Some("failed") => ("failure", "Build failed"),
         Some("running") => ("pending", "Build in progress"),
         Some("cancelled") => ("error", "Build cancelled"),
@@ -721,9 +717,7 @@ pub async fn process_notification_task(
         .ok_or_else(|| format!("Cannot parse Gitea repo from {repo_url}"))?;
 
       let (state, description) = match payload["build_status"].as_str() {
-        Some("succeeded") | Some("cached_failure") => {
-          ("success", "Build succeeded")
-        },
+        Some("succeeded" | "cached_failure") => ("success", "Build succeeded"),
         Some("failed") => ("failure", "Build failed"),
         Some("running") => ("pending", "Build in progress"),
         Some("cancelled") => ("error", "Build cancelled"),
@@ -774,9 +768,7 @@ pub async fn process_notification_task(
         })?;
 
       let (state, description) = match payload["build_status"].as_str() {
-        Some("succeeded") | Some("cached_failure") => {
-          ("success", "Build succeeded")
-        },
+        Some("succeeded" | "cached_failure") => ("success", "Build succeeded"),
         Some("failed") => ("failed", "Build failed"),
         Some("running") => ("running", "Build in progress"),
         Some("cancelled") => ("canceled", "Build cancelled"),
@@ -814,6 +806,14 @@ pub async fn process_notification_task(
       Ok(())
     },
     "email" => {
+      use lettre::{
+        AsyncSmtpTransport,
+        AsyncTransport,
+        Message,
+        Tokio1Executor,
+        transport::smtp::authentication::Credentials,
+      };
+
       // Email sending is complex, so we'll reuse the existing function
       // by deserializing the config from payload
       let email_config: EmailConfig =
@@ -841,7 +841,6 @@ pub async fn process_notification_task(
         .ok_or("Missing build_status")?;
       let status = match status_str {
         "succeeded" => BuildStatus::Succeeded,
-        "failed" => BuildStatus::Failed,
         _ => BuildStatus::Failed,
       };
 
@@ -849,23 +848,13 @@ pub async fn process_notification_task(
         .as_str()
         .ok_or("Missing project_name")?;
 
-      // Simplified email send (direct implementation to avoid complex struct
-      // creation)
-      use lettre::{
-        AsyncSmtpTransport,
-        AsyncTransport,
-        Message,
-        Tokio1Executor,
-        transport::smtp::authentication::Credentials,
-      };
-
       let status_display = match status {
         BuildStatus::Succeeded => "SUCCESS",
         _ => "FAILURE",
       };
 
       let subject =
-        format!("[FC] {} - {} ({})", status_display, job_name, project_name);
+        format!("[FC] {status_display} - {job_name} ({project_name})");
       let body = format!(
         "Build notification from FC CI\n\nProject: {}\nJob: {}\nStatus: \
          {}\nDerivation: {}\nOutput: {}\nBuild ID: {}\n",

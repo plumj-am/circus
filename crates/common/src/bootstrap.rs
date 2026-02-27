@@ -21,11 +21,10 @@ use crate::{
 /// Supports ${VAR}, $VAR, and ~ for home directory.
 fn expand_path(path: &str) -> String {
   let expanded = if path.starts_with('~') {
-    if let Some(home) = std::env::var_os("HOME") {
-      path.replacen('~', &home.to_string_lossy(), 1)
-    } else {
-      path.to_string()
-    }
+    std::env::var_os("HOME").map_or_else(
+      || path.to_string(),
+      |home| path.replacen('~', &home.to_string_lossy(), 1),
+    )
   } else {
     path.to_string()
   };
@@ -51,24 +50,25 @@ fn expand_path(path: &str) -> String {
 
 /// Resolve secret for a webhook from inline value or file.
 fn resolve_webhook_secret(webhook: &DeclarativeWebhook) -> Option<String> {
-  if let Some(ref secret) = webhook.secret {
-    Some(secret.clone())
-  } else if let Some(ref file) = webhook.secret_file {
-    let expanded = expand_path(file);
-    match std::fs::read_to_string(&expanded) {
-      Ok(s) => Some(s.trim().to_string()),
-      Err(e) => {
-        tracing::warn!(
-            forge_type = %webhook.forge_type,
-            file = %expanded,
-            "Failed to read webhook secret file: {e}"
-        );
-        None
-      },
-    }
-  } else {
-    None
-  }
+  webhook.secret.as_ref().map_or_else(
+    || {
+      webhook.secret_file.as_ref().and_then(|file| {
+        let expanded = expand_path(file);
+        match std::fs::read_to_string(&expanded) {
+          Ok(s) => Some(s.trim().to_string()),
+          Err(e) => {
+            tracing::warn!(
+              forge_type = %webhook.forge_type,
+              file = %expanded,
+              "Failed to read webhook secret file: {e}"
+            );
+            None
+          },
+        }
+      })
+    },
+    |secret| Some(secret.clone()),
+  )
 }
 
 /// Bootstrap declarative configuration into the database.
@@ -76,6 +76,10 @@ fn resolve_webhook_secret(webhook: &DeclarativeWebhook) -> Option<String> {
 /// This function is idempotent: running it multiple times with the same config
 /// produces the same database state. It upserts (insert or update) all
 /// configured projects, jobsets, API keys, and users.
+///
+/// # Errors
+///
+/// Returns error if database operations fail.
 pub async fn run(pool: &PgPool, config: &DeclarativeConfig) -> Result<()> {
   if config.projects.is_empty()
     && config.api_keys.is_empty()
@@ -120,10 +124,10 @@ pub async fn run(pool: &PgPool, config: &DeclarativeConfig) -> Result<()> {
       let state = decl_jobset.state.as_ref().map(|s| {
         match s.as_str() {
           "disabled" => JobsetState::Disabled,
-          "enabled" => JobsetState::Enabled,
           "one_shot" => JobsetState::OneShot,
           "one_at_a_time" => JobsetState::OneAtATime,
-          _ => JobsetState::Enabled, // Default to enabled for unknown values
+          _ => JobsetState::Enabled, /* Default to enabled for "enabled" or
+                                      * unknown values */
         }
       });
 
@@ -239,24 +243,25 @@ pub async fn run(pool: &PgPool, config: &DeclarativeConfig) -> Result<()> {
   // Upsert users
   for decl_user in &config.users {
     // Resolve password from inline or file
-    let password = if let Some(ref p) = decl_user.password {
-      Some(p.clone())
-    } else if let Some(ref file) = decl_user.password_file {
-      let expanded = expand_path(file);
-      match std::fs::read_to_string(&expanded) {
-        Ok(p) => Some(p.trim().to_string()),
-        Err(e) => {
-          tracing::warn!(
-            username = %decl_user.username,
-            file = %expanded,
-            "Failed to read password file: {e}"
-          );
-          None
-        },
-      }
-    } else {
-      None
-    };
+    let password = decl_user.password.as_ref().map_or_else(
+      || {
+        decl_user.password_file.as_ref().and_then(|file| {
+          let expanded = expand_path(file);
+          match std::fs::read_to_string(&expanded) {
+            Ok(p) => Some(p.trim().to_string()),
+            Err(e) => {
+              tracing::warn!(
+                username = %decl_user.username,
+                file = %expanded,
+                "Failed to read password file: {e}"
+              );
+              None
+            },
+          }
+        })
+      },
+      |p| Some(p.clone()),
+    );
 
     // Check if user exists
     let existing =

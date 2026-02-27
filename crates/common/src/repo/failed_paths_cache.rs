@@ -6,6 +6,11 @@ use crate::{
   models::BuildStatus,
 };
 
+/// Check if a derivation path is in the failed paths cache.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn is_cached_failure(pool: &PgPool, drv_path: &str) -> Result<bool> {
   let row: Option<(bool,)> =
     sqlx::query_as("SELECT true FROM failed_paths_cache WHERE drv_path = $1")
@@ -17,6 +22,11 @@ pub async fn is_cached_failure(pool: &PgPool, drv_path: &str) -> Result<bool> {
   Ok(row.is_some())
 }
 
+/// Insert a failed derivation path into the cache.
+///
+/// # Errors
+///
+/// Returns error if database insert fails.
 pub async fn insert(
   pool: &PgPool,
   drv_path: &str,
@@ -40,6 +50,11 @@ pub async fn insert(
   Ok(())
 }
 
+/// Remove a derivation path from the failed paths cache.
+///
+/// # Errors
+///
+/// Returns error if database delete fails.
 pub async fn invalidate(pool: &PgPool, drv_path: &str) -> Result<()> {
   sqlx::query("DELETE FROM failed_paths_cache WHERE drv_path = $1")
     .bind(drv_path)
@@ -50,6 +65,11 @@ pub async fn invalidate(pool: &PgPool, drv_path: &str) -> Result<()> {
   Ok(())
 }
 
+/// Remove expired entries from the failed paths cache.
+///
+/// # Errors
+///
+/// Returns error if database delete fails.
 pub async fn cleanup_expired(pool: &PgPool, ttl_seconds: u64) -> Result<u64> {
   let result = sqlx::query(
     "DELETE FROM failed_paths_cache WHERE failed_at < NOW() - \

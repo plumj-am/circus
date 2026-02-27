@@ -93,9 +93,9 @@ async fn stream_build_log(
           if active_path.exists() { active_path.clone() } else { final_path.clone() }
       };
 
-      let file = if let Ok(f) = tokio::fs::File::open(&path).await { f } else {
-          yield Ok(Event::default().data("Failed to open log file"));
-          return;
+      let Ok(file) = tokio::fs::File::open(&path).await else {
+        yield Ok(Event::default().data("Failed to open log file"));
+        return;
       };
 
       let mut reader = BufReader::new(file);
@@ -106,7 +106,7 @@ async fn stream_build_log(
           line.clear();
           match reader.read_line(&mut line).await {
               Ok(0) => {
-                  // EOF — check if build is still running
+                  // EOF - check if build is still running
                   consecutive_empty += 1;
                   if consecutive_empty > 5 {
                       // Check build status

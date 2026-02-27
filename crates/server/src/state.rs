@@ -9,11 +9,11 @@ use sqlx::PgPool;
 
 /// Maximum session lifetime before automatic eviction (24 hours).
 const SESSION_MAX_AGE: std::time::Duration =
-  std::time::Duration::from_secs(24 * 60 * 60);
+  std::time::Duration::from_hours(24);
 
 /// How often the background cleanup task runs (every 5 minutes).
 const SESSION_CLEANUP_INTERVAL: std::time::Duration =
-  std::time::Duration::from_secs(5 * 60);
+  std::time::Duration::from_mins(5);
 
 /// Session data supporting both API key and user authentication
 #[derive(Clone)]
@@ -27,13 +27,10 @@ impl SessionData {
   /// Check if the session has admin role
   #[must_use]
   pub fn is_admin(&self) -> bool {
-    if let Some(ref user) = self.user {
-      user.role == "admin"
-    } else if let Some(ref key) = self.api_key {
-      key.role == "admin"
-    } else {
-      false
-    }
+    self.user.as_ref().map_or_else(
+      || self.api_key.as_ref().is_some_and(|key| key.role == "admin"),
+      |user| user.role == "admin",
+    )
   }
 
   /// Check if the session has a specific role
@@ -42,25 +39,24 @@ impl SessionData {
     if self.is_admin() {
       return true;
     }
-    if let Some(ref user) = self.user {
-      user.role == role
-    } else if let Some(ref key) = self.api_key {
-      key.role == role
-    } else {
-      false
-    }
+    self.user.as_ref().map_or_else(
+      || self.api_key.as_ref().is_some_and(|key| key.role == role),
+      |user| user.role == role,
+    )
   }
 
   /// Get the display name for the session (username or api key name)
   #[must_use]
   pub fn display_name(&self) -> String {
-    if let Some(ref user) = self.user {
-      user.username.clone()
-    } else if let Some(ref key) = self.api_key {
-      key.name.clone()
-    } else {
-      "Anonymous".to_string()
-    }
+    self.user.as_ref().map_or_else(
+      || {
+        self
+          .api_key
+          .as_ref()
+          .map_or_else(|| "Anonymous".to_string(), |key| key.name.clone())
+      },
+      |user| user.username.clone(),
+    )
   }
 
   /// Check if this is a user session (not just API key)

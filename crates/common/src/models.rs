@@ -147,20 +147,23 @@ pub enum BuildStatus {
 
 impl BuildStatus {
   /// Returns true if the build has completed (not pending or running).
-  pub fn is_finished(&self) -> bool {
+  #[must_use]
+  pub const fn is_finished(&self) -> bool {
     !matches!(self, Self::Pending | Self::Running)
   }
 
   /// Returns true if the build succeeded.
-  /// Note: Does NOT include CachedFailure - a cached failure is still a
+  /// Note: Does NOT include `CachedFailure` - a cached failure is still a
   /// failure.
-  pub fn is_success(&self) -> bool {
+  #[must_use]
+  pub const fn is_success(&self) -> bool {
     matches!(self, Self::Succeeded)
   }
 
   /// Returns true if the build completed without needing a retry.
   /// This includes both successful builds and cached failures.
-  pub fn is_terminal(&self) -> bool {
+  #[must_use]
+  pub const fn is_terminal(&self) -> bool {
     matches!(
       self,
       Self::Succeeded
@@ -180,7 +183,8 @@ impl BuildStatus {
 
   /// Returns the database integer representation of this status.
   /// Note: This uses an internal numbering scheme (0-13), not Hydra exit codes.
-  pub fn as_i32(&self) -> i32 {
+  #[must_use]
+  pub const fn as_i32(&self) -> i32 {
     match self {
       Self::Pending => 0,
       Self::Running => 1,
@@ -199,9 +203,10 @@ impl BuildStatus {
     }
   }
 
-  /// Converts a database integer to BuildStatus.
-  /// This is the inverse of as_i32() for reading from the database.
-  pub fn from_i32(code: i32) -> Option<Self> {
+  /// Converts a database integer to `BuildStatus`.
+  /// This is the inverse of `as_i32()` for reading from the database.
+  #[must_use]
+  pub const fn from_i32(code: i32) -> Option<Self> {
     match code {
       0 => Some(Self::Pending),
       1 => Some(Self::Running),
@@ -221,17 +226,17 @@ impl BuildStatus {
     }
   }
 
-  /// Converts a Hydra-compatible exit code to a BuildStatus.
+  /// Converts a Hydra-compatible exit code to a `BuildStatus`.
   /// Note: These codes follow Hydra's conventions and differ from
-  /// as_i32/from_i32.
-  pub fn from_exit_code(exit_code: i32) -> Self {
+  /// `as_i32/from_i32`.
+  #[must_use]
+  pub const fn from_exit_code(exit_code: i32) -> Self {
     match exit_code {
       0 => Self::Succeeded,
       1 => Self::Failed,
       2 => Self::DependencyFailed,
-      3 => Self::Aborted,
+      3 | 5 => Self::Aborted, // 5 is obsolete in Hydra, treat as aborted
       4 => Self::Cancelled,
-      5 => Self::Aborted, // Obsolete in Hydra, treat as aborted
       6 => Self::FailedWithOutput,
       7 => Self::Timeout,
       8 => Self::CachedFailure,
@@ -262,7 +267,7 @@ impl std::fmt::Display for BuildStatus {
       Self::NarSizeLimitExceeded => "nar size limit exceeded",
       Self::NonDeterministic => "non-deterministic",
     };
-    write!(f, "{}", s)
+    write!(f, "{s}")
   }
 }
 
@@ -320,7 +325,7 @@ pub mod metric_units {
   pub const BYTES: &str = "bytes";
 }
 
-/// Active jobset view — enabled jobsets joined with project info.
+/// Active jobsets joined with project info.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct ActiveJobset {
   pub id:                Uuid,
@@ -398,7 +403,7 @@ pub struct JobsetInput {
   pub created_at: DateTime<Utc>,
 }
 
-/// Release channel — tracks the latest "good" evaluation for a jobset.
+/// Tracks the latest "good" evaluation for a jobset.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Channel {
   pub id:                    Uuid,
@@ -428,6 +433,21 @@ pub struct RemoteBuilder {
   pub consecutive_failures: i32,
   pub disabled_until:       Option<DateTime<Utc>>,
   pub last_failure:         Option<DateTime<Utc>>,
+}
+
+/// Parameters for creating or updating a remote builder.
+#[derive(Debug, Clone)]
+pub struct RemoteBuilderParams<'a> {
+  pub name:               &'a str,
+  pub ssh_uri:            &'a str,
+  pub systems:            &'a [String],
+  pub max_jobs:           i32,
+  pub speed_factor:       i32,
+  pub supported_features: &'a [String],
+  pub mandatory_features: &'a [String],
+  pub enabled:            bool,
+  pub public_host_key:    Option<&'a str>,
+  pub ssh_key_file:       Option<&'a str>,
 }
 
 /// User account for authentication and personalization

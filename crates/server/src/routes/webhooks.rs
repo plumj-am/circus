@@ -159,17 +159,14 @@ async fn handle_github_webhook(
   .await
   .map_err(ApiError)?;
 
-  let webhook_config = match webhook_config {
-    Some(c) => c,
-    None => {
-      return Ok((
-        StatusCode::NOT_FOUND,
-        Json(WebhookResponse {
-          accepted: false,
-          message:  "No GitHub webhook configured for this project".to_string(),
-        }),
-      ));
-    },
+  let Some(webhook_config) = webhook_config else {
+    return Ok((
+      StatusCode::NOT_FOUND,
+      Json(WebhookResponse {
+        accepted: false,
+        message:  "No GitHub webhook configured for this project".to_string(),
+      }),
+    ));
   };
 
   // Verify signature if secret is configured
@@ -299,17 +296,14 @@ async fn handle_github_pull_request(
     ));
   }
 
-  let pr = match payload.pull_request {
-    Some(pr) => pr,
-    None => {
-      return Ok((
-        StatusCode::OK,
-        Json(WebhookResponse {
-          accepted: true,
-          message:  "No pull request data, skipping".to_string(),
-        }),
-      ));
-    },
+  let Some(pr) = payload.pull_request else {
+    return Ok((
+      StatusCode::OK,
+      Json(WebhookResponse {
+        accepted: true,
+        message:  "No pull request data, skipping".to_string(),
+      }),
+    ));
   };
 
   // Skip draft PRs
@@ -513,6 +507,8 @@ async fn handle_gitlab_webhook(
   headers: HeaderMap,
   body: Bytes,
 ) -> Result<(StatusCode, Json<WebhookResponse>), ApiError> {
+  use subtle::ConstantTimeEq;
+
   // Check webhook config exists
   let webhook_config = repo::webhook_configs::get_by_project_and_forge(
     &state.pool,
@@ -522,17 +518,14 @@ async fn handle_gitlab_webhook(
   .await
   .map_err(ApiError)?;
 
-  let webhook_config = match webhook_config {
-    Some(c) => c,
-    None => {
-      return Ok((
-        StatusCode::NOT_FOUND,
-        Json(WebhookResponse {
-          accepted: false,
-          message:  "No GitLab webhook configured for this project".to_string(),
-        }),
-      ));
-    },
+  let Some(webhook_config) = webhook_config else {
+    return Ok((
+      StatusCode::NOT_FOUND,
+      Json(WebhookResponse {
+        accepted: false,
+        message:  "No GitLab webhook configured for this project".to_string(),
+      }),
+    ));
   };
 
   // Verify token if secret is configured
@@ -544,7 +537,6 @@ async fn handle_gitlab_webhook(
       .unwrap_or("");
 
     // Use constant-time comparison to prevent timing attacks
-    use subtle::ConstantTimeEq;
     let token_matches = token.len() == secret.len()
       && token.as_bytes().ct_eq(secret.as_bytes()).into();
 
@@ -656,17 +648,14 @@ async fn handle_gitlab_merge_request(
       )))
     })?;
 
-  let attrs = match payload.object_attributes {
-    Some(a) => a,
-    None => {
-      return Ok((
-        StatusCode::OK,
-        Json(WebhookResponse {
-          accepted: true,
-          message:  "No merge request attributes, skipping".to_string(),
-        }),
-      ));
-    },
+  let Some(attrs) = payload.object_attributes else {
+    return Ok((
+      StatusCode::OK,
+      Json(WebhookResponse {
+        accepted: true,
+        message:  "No merge request attributes, skipping".to_string(),
+      }),
+    ));
   };
 
   // Skip draft/WIP merge requests
@@ -774,12 +763,13 @@ mod tests {
 
   #[test]
   fn test_verify_signature_valid() {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+
     let secret = "test-secret";
     let body = b"test-body";
 
     // Compute expected signature
-    use hmac::{Hmac, Mac};
-    use sha2::Sha256;
     let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
     mac.update(body);
     let expected = hex::encode(mac.finalize().into_bytes());
@@ -787,7 +777,7 @@ mod tests {
     assert!(verify_signature(
       secret,
       body,
-      &format!("sha256={}", expected)
+      &format!("sha256={expected}")
     ));
   }
 
@@ -800,20 +790,16 @@ mod tests {
 
   #[test]
   fn test_verify_signature_wrong_secret() {
-    let body = b"test-body";
-
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
+
+    let body = b"test-body";
     let mut mac = Hmac::<Sha256>::new_from_slice(b"secret1").unwrap();
     mac.update(body);
     let sig = hex::encode(mac.finalize().into_bytes());
 
     // Verify with different secret should fail
-    assert!(!verify_signature(
-      "secret2",
-      body,
-      &format!("sha256={}", sig)
-    ));
+    assert!(!verify_signature("secret2", body, &format!("sha256={sig}")));
   }
 
   #[test]

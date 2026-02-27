@@ -6,6 +6,11 @@ use crate::{
   models::{ActiveJobset, CreateJobset, Jobset, JobsetState, UpdateJobset},
 };
 
+/// Create a new jobset with defaults applied.
+///
+/// # Errors
+///
+/// Returns error if database insert fails or jobset already exists.
 pub async fn create(pool: &PgPool, input: CreateJobset) -> Result<Jobset> {
   let state = input.state.unwrap_or(JobsetState::Enabled);
   // Sync enabled with state if state was explicitly set, otherwise use
@@ -50,6 +55,11 @@ pub async fn create(pool: &PgPool, input: CreateJobset) -> Result<Jobset> {
   })
 }
 
+/// Get a jobset by ID.
+///
+/// # Errors
+///
+/// Returns error if database query fails or jobset not found.
 pub async fn get(pool: &PgPool, id: Uuid) -> Result<Jobset> {
   sqlx::query_as::<_, Jobset>("SELECT * FROM jobsets WHERE id = $1")
     .bind(id)
@@ -58,6 +68,11 @@ pub async fn get(pool: &PgPool, id: Uuid) -> Result<Jobset> {
     .ok_or_else(|| CiError::NotFound(format!("Jobset {id} not found")))
 }
 
+/// List all jobsets for a project.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_for_project(
   pool: &PgPool,
   project_id: Uuid,
@@ -76,6 +91,11 @@ pub async fn list_for_project(
   .map_err(CiError::Database)
 }
 
+/// Count jobsets for a project.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn count_for_project(pool: &PgPool, project_id: Uuid) -> Result<i64> {
   let row: (i64,) =
     sqlx::query_as("SELECT COUNT(*) FROM jobsets WHERE project_id = $1")
@@ -86,6 +106,11 @@ pub async fn count_for_project(pool: &PgPool, project_id: Uuid) -> Result<i64> {
   Ok(row.0)
 }
 
+/// Update a jobset with partial fields.
+///
+/// # Errors
+///
+/// Returns error if database update fails or jobset not found.
 pub async fn update(
   pool: &PgPool,
   id: Uuid,
@@ -139,6 +164,11 @@ pub async fn update(
   })
 }
 
+/// Delete a jobset.
+///
+/// # Errors
+///
+/// Returns error if database delete fails or jobset not found.
 pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
   let result = sqlx::query("DELETE FROM jobsets WHERE id = $1")
     .bind(id)
@@ -152,6 +182,11 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
   Ok(())
 }
 
+/// Insert or update a jobset by name.
+///
+/// # Errors
+///
+/// Returns error if database operation fails.
 pub async fn upsert(pool: &PgPool, input: CreateJobset) -> Result<Jobset> {
   let state = input.state.unwrap_or(JobsetState::Enabled);
   // Sync enabled with state if state was explicitly set, otherwise use
@@ -191,6 +226,11 @@ pub async fn upsert(pool: &PgPool, input: CreateJobset) -> Result<Jobset> {
   .map_err(CiError::Database)
 }
 
+/// List all active jobsets with project info.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_active(pool: &PgPool) -> Result<Vec<ActiveJobset>> {
   sqlx::query_as::<_, ActiveJobset>("SELECT * FROM active_jobsets")
     .fetch_all(pool)
@@ -199,6 +239,10 @@ pub async fn list_active(pool: &PgPool) -> Result<Vec<ActiveJobset>> {
 }
 
 /// Mark a one-shot jobset as complete (set state to disabled).
+///
+/// # Errors
+///
+/// Returns error if database update fails.
 pub async fn mark_one_shot_complete(pool: &PgPool, id: Uuid) -> Result<()> {
   sqlx::query(
     "UPDATE jobsets SET state = 'disabled', enabled = false WHERE id = $1 AND \
@@ -212,6 +256,10 @@ pub async fn mark_one_shot_complete(pool: &PgPool, id: Uuid) -> Result<()> {
 }
 
 /// Update the `last_checked_at` timestamp for a jobset.
+///
+/// # Errors
+///
+/// Returns error if database update fails.
 pub async fn update_last_checked(pool: &PgPool, id: Uuid) -> Result<()> {
   sqlx::query("UPDATE jobsets SET last_checked_at = NOW() WHERE id = $1")
     .bind(id)
@@ -222,6 +270,10 @@ pub async fn update_last_checked(pool: &PgPool, id: Uuid) -> Result<()> {
 }
 
 /// Check if a jobset has any running builds.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn has_running_builds(
   pool: &PgPool,
   jobset_id: Uuid,
@@ -240,6 +292,10 @@ pub async fn has_running_builds(
 /// List jobsets that are due for evaluation based on their `check_interval`.
 /// Returns jobsets where `last_checked_at` is NULL or older than
 /// `check_interval` seconds.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_due_for_eval(
   pool: &PgPool,
   limit: i64,

@@ -6,6 +6,11 @@ use crate::{
   models::{BuildProduct, CreateBuildProduct},
 };
 
+/// Create a build product record.
+///
+/// # Errors
+///
+/// Returns error if database insert fails.
 pub async fn create(
   pool: &PgPool,
   input: CreateBuildProduct,
@@ -27,6 +32,11 @@ pub async fn create(
   .map_err(CiError::Database)
 }
 
+/// Get a build product by ID.
+///
+/// # Errors
+///
+/// Returns error if database query fails or product not found.
 pub async fn get(pool: &PgPool, id: Uuid) -> Result<BuildProduct> {
   sqlx::query_as::<_, BuildProduct>(
     "SELECT * FROM build_products WHERE id = $1",
@@ -37,6 +47,11 @@ pub async fn get(pool: &PgPool, id: Uuid) -> Result<BuildProduct> {
   .ok_or_else(|| CiError::NotFound(format!("Build product {id} not found")))
 }
 
+/// List all build products for a build.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_for_build(
   pool: &PgPool,
   build_id: Uuid,

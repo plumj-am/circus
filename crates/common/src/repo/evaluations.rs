@@ -6,6 +6,11 @@ use crate::{
   models::{CreateEvaluation, Evaluation, EvaluationStatus},
 };
 
+/// Create a new evaluation in pending state.
+///
+/// # Errors
+///
+/// Returns error if database insert fails or evaluation already exists.
 pub async fn create(
   pool: &PgPool,
   input: CreateEvaluation,
@@ -36,6 +41,11 @@ pub async fn create(
   })
 }
 
+/// Get an evaluation by ID.
+///
+/// # Errors
+///
+/// Returns error if database query fails or evaluation not found.
 pub async fn get(pool: &PgPool, id: Uuid) -> Result<Evaluation> {
   sqlx::query_as::<_, Evaluation>("SELECT * FROM evaluations WHERE id = $1")
     .bind(id)
@@ -44,6 +54,11 @@ pub async fn get(pool: &PgPool, id: Uuid) -> Result<Evaluation> {
     .ok_or_else(|| CiError::NotFound(format!("Evaluation {id} not found")))
 }
 
+/// List all evaluations for a jobset.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_for_jobset(
   pool: &PgPool,
   jobset_id: Uuid,
@@ -60,6 +75,10 @@ pub async fn list_for_jobset(
 
 /// List evaluations with optional `jobset_id` and status filters, with
 /// pagination.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_filtered(
   pool: &PgPool,
   jobset_id: Option<Uuid>,
@@ -81,6 +100,11 @@ pub async fn list_filtered(
   .map_err(CiError::Database)
 }
 
+/// Count evaluations matching filter criteria.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn count_filtered(
   pool: &PgPool,
   jobset_id: Option<Uuid>,
@@ -98,6 +122,11 @@ pub async fn count_filtered(
   Ok(row.0)
 }
 
+/// Update evaluation status and optional error message.
+///
+/// # Errors
+///
+/// Returns error if database update fails or evaluation not found.
 pub async fn update_status(
   pool: &PgPool,
   id: Uuid,
@@ -116,6 +145,11 @@ pub async fn update_status(
   .ok_or_else(|| CiError::NotFound(format!("Evaluation {id} not found")))
 }
 
+/// Get the latest evaluation for a jobset.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn get_latest(
   pool: &PgPool,
   jobset_id: Uuid,
@@ -131,6 +165,10 @@ pub async fn get_latest(
 }
 
 /// Set the inputs hash for an evaluation (used for eval caching).
+///
+/// # Errors
+///
+/// Returns error if database update fails.
 pub async fn set_inputs_hash(
   pool: &PgPool,
   id: Uuid,
@@ -147,6 +185,10 @@ pub async fn set_inputs_hash(
 
 /// Check if an evaluation with the same `inputs_hash` already exists for this
 /// jobset.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn get_by_inputs_hash(
   pool: &PgPool,
   jobset_id: Uuid,
@@ -163,6 +205,11 @@ pub async fn get_by_inputs_hash(
   .map_err(CiError::Database)
 }
 
+/// Count total evaluations.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn count(pool: &PgPool) -> Result<i64> {
   let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM evaluations")
     .fetch_one(pool)
@@ -171,7 +218,11 @@ pub async fn count(pool: &PgPool) -> Result<i64> {
   Ok(row.0)
 }
 
-/// Get an evaluation by jobset_id and commit_hash.
+/// Get an evaluation by `jobset_id` and `commit_hash`.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn get_by_jobset_and_commit(
   pool: &PgPool,
   jobset_id: Uuid,

@@ -9,6 +9,10 @@ use crate::{
 };
 
 /// Create a new starred job
+///
+/// # Errors
+///
+/// Returns error if database insert fails or job already starred.
 pub async fn create(
   pool: &PgPool,
   user_id: Uuid,
@@ -35,6 +39,10 @@ pub async fn create(
 }
 
 /// Get a starred job by ID
+///
+/// # Errors
+///
+/// Returns error if database query fails or starred job not found.
 pub async fn get(pool: &PgPool, id: Uuid) -> Result<StarredJob> {
   sqlx::query_as::<_, StarredJob>("SELECT * FROM starred_jobs WHERE id = $1")
     .bind(id)
@@ -51,6 +59,10 @@ pub async fn get(pool: &PgPool, id: Uuid) -> Result<StarredJob> {
 }
 
 /// List starred jobs for a user with pagination
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_for_user(
   pool: &PgPool,
   user_id: Uuid,
@@ -70,6 +82,10 @@ pub async fn list_for_user(
 }
 
 /// Count starred jobs for a user
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn count_for_user(pool: &PgPool, user_id: Uuid) -> Result<i64> {
   let (count,): (i64,) =
     sqlx::query_as("SELECT COUNT(*) FROM starred_jobs WHERE user_id = $1")
@@ -80,6 +96,10 @@ pub async fn count_for_user(pool: &PgPool, user_id: Uuid) -> Result<i64> {
 }
 
 /// Check if a user has starred a specific job
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn is_starred(
   pool: &PgPool,
   user_id: Uuid,
@@ -101,6 +121,10 @@ pub async fn is_starred(
 }
 
 /// Delete a starred job
+///
+/// # Errors
+///
+/// Returns error if database delete fails or starred job not found.
 pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
   let result = sqlx::query("DELETE FROM starred_jobs WHERE id = $1")
     .bind(id)
@@ -113,6 +137,10 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
 }
 
 /// Delete a starred job by user and job details
+///
+/// # Errors
+///
+/// Returns error if database delete fails or starred job not found.
 pub async fn delete_by_job(
   pool: &PgPool,
   user_id: Uuid,
@@ -137,6 +165,10 @@ pub async fn delete_by_job(
 }
 
 /// Delete all starred jobs for a user (when user is deleted)
+///
+/// # Errors
+///
+/// Returns error if database delete fails.
 pub async fn delete_all_for_user(pool: &PgPool, user_id: Uuid) -> Result<()> {
   sqlx::query("DELETE FROM starred_jobs WHERE user_id = $1")
     .bind(user_id)

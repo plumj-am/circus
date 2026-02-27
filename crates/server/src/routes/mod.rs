@@ -44,13 +44,15 @@ use crate::{
 static STYLE_CSS: &str = include_str!("../../static/style.css");
 
 /// Helper to generate secure cookie flags based on server configuration.
-/// Returns a string containing cookie security attributes: HttpOnly, SameSite,
-/// and optionally Secure.
+/// Returns a string containing cookie security attributes: `HttpOnly`,
+/// `SameSite`, and optionally Secure.
 ///
 /// The Secure flag is set when:
+///
 /// 1. `force_secure_cookies` is enabled in config (for HTTPS reverse proxies),
-/// OR 2. The server is not bound to localhost/127.0.0.1 AND not in permissive
-/// mode
+/// 2. OR the server is not bound to localhost/127.0.0.1 AND not in permissive
+///    mode
+#[must_use]
 pub fn cookie_security_flags(
   config: &fc_common::config::ServerConfig,
 ) -> String {

@@ -51,6 +51,7 @@ pub enum CiError {
 }
 
 impl CiError {
+  /// Check if this error indicates a disk-full condition.
   #[must_use]
   pub fn is_disk_full(&self) -> bool {
     let msg = self.to_string().to_lowercase();
@@ -65,6 +66,10 @@ impl CiError {
 pub type Result<T> = std::result::Result<T, CiError>;
 
 /// Check disk space on the given path
+///
+/// # Errors
+///
+/// Returns error if statfs call fails or path is invalid.
 pub fn check_disk_space(path: &std::path::Path) -> Result<DiskSpaceInfo> {
   fn to_gb(bytes: u64) -> f64 {
     bytes as f64 / 1024.0 / 1024.0 / 1024.0
@@ -83,9 +88,9 @@ pub fn check_disk_space(path: &std::path::Path) -> Result<DiskSpaceInfo> {
       return Err(CiError::Io(std::io::Error::last_os_error()));
     }
 
-    let bavail = statfs.f_bavail * (statfs.f_bsize as u64);
-    let bfree = statfs.f_bfree * (statfs.f_bsize as u64);
-    let btotal = statfs.f_blocks * (statfs.f_bsize as u64);
+    let bavail = statfs.f_bavail * statfs.f_bsize.cast_unsigned();
+    let bfree = statfs.f_bfree * statfs.f_bsize.cast_unsigned();
+    let btotal = statfs.f_blocks * statfs.f_bsize.cast_unsigned();
 
     Ok(DiskSpaceInfo {
       total_gb:     to_gb(btotal),

@@ -20,12 +20,9 @@ async fn test_database_connection_full() -> anyhow::Result<()> {
   };
 
   // Try to connect, skip test if database is not available
-  let db = match Database::new(config).await {
-    Ok(db) => db,
-    Err(_) => {
-      println!("Skipping database test: no PostgreSQL instance available");
-      return Ok(());
-    },
+  let Ok(db) = Database::new(config).await else {
+    println!("Skipping database test: no PostgreSQL instance available");
+    return Ok(());
   };
 
   // Test health check
@@ -38,7 +35,7 @@ async fn test_database_connection_full() -> anyhow::Result<()> {
   assert!(!info.version.is_empty());
 
   // Test pool stats
-  let stats = db.get_pool_stats().await;
+  let stats = db.get_pool_stats();
   assert!(stats.size >= 1);
   assert!(stats.idle >= 1);
   assert_eq!(stats.size, stats.idle + stats.active);
@@ -67,21 +64,21 @@ fn test_config_loading() -> anyhow::Result<()> {
 #[test]
 fn test_config_validation() -> anyhow::Result<()> {
   // Test valid config
-  let config = Config::default();
-  assert!(config.validate().is_ok());
+  let base_config = Config::default();
+  assert!(base_config.validate().is_ok());
 
   // Test invalid database URL
-  let mut config = config.clone();
+  let mut config = base_config.clone();
   config.database.url = "invalid://url".to_string();
   assert!(config.validate().is_err());
 
   // Test invalid port
-  let mut config = config.clone();
+  let mut config = base_config.clone();
   config.server.port = 0;
   assert!(config.validate().is_err());
 
   // Test invalid connections
-  let mut config = config.clone();
+  let mut config = base_config.clone();
   config.database.max_connections = 0;
   assert!(config.validate().is_err());
 
@@ -90,12 +87,12 @@ fn test_config_validation() -> anyhow::Result<()> {
   assert!(config.validate().is_err());
 
   // Test invalid evaluator settings
-  let mut config = config.clone();
+  let mut config = base_config.clone();
   config.evaluator.poll_interval = 0;
   assert!(config.validate().is_err());
 
   // Test invalid queue runner settings
-  let mut config = config.clone();
+  let mut config = base_config;
   config.queue_runner.workers = 0;
   assert!(config.validate().is_err());
 
@@ -109,12 +106,12 @@ fn test_database_config_validation() -> anyhow::Result<()> {
   assert!(config.validate().is_ok());
 
   // Test invalid URL
-  let mut config = config.clone();
+  let mut config = config;
   config.url = "invalid://url".to_string();
   assert!(config.validate().is_err());
 
   // Test empty URL
-  config.url = "".to_string();
+  config.url = String::new();
   assert!(config.validate().is_err());
 
   // Test zero max connections

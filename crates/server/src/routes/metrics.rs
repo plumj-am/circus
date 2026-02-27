@@ -21,11 +21,11 @@ struct TimeseriesQuery {
   bucket:     i32,
 }
 
-fn default_hours() -> i32 {
+const fn default_hours() -> i32 {
   24
 }
 
-fn default_bucket() -> i32 {
+const fn default_bucket() -> i32 {
   60
 }
 
@@ -64,21 +64,19 @@ fn escape_prometheus_label(s: &str) -> String {
 }
 
 async fn prometheus_metrics(State(state): State<AppState>) -> Response {
-  let stats = match fc_common::repo::builds::get_stats(&state.pool).await {
-    Ok(s) => s,
-    Err(_) => {
-      return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-    },
+  use std::fmt::Write;
+
+  let Ok(build_stats) = fc_common::repo::builds::get_stats(&state.pool).await
+  else {
+    return StatusCode::INTERNAL_SERVER_ERROR.into_response();
   };
 
   let eval_count: i64 =
-    match sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM evaluations")
+    sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM evaluations")
       .fetch_one(&state.pool)
       .await
-    {
-      Ok(row) => row.0,
-      Err(_) => 0,
-    };
+      .ok()
+      .map_or(0, |row| row.0);
 
   let eval_by_status: Vec<(String, i64)> = sqlx::query_as(
     "SELECT status::text, COUNT(*) FROM evaluations GROUP BY status",
@@ -124,8 +122,6 @@ async fn prometheus_metrics(State(state): State<AppState>) -> Response {
   .await
   .unwrap_or((None, None, None));
 
-  use std::fmt::Write;
-
   let mut output = String::with_capacity(2048);
 
   // Build counts by status
@@ -134,27 +130,27 @@ async fn prometheus_metrics(State(state): State<AppState>) -> Response {
   let _ = writeln!(
     output,
     "fc_builds_total{{status=\"succeeded\"}} {}",
-    stats.completed_builds.unwrap_or(0)
+    build_stats.completed_builds.unwrap_or(0)
   );
   let _ = writeln!(
     output,
     "fc_builds_total{{status=\"failed\"}} {}",
-    stats.failed_builds.unwrap_or(0)
+    build_stats.failed_builds.unwrap_or(0)
   );
   let _ = writeln!(
     output,
     "fc_builds_total{{status=\"running\"}} {}",
-    stats.running_builds.unwrap_or(0)
+    build_stats.running_builds.unwrap_or(0)
   );
   let _ = writeln!(
     output,
     "fc_builds_total{{status=\"pending\"}} {}",
-    stats.pending_builds.unwrap_or(0)
+    build_stats.pending_builds.unwrap_or(0)
   );
   let _ = writeln!(
     output,
     "fc_builds_total{{status=\"all\"}} {}",
-    stats.total_builds.unwrap_or(0)
+    build_stats.total_builds.unwrap_or(0)
   );
 
   // Build duration stats
@@ -166,7 +162,7 @@ async fn prometheus_metrics(State(state): State<AppState>) -> Response {
   let _ = writeln!(
     output,
     "fc_builds_avg_duration_seconds {:.2}",
-    stats.avg_duration_seconds.unwrap_or(0.0)
+    build_stats.avg_duration_seconds.unwrap_or(0.0)
   );
 
   output.push_str(
@@ -214,7 +210,7 @@ async fn prometheus_metrics(State(state): State<AppState>) -> Response {
   let _ = writeln!(
     output,
     "fc_queue_depth {}",
-    stats.pending_builds.unwrap_or(0)
+    build_stats.pending_builds.unwrap_or(0)
   );
 
   // Infrastructure

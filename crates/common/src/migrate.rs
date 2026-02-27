@@ -4,6 +4,10 @@ use sqlx::{PgPool, Postgres, migrate::MigrateDatabase};
 use tracing::{error, info, warn};
 
 /// Runs database migrations and ensures the database exists
+///
+/// # Errors
+///
+/// Returns error if database operations or migrations fail.
 pub async fn run_migrations(database_url: &str) -> anyhow::Result<()> {
   info!("Starting database migrations");
 
@@ -39,6 +43,10 @@ async fn create_connection_pool(database_url: &str) -> anyhow::Result<PgPool> {
 }
 
 /// Validates that all required tables exist and have the expected structure
+///
+/// # Errors
+///
+/// Returns error if schema validation fails or required tables are missing.
 pub async fn validate_schema(pool: &PgPool) -> anyhow::Result<()> {
   info!("Validating database schema");
 

@@ -1,6 +1,6 @@
 //! Tests for the queue runner.
 //! Nix log parsing tests require no external binaries.
-//! Database tests require TEST_DATABASE_URL.
+//! Database tests require `TEST_DATABASE_URL`.
 
 // Nix log line parsing
 
@@ -65,12 +65,9 @@ fn test_parse_nix_log_empty_line() {
 #[tokio::test]
 async fn test_worker_pool_drain_stops_dispatch() {
   // Create a minimal worker pool
-  let url = match std::env::var("TEST_DATABASE_URL") {
-    Ok(url) => url,
-    Err(_) => {
-      println!("Skipping: TEST_DATABASE_URL not set");
-      return;
-    },
+  let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
+    println!("Skipping: TEST_DATABASE_URL not set");
+    return;
   };
 
   let pool = sqlx::postgres::PgPoolOptions::new()
@@ -83,7 +80,7 @@ async fn test_worker_pool_drain_stops_dispatch() {
     pool,
     2,
     std::env::temp_dir(),
-    std::time::Duration::from_secs(60),
+    std::time::Duration::from_mins(1),
     fc_common::config::LogConfig::default(),
     fc_common::config::GcConfig::default(),
     fc_common::config::NotificationsConfig::default(),
@@ -153,7 +150,7 @@ async fn test_cancellation_token_aborts_select() {
 
   // Simulate a long-running build
   let build_future = async {
-    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+    tokio::time::sleep(std::time::Duration::from_mins(1)).await;
     "completed"
   };
 
@@ -176,12 +173,9 @@ async fn test_cancellation_token_aborts_select() {
 
 #[tokio::test]
 async fn test_worker_pool_active_builds_cancel() {
-  let url = match std::env::var("TEST_DATABASE_URL") {
-    Ok(url) => url,
-    Err(_) => {
-      println!("Skipping: TEST_DATABASE_URL not set");
-      return;
-    },
+  let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
+    println!("Skipping: TEST_DATABASE_URL not set");
+    return;
   };
 
   let pool = sqlx::postgres::PgPoolOptions::new()
@@ -194,7 +188,7 @@ async fn test_worker_pool_active_builds_cancel() {
     pool,
     2,
     std::env::temp_dir(),
-    std::time::Duration::from_secs(60),
+    std::time::Duration::from_mins(1),
     fc_common::config::LogConfig::default(),
     fc_common::config::GcConfig::default(),
     fc_common::config::NotificationsConfig::default(),
@@ -228,12 +222,9 @@ async fn test_worker_pool_active_builds_cancel() {
 
 #[tokio::test]
 async fn test_fair_share_scheduling() {
-  let url = match std::env::var("TEST_DATABASE_URL") {
-    Ok(url) => url,
-    Err(_) => {
-      println!("Skipping: TEST_DATABASE_URL not set");
-      return;
-    },
+  let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
+    println!("Skipping: TEST_DATABASE_URL not set");
+    return;
   };
 
   let pool = sqlx::postgres::PgPoolOptions::new()
@@ -447,12 +438,9 @@ async fn test_fair_share_scheduling() {
 
 #[tokio::test]
 async fn test_atomic_build_claiming() {
-  let url = match std::env::var("TEST_DATABASE_URL") {
-    Ok(url) => url,
-    Err(_) => {
-      println!("Skipping: TEST_DATABASE_URL not set");
-      return;
-    },
+  let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
+    println!("Skipping: TEST_DATABASE_URL not set");
+    return;
   };
 
   let pool = sqlx::postgres::PgPoolOptions::new()
@@ -541,12 +529,9 @@ async fn test_atomic_build_claiming() {
 
 #[tokio::test]
 async fn test_orphan_build_reset() {
-  let url = match std::env::var("TEST_DATABASE_URL") {
-    Ok(url) => url,
-    Err(_) => {
-      println!("Skipping: TEST_DATABASE_URL not set");
-      return;
-    },
+  let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
+    println!("Skipping: TEST_DATABASE_URL not set");
+    return;
   };
 
   let pool = sqlx::postgres::PgPoolOptions::new()
@@ -647,12 +632,9 @@ async fn test_orphan_build_reset() {
 
 #[tokio::test]
 async fn test_get_cancelled_among() {
-  let url = match std::env::var("TEST_DATABASE_URL") {
-    Ok(url) => url,
-    Err(_) => {
-      println!("Skipping: TEST_DATABASE_URL not set");
-      return;
-    },
+  let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
+    println!("Skipping: TEST_DATABASE_URL not set");
+    return;
   };
 
   let pool = sqlx::postgres::PgPoolOptions::new()

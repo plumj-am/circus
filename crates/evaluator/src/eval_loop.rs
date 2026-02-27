@@ -20,6 +20,11 @@ use tokio::sync::Notify;
 use tracing::info;
 use uuid::Uuid;
 
+/// Main evaluator loop. Polls jobsets and runs nix evaluations.
+///
+/// # Errors
+///
+/// Returns error if evaluation cycle fails and `strict_errors` is enabled.
 pub async fn run(
   pool: PgPool,
   config: EvaluatorConfig,
@@ -57,13 +62,10 @@ async fn run_cycle(
   let ready: Vec<_> = active
     .into_iter()
     .filter(|js| {
-      match js.last_checked_at {
-        Some(last) => {
-          let elapsed = (now - last).num_seconds();
-          elapsed >= i64::from(js.check_interval)
-        },
-        None => true, // Never checked, evaluate now
-      }
+      js.last_checked_at.is_none_or(|last| {
+        let elapsed = (now - last).num_seconds();
+        elapsed >= i64::from(js.check_interval)
+      })
     })
     .collect();
 
@@ -91,11 +93,10 @@ async fn run_cycle(
             || msg.contains("sqlite")
           {
             tracing::error!(
-              "DISK SPACE ISSUE DETECTED: Evaluation failed due to disk space \
-               problems. Please free up space on the server:\n- Run \
-               `nix-collect-garbage -d` to clean the Nix store\n- Clear \
-               /tmp/fc-evaluator directory\n- Check build logs directory if \
-               configured"
+              "Evaluation failed due to disk space problems. Please free up \
+               space on the server:\n- Run `nix-collect-garbage -d` to clean \
+               the Nix store\n- Clear /tmp/fc-evaluator directory\n- Check \
+               build logs directory if configured"
             );
           }
         }
@@ -129,13 +130,13 @@ async fn evaluate_jobset(
       if info.is_critical() {
         tracing::error!(
           jobset = %jobset.name,
-          "CRITICAL: Less than 1GB disk space available. {}",
+          "Less than 1GB disk space available. {}",
           info.summary()
         );
       } else if info.is_low() {
         tracing::warn!(
           jobset = %jobset.name,
-          "LOW: Less than 5GB disk space available. {}",
+          "Less than 5GB disk space available. {}",
           info.summary()
         );
       }
@@ -277,13 +278,12 @@ async fn evaluate_jobset(
             );
           }
           return Ok(());
-        } else {
-          info!(
-            "Evaluation completed but has 0 builds, re-running nix evaluation \
-             jobset={} commit={}",
-            jobset.name, commit_hash
-          );
         }
+        info!(
+          "Evaluation completed but has 0 builds, re-running nix evaluation \
+           jobset={} commit={}",
+          jobset.name, commit_hash
+        );
       }
       existing
     },
@@ -420,12 +420,10 @@ async fn create_builds_from_eval(
       for dep_drv in input_drvs.keys() {
         if let Some(&dep_build_id) = drv_to_build.get(dep_drv)
           && dep_build_id != build_id
-        {
-          if let Err(e) =
+          && let Err(e) =
             repo::build_dependencies::create(pool, build_id, dep_build_id).await
-          {
-            tracing::warn!(build_id = %build_id, dep = %dep_build_id, "Failed to create build dependency: {e}");
-          }
+        {
+          tracing::warn!(build_id = %build_id, dep = %dep_build_id, "Failed to create build dependency: {e}");
         }
       }
     }
@@ -435,12 +433,10 @@ async fn create_builds_from_eval(
       for constituent_name in constituents {
         if let Some(&dep_build_id) = name_to_build.get(constituent_name)
           && dep_build_id != build_id
-        {
-          if let Err(e) =
+          && let Err(e) =
             repo::build_dependencies::create(pool, build_id, dep_build_id).await
-          {
-            tracing::warn!(build_id = %build_id, dep = %dep_build_id, "Failed to create constituent dependency: {e}");
-          }
+        {
+          tracing::warn!(build_id = %build_id, dep = %dep_build_id, "Failed to create constituent dependency: {e}");
         }
       }
     }
@@ -450,7 +446,7 @@ async fn create_builds_from_eval(
 }
 
 /// Compute a deterministic hash over the commit and all jobset inputs.
-/// Used for evaluation caching — skip re-eval when inputs haven't changed.
+/// Used for evaluation caching, so skip re-eval when inputs haven't changed.
 fn compute_inputs_hash(commit_hash: &str, inputs: &[JobsetInput]) -> String {
   use sha2::{Digest, Sha256};
 
@@ -480,6 +476,20 @@ async fn check_declarative_config(
   repo_path: &std::path::Path,
   project_id: Uuid,
 ) {
+  #[derive(serde::Deserialize)]
+  struct DeclarativeConfig {
+    jobsets: Option<Vec<DeclarativeJobset>>,
+  }
+
+  #[derive(serde::Deserialize)]
+  struct DeclarativeJobset {
+    name:           String,
+    nix_expression: String,
+    flake_mode:     Option<bool>,
+    check_interval: Option<i32>,
+    enabled:        Option<bool>,
+  }
+
   let config_path = repo_path.join(".fc.toml");
   let alt_config_path = repo_path.join(".fc/config.toml");
 
@@ -501,20 +511,6 @@ async fn check_declarative_config(
       return;
     },
   };
-
-  #[derive(serde::Deserialize)]
-  struct DeclarativeConfig {
-    jobsets: Option<Vec<DeclarativeJobset>>,
-  }
-
-  #[derive(serde::Deserialize)]
-  struct DeclarativeJobset {
-    name:           String,
-    nix_expression: String,
-    flake_mode:     Option<bool>,
-    check_interval: Option<i32>,
-    enabled:        Option<bool>,
-  }
 
   let config: DeclarativeConfig = match toml::from_str(&content) {
     Ok(c) => c,

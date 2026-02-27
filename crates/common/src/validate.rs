@@ -82,14 +82,12 @@ fn is_internal_host(host: &str) -> bool {
     return true;
   }
   // Block 172.16-31.x.x
-  if host.starts_with("172.") {
-    if let Some(second_octet) = host.split('.').nth(1) {
-      if let Ok(n) = second_octet.parse::<u8>() {
-        if (16..=31).contains(&n) {
-          return true;
-        }
-      }
-    }
+  if host.starts_with("172.")
+    && let Some(second_octet) = host.split('.').nth(1)
+    && let Ok(n) = second_octet.parse::<u8>()
+    && (16..=31).contains(&n)
+  {
+    return true;
   }
   // Block 192.168.x.x
   if host.starts_with("192.168.") {
@@ -100,6 +98,11 @@ fn is_internal_host(host: &str) -> bool {
 
 /// Trait for validating request DTOs before persisting.
 pub trait Validate {
+  /// Validate the DTO.
+  ///
+  /// # Errors
+  ///
+  /// Returns error if validation fails.
   fn validate(&self) -> Result<(), String>;
 }
 
@@ -129,19 +132,23 @@ fn validate_repository_url(url: &str) -> Result<(), String> {
     );
   }
   // Reject URLs targeting common internal/metadata endpoints
-  if let Some(host) = extract_host_from_url(url) {
-    if is_internal_host(&host) {
-      return Err(
-        "repository_url must not target internal or metadata addresses"
-          .to_string(),
-      );
-    }
+  if let Some(host) = extract_host_from_url(url)
+    && is_internal_host(&host)
+  {
+    return Err(
+      "repository_url must not target internal or metadata addresses"
+        .to_string(),
+    );
   }
   Ok(())
 }
 
 /// Validate that a URL uses one of the allowed schemes.
 /// Logs a warning when insecure schemes (`file`, `http`) are used.
+///
+/// # Errors
+///
+/// Returns error if URL scheme is not in the allowed list.
 pub fn validate_url_scheme(
   url: &str,
   allowed_schemes: &[String],
@@ -187,6 +194,11 @@ fn validate_description(desc: &str) -> Result<(), String> {
   Ok(())
 }
 
+/// Validate nix expression format.
+///
+/// # Errors
+///
+/// Returns error if expression contains invalid characters or path traversal.
 pub fn validate_nix_expression(expr: &str) -> Result<(), String> {
   if expr.is_empty() {
     return Err("nix_expression cannot be empty".to_string());
@@ -465,7 +477,7 @@ mod tests {
   #[test]
   fn store_path_rejects_just_prefix() {
     // "/nix/store/" alone has no hash, but structurally starts_with and has no
-    // .., so it passes. This is fine — the DB lookup won't find anything
+    // .., so it passes. This is fine - the DB lookup won't find anything
     // for it.
     assert!(is_valid_store_path("/nix/store/"));
   }
@@ -554,7 +566,7 @@ mod tests {
   #[test]
   fn test_create_project_invalid_name() {
     let p = CreateProject {
-      name:           "".to_string(),
+      name:           String::new(),
       description:    None,
       repository_url: "https://github.com/test/repo".to_string(),
     };

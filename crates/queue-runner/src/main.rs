@@ -175,7 +175,7 @@ async fn failed_paths_cleanup_loop(
     return std::future::pending().await;
   }
 
-  let interval = std::time::Duration::from_secs(3600);
+  let interval = std::time::Duration::from_hours(1);
   loop {
     tokio::time::sleep(interval).await;
     match fc_common::repo::failed_paths_cache::cleanup_expired(&pool, ttl).await
@@ -233,7 +233,7 @@ async fn notification_retry_loop(
 
   let cleanup_pool = pool.clone();
   tokio::spawn(async move {
-    let cleanup_interval = std::time::Duration::from_secs(3600);
+    let cleanup_interval = std::time::Duration::from_hours(1);
     loop {
       tokio::time::sleep(cleanup_interval).await;
       match repo::notification_tasks::cleanup_old_tasks(

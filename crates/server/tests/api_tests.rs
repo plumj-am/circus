@@ -1,5 +1,5 @@
 //! Integration tests for API endpoints.
-//! Requires TEST_DATABASE_URL to be set.
+//! Requires `TEST_DATABASE_URL` to be set.
 
 use axum::{
   body::Body,
@@ -8,12 +8,9 @@ use axum::{
 use tower::ServiceExt;
 
 async fn get_pool() -> Option<sqlx::PgPool> {
-  let url = match std::env::var("TEST_DATABASE_URL") {
-    Ok(url) => url,
-    Err(_) => {
-      println!("Skipping API test: TEST_DATABASE_URL not set");
-      return None;
-    },
+  let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
+    println!("Skipping API test: TEST_DATABASE_URL not set");
+    return None;
   };
 
   let pool = sqlx::postgres::PgPoolOptions::new()
@@ -44,9 +41,8 @@ fn build_app(pool: sqlx::PgPool) -> axum::Router {
 
 #[tokio::test]
 async fn test_router_no_duplicate_routes() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let config = fc_common::config::Config::default();
@@ -79,9 +75,8 @@ fn build_app_with_config(
 
 #[tokio::test]
 async fn test_health_endpoint() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let app = build_app(pool);
@@ -108,9 +103,8 @@ async fn test_health_endpoint() {
 
 #[tokio::test]
 async fn test_project_endpoints() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let app = build_app(pool);
@@ -204,9 +198,8 @@ async fn test_project_endpoints() {
 
 #[tokio::test]
 async fn test_builds_endpoints() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let app = build_app(pool);
@@ -244,9 +237,8 @@ async fn test_builds_endpoints() {
 
 #[tokio::test]
 async fn test_error_response_includes_error_code() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let app = build_app(pool);
@@ -275,9 +267,8 @@ async fn test_error_response_includes_error_code() {
 
 #[tokio::test]
 async fn test_cache_invalid_hash_returns_404() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let mut config = fc_common::config::Config::default();
@@ -352,9 +343,8 @@ async fn test_cache_invalid_hash_returns_404() {
 
 #[tokio::test]
 async fn test_cache_nar_invalid_hash_returns_404() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let mut config = fc_common::config::Config::default();
@@ -390,9 +380,8 @@ async fn test_cache_nar_invalid_hash_returns_404() {
 
 #[tokio::test]
 async fn test_cache_disabled_returns_404() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let mut config = fc_common::config::Config::default();
@@ -426,9 +415,8 @@ async fn test_cache_disabled_returns_404() {
 
 #[tokio::test]
 async fn test_search_rejects_long_query() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let app = build_app(pool);
@@ -457,9 +445,8 @@ async fn test_search_rejects_long_query() {
 
 #[tokio::test]
 async fn test_search_rejects_empty_query() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let app = build_app(pool);
@@ -486,9 +473,8 @@ async fn test_search_rejects_empty_query() {
 
 #[tokio::test]
 async fn test_search_whitespace_only_query() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let app = build_app(pool);
@@ -514,9 +500,8 @@ async fn test_search_whitespace_only_query() {
 
 #[tokio::test]
 async fn test_builds_list_with_system_filter() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let app = build_app(pool);
@@ -544,9 +529,8 @@ async fn test_builds_list_with_system_filter() {
 
 #[tokio::test]
 async fn test_builds_list_with_job_name_filter() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let app = build_app(pool);
@@ -572,9 +556,8 @@ async fn test_builds_list_with_job_name_filter() {
 
 #[tokio::test]
 async fn test_builds_list_combined_filters() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let app = build_app(pool);
@@ -595,9 +578,8 @@ async fn test_builds_list_combined_filters() {
 
 #[tokio::test]
 async fn test_cache_info_returns_correct_headers() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let mut config = fc_common::config::Config::default();
@@ -631,9 +613,8 @@ async fn test_cache_info_returns_correct_headers() {
 
 #[tokio::test]
 async fn test_metrics_endpoint() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let app = build_app(pool);
@@ -718,9 +699,8 @@ async fn test_metrics_endpoint() {
 
 #[tokio::test]
 async fn test_get_nonexistent_build_returns_error_code() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let app = build_app(pool);
@@ -750,9 +730,8 @@ async fn test_get_nonexistent_build_returns_error_code() {
 
 #[tokio::test]
 async fn test_create_project_validation_rejects_invalid_name() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let app = build_app(pool);
@@ -786,9 +765,8 @@ async fn test_create_project_validation_rejects_invalid_name() {
 
 #[tokio::test]
 async fn test_create_project_validation_rejects_bad_url() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let app = build_app(pool);
@@ -821,9 +799,8 @@ async fn test_create_project_validation_rejects_bad_url() {
 
 #[tokio::test]
 async fn test_create_project_validation_accepts_valid() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let app = build_app(pool);
@@ -854,14 +831,14 @@ async fn test_create_project_validation_accepts_valid() {
 
 #[tokio::test]
 async fn test_project_create_with_auth() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  use sha2::Digest;
+
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   // Create an admin API key
   let mut hasher = sha2::Sha256::new();
-  use sha2::Digest;
   hasher.update(b"fc_test_project_auth");
   let key_hash = hex::encode(hasher.finalize());
   let _ =
@@ -900,9 +877,8 @@ async fn test_project_create_with_auth() {
 
 #[tokio::test]
 async fn test_project_create_without_auth_rejected() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let app = build_app(pool);
@@ -929,14 +905,14 @@ async fn test_project_create_without_auth_rejected() {
 
 #[tokio::test]
 async fn test_setup_endpoint_creates_project_and_jobsets() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  use sha2::Digest;
+
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   // Create an admin API key
   let mut hasher = sha2::Sha256::new();
-  use sha2::Digest;
   hasher.update(b"fc_test_setup_key");
   let key_hash = hex::encode(hasher.finalize());
   let _ =
@@ -991,9 +967,8 @@ async fn test_setup_endpoint_creates_project_and_jobsets() {
 
 #[tokio::test]
 async fn test_security_headers_present() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let app = build_app(pool);
@@ -1033,9 +1008,8 @@ async fn test_security_headers_present() {
 
 #[tokio::test]
 async fn test_static_css_served() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let app = build_app(pool);

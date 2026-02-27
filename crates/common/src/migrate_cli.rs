@@ -32,6 +32,11 @@ pub enum Commands {
   },
 }
 
+/// Execute the CLI command.
+///
+/// # Errors
+///
+/// Returns error if command execution fails.
 pub async fn run() -> anyhow::Result<()> {
   let cli = Cli::parse();
 

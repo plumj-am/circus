@@ -6,6 +6,11 @@ use crate::{
   models::{Build, BuildStats, BuildStatus, CreateBuild},
 };
 
+/// Create a new build record in pending state.
+///
+/// # Errors
+///
+/// Returns error if database insert fails or job already exists.
 pub async fn create(pool: &PgPool, input: CreateBuild) -> Result<Build> {
   let is_aggregate = input.is_aggregate.unwrap_or(false);
   sqlx::query_as::<_, Build>(
@@ -35,6 +40,11 @@ pub async fn create(pool: &PgPool, input: CreateBuild) -> Result<Build> {
   })
 }
 
+/// Find a succeeded build by derivation path (for build result caching).
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn get_completed_by_drv_path(
   pool: &PgPool,
   drv_path: &str,
@@ -48,6 +58,11 @@ pub async fn get_completed_by_drv_path(
   .map_err(CiError::Database)
 }
 
+/// Get a build by ID.
+///
+/// # Errors
+///
+/// Returns error if database query fails or build not found.
 pub async fn get(pool: &PgPool, id: Uuid) -> Result<Build> {
   sqlx::query_as::<_, Build>("SELECT * FROM builds WHERE id = $1")
     .bind(id)
@@ -56,6 +71,11 @@ pub async fn get(pool: &PgPool, id: Uuid) -> Result<Build> {
     .ok_or_else(|| CiError::NotFound(format!("Build {id} not found")))
 }
 
+/// List all builds for a given evaluation.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_for_evaluation(
   pool: &PgPool,
   evaluation_id: Uuid,
@@ -69,6 +89,12 @@ pub async fn list_for_evaluation(
   .map_err(CiError::Database)
 }
 
+/// List pending builds, prioritizing non-aggregate jobs.
+/// Returns up to `limit * worker_count` builds.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_pending(
   pool: &PgPool,
   limit: i64,
@@ -99,6 +125,10 @@ pub async fn list_pending(
 
 /// Atomically claim a pending build by setting it to running.
 /// Returns `None` if the build was already claimed by another worker.
+///
+/// # Errors
+///
+/// Returns error if database update fails.
 pub async fn start(pool: &PgPool, id: Uuid) -> Result<Option<Build>> {
   sqlx::query_as::<_, Build>(
     "UPDATE builds SET status = 'running', started_at = NOW() WHERE id = $1 \
@@ -110,6 +140,11 @@ pub async fn start(pool: &PgPool, id: Uuid) -> Result<Option<Build>> {
   .map_err(CiError::Database)
 }
 
+/// Mark a build as completed with final status and outputs.
+///
+/// # Errors
+///
+/// Returns error if database update fails or build not found.
 pub async fn complete(
   pool: &PgPool,
   id: Uuid,
@@ -132,6 +167,11 @@ pub async fn complete(
   .ok_or_else(|| CiError::NotFound(format!("Build {id} not found")))
 }
 
+/// List recent builds ordered by creation time.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_recent(pool: &PgPool, limit: i64) -> Result<Vec<Build>> {
   sqlx::query_as::<_, Build>(
     "SELECT * FROM builds ORDER BY created_at DESC LIMIT $1",
@@ -142,6 +182,11 @@ pub async fn list_recent(pool: &PgPool, limit: i64) -> Result<Vec<Build>> {
   .map_err(CiError::Database)
 }
 
+/// List all builds for a project.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_for_project(
   pool: &PgPool,
   project_id: Uuid,
@@ -157,6 +202,11 @@ pub async fn list_for_project(
   .map_err(CiError::Database)
 }
 
+/// Get aggregate build statistics.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn get_stats(pool: &PgPool) -> Result<BuildStats> {
   match sqlx::query_as::<_, BuildStats>("SELECT * FROM build_stats")
     .fetch_optional(pool)
@@ -178,6 +228,10 @@ pub async fn get_stats(pool: &PgPool) -> Result<BuildStats> {
 
 /// Reset builds that were left in 'running' state (orphaned by a crashed
 /// runner). Limited to 50 builds per call to prevent thundering herd.
+///
+/// # Errors
+///
+/// Returns error if database update fails.
 pub async fn reset_orphaned(
   pool: &PgPool,
   older_than_secs: i64,
@@ -197,6 +251,10 @@ pub async fn reset_orphaned(
 
 /// List builds with optional `evaluation_id`, status, system, and `job_name`
 /// filters, with pagination.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_filtered(
   pool: &PgPool,
   evaluation_id: Option<Uuid>,
@@ -223,6 +281,11 @@ pub async fn list_filtered(
   .map_err(CiError::Database)
 }
 
+/// Count builds matching filter criteria.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn count_filtered(
   pool: &PgPool,
   evaluation_id: Option<Uuid>,
@@ -247,6 +310,10 @@ pub async fn count_filtered(
 
 /// Return the subset of the given build IDs whose status is 'cancelled'.
 /// Used by the cancel-checker loop to detect builds cancelled while running.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn get_cancelled_among(
   pool: &PgPool,
   build_ids: &[Uuid],
@@ -265,6 +332,11 @@ pub async fn get_cancelled_among(
   Ok(rows.into_iter().map(|(id,)| id).collect())
 }
 
+/// Cancel a build.
+///
+/// # Errors
+///
+/// Returns error if database update fails or build not in cancellable state.
 pub async fn cancel(pool: &PgPool, id: Uuid) -> Result<Build> {
   sqlx::query_as::<_, Build>(
     "UPDATE builds SET status = 'cancelled', completed_at = NOW() WHERE id = \
@@ -281,6 +353,10 @@ pub async fn cancel(pool: &PgPool, id: Uuid) -> Result<Build> {
 }
 
 /// Cancel a build and all its transitive dependents.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn cancel_cascade(pool: &PgPool, id: Uuid) -> Result<Vec<Build>> {
   let mut cancelled = Vec::new();
 
@@ -312,7 +388,11 @@ pub async fn cancel_cascade(pool: &PgPool, id: Uuid) -> Result<Vec<Build>> {
 }
 
 /// Restart a build by resetting it to pending state.
-/// Only works for failed, succeeded, cancelled, or cached_failure builds.
+/// Only works for failed, succeeded, cancelled, or `cached_failure` builds.
+///
+/// # Errors
+///
+/// Returns error if database update fails or build not in restartable state.
 pub async fn restart(pool: &PgPool, id: Uuid) -> Result<Build> {
   let build = sqlx::query_as::<_, Build>(
     "UPDATE builds SET status = 'pending', started_at = NULL, completed_at = \
@@ -339,6 +419,10 @@ pub async fn restart(pool: &PgPool, id: Uuid) -> Result<Build> {
 }
 
 /// Mark a build's outputs as signed.
+///
+/// # Errors
+///
+/// Returns error if database update fails.
 pub async fn mark_signed(pool: &PgPool, id: Uuid) -> Result<()> {
   sqlx::query("UPDATE builds SET signed = true WHERE id = $1")
     .bind(id)
@@ -350,6 +434,10 @@ pub async fn mark_signed(pool: &PgPool, id: Uuid) -> Result<()> {
 
 /// Batch-fetch completed builds by derivation paths.
 /// Returns a map from `drv_path` to Build for deduplication.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn get_completed_by_drv_paths(
   pool: &PgPool,
   drv_paths: &[String],
@@ -375,6 +463,10 @@ pub async fn get_completed_by_drv_paths(
 }
 
 /// Return the set of build IDs that have `keep = true` (GC-pinned).
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_pinned_ids(
   pool: &PgPool,
 ) -> Result<std::collections::HashSet<Uuid>> {
@@ -387,6 +479,10 @@ pub async fn list_pinned_ids(
 }
 
 /// Set the `keep` (GC pin) flag on a build.
+///
+/// # Errors
+///
+/// Returns error if database update fails or build not found.
 pub async fn set_keep(pool: &PgPool, id: Uuid, keep: bool) -> Result<Build> {
   sqlx::query_as::<_, Build>(
     "UPDATE builds SET keep = $1 WHERE id = $2 RETURNING *",
@@ -399,6 +495,10 @@ pub async fn set_keep(pool: &PgPool, id: Uuid, keep: bool) -> Result<Build> {
 }
 
 /// Set the `builder_id` for a build.
+///
+/// # Errors
+///
+/// Returns error if database update fails.
 pub async fn set_builder(
   pool: &PgPool,
   id: Uuid,

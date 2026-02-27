@@ -28,7 +28,7 @@ fn first_path_info_entry(
   }
 }
 
-/// Look up a store path by its nix hash, checking both build_products and
+/// Look up a store path by its nix hash, checking both `build_products` and
 /// builds tables.
 async fn find_store_path(
   pool: &sqlx::PgPool,
@@ -64,6 +64,8 @@ async fn narinfo(
   State(state): State<AppState>,
   Path(hash): Path<String>,
 ) -> Result<Response, ApiError> {
+  use std::fmt::Write;
+
   if !state.config.cache.enabled {
     return Ok(StatusCode::NOT_FOUND.into_response());
   }
@@ -97,9 +99,8 @@ async fn narinfo(
     Err(_) => return Ok(StatusCode::NOT_FOUND.into_response()),
   };
 
-  let (entry, path_from_info) = match first_path_info_entry(&parsed) {
-    Some(e) => e,
-    None => return Ok(StatusCode::NOT_FOUND.into_response()),
+  let Some((entry, path_from_info)) = first_path_info_entry(&parsed) else {
+    return Ok(StatusCode::NOT_FOUND.into_response());
   };
 
   let nar_hash = entry.get("narHash").and_then(|v| v.as_str()).unwrap_or("");
@@ -132,8 +133,6 @@ async fn narinfo(
 
   let file_hash = nar_hash;
 
-  use std::fmt::Write;
-
   let refs_joined = refs.join(" ");
   let mut narinfo_text = format!(
     "StorePath: {store_path}\nURL: nar/{hash}.nar.zst\nCompression: \
@@ -142,10 +141,10 @@ async fn narinfo(
   );
 
   if let Some(deriver) = deriver {
-    let _ = write!(narinfo_text, "Deriver: {deriver}\n");
+    let _ = writeln!(narinfo_text, "Deriver: {deriver}");
   }
   if let Some(ca) = ca {
-    let _ = write!(narinfo_text, "CA: {ca}\n");
+    let _ = writeln!(narinfo_text, "CA: {ca}");
   }
 
   // Optionally sign if secret key is configured
@@ -177,9 +176,8 @@ async fn sign_narinfo(narinfo: &str, key_file: &std::path::Path) -> String {
     .find(|l| l.starts_with("StorePath: "))
     .and_then(|l| l.strip_prefix("StorePath: "));
 
-  let store_path = match store_path {
-    Some(p) => p,
-    None => return narinfo.to_string(),
+  let Some(store_path) = store_path else {
+    return narinfo.to_string();
   };
 
   let output = Command::new("nix")
@@ -260,9 +258,8 @@ async fn serve_nar_zst(
       ))
     })?;
 
-  let nix_stdout = match nix_child.stdout.take() {
-    Some(s) => s,
-    None => return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+  let Some(nix_stdout) = nix_child.stdout.take() else {
+    return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response());
   };
 
   let mut zstd_child = Command::new("zstd")
@@ -278,9 +275,8 @@ async fn serve_nar_zst(
       ))
     })?;
 
-  let zstd_stdout = match zstd_child.stdout.take() {
-    Some(s) => s,
-    None => return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+  let Some(zstd_stdout) = zstd_child.stdout.take() else {
+    return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response());
   };
 
   let stream = tokio_util::io::ReaderStream::new(zstd_stdout);
@@ -320,14 +316,12 @@ async fn serve_nar(
     .kill_on_drop(true)
     .spawn();
 
-  let mut child = match child {
-    Ok(c) => c,
-    Err(_) => return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+  let Ok(mut child) = child else {
+    return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response());
   };
 
-  let stdout = match child.stdout.take() {
-    Some(s) => s,
-    None => return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+  let Some(stdout) = child.stdout.take() else {
+    return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response());
   };
 
   let stream = tokio_util::io::ReaderStream::new(stdout);
@@ -343,7 +337,7 @@ async fn serve_nar(
   )
 }
 
-/// Combined NAR handler — dispatches to zstd or plain based on suffix.
+/// Dispatches to zstd or plain based on suffix.
 /// GET /nix-cache/nar/{hash} where hash includes .nar.zst or .nar suffix
 async fn serve_nar_combined(
   state: State<AppState>,

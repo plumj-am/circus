@@ -15,6 +15,11 @@ use crate::state::AppState;
 /// Write endpoints (POST/PUT/DELETE/PATCH) require a valid key.
 /// Read endpoints (GET/HEAD/OPTIONS) try to extract optionally (for
 /// dashboard admin UI).
+///
+/// # Errors
+///
+/// Returns unauthorized status if no valid authentication is found for write
+/// operations.
 pub async fn require_api_key(
   State(state): State<AppState>,
   mut request: Request,
@@ -164,6 +169,12 @@ impl FromRequestParts<AppState> for RequireAdmin {
 pub struct RequireRoles;
 
 impl RequireRoles {
+  /// Check if the session has one of the allowed roles. Admin always passes.
+  ///
+  /// # Errors
+  ///
+  /// Returns unauthorized or forbidden status if authentication fails or role
+  /// is insufficient.
   pub fn check(
     extensions: &axum::http::Extensions,
     allowed: &[&str],
@@ -212,18 +223,29 @@ pub async fn extract_session(
     .and_then(|v| v.to_str().ok())
     .map(String::from);
 
-  if let Some(ref auth_header) = auth_header {
-    if let Some(token) = auth_header.strip_prefix("Bearer ") {
-      use sha2::{Digest, Sha256};
-      let mut hasher = Sha256::new();
-      hasher.update(token.as_bytes());
-      let key_hash = hex::encode(hasher.finalize());
+  if let Some(ref auth_header) = auth_header
+    && let Some(token) = auth_header.strip_prefix("Bearer ")
+  {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    let key_hash = hex::encode(hasher.finalize());
 
-      if let Ok(Some(api_key)) =
-        fc_common::repo::api_keys::get_by_hash(&state.pool, &key_hash).await
-      {
-        request.extensions_mut().insert(api_key.clone());
-      }
+    if let Ok(Some(api_key)) =
+      fc_common::repo::api_keys::get_by_hash(&state.pool, &key_hash).await
+    {
+      // Update last used timestamp asynchronously
+      let pool = state.pool.clone();
+      let key_id = api_key.id;
+      tokio::spawn(async move {
+        if let Err(e) =
+          fc_common::repo::api_keys::touch_last_used(&pool, key_id).await
+        {
+          tracing::warn!(error = %e, "Failed to update API key last_used timestamp");
+        }
+      });
+
+      request.extensions_mut().insert(api_key);
     }
   }
 
@@ -273,16 +295,13 @@ pub async fn extract_session(
 }
 
 fn parse_cookie(header: &str, name: &str) -> Option<String> {
-  header
-    .split(';')
-    .filter_map(|pair| {
-      let pair = pair.trim();
-      let (k, v) = pair.split_once('=')?;
-      if k.trim() == name {
-        Some(v.trim().to_string())
-      } else {
-        None
-      }
-    })
-    .next()
+  header.split(';').find_map(|pair| {
+    let pair = pair.trim();
+    let (k, v) = pair.split_once('=')?;
+    if k.trim() == name {
+      Some(v.trim().to_string())
+    } else {
+      None
+    }
+  })
 }

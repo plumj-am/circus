@@ -6,6 +6,11 @@ use crate::{
   models::{BuildStep, CreateBuildStep},
 };
 
+/// Create a build step record.
+///
+/// # Errors
+///
+/// Returns error if database insert fails or step already exists.
 pub async fn create(
   pool: &PgPool,
   input: CreateBuildStep,
@@ -32,6 +37,11 @@ pub async fn create(
   })
 }
 
+/// Mark a build step as completed.
+///
+/// # Errors
+///
+/// Returns error if database update fails or step not found.
 pub async fn complete(
   pool: &PgPool,
   id: Uuid,
@@ -52,6 +62,11 @@ pub async fn complete(
   .ok_or_else(|| CiError::NotFound(format!("Build step {id} not found")))
 }
 
+/// List all build steps for a build.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_for_build(
   pool: &PgPool,
   build_id: Uuid,

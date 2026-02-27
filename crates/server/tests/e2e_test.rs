@@ -1,5 +1,5 @@
 //! End-to-end integration test.
-//! Requires TEST_DATABASE_URL to be set.
+//! Requires `TEST_DATABASE_URL` to be set.
 //! Tests the full flow: create project -> jobset -> evaluation -> builds.
 //!
 //! Nix-dependent steps are skipped if nix is not available.
@@ -12,12 +12,9 @@ use fc_common::models::*;
 use tower::ServiceExt;
 
 async fn get_pool() -> Option<sqlx::PgPool> {
-  let url = match std::env::var("TEST_DATABASE_URL") {
-    Ok(url) => url,
-    Err(_) => {
-      println!("Skipping E2E test: TEST_DATABASE_URL not set");
-      return None;
-    },
+  let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
+    println!("Skipping E2E test: TEST_DATABASE_URL not set");
+    return None;
   };
 
   let pool = sqlx::postgres::PgPoolOptions::new()
@@ -36,9 +33,8 @@ async fn get_pool() -> Option<sqlx::PgPool> {
 
 #[tokio::test]
 async fn test_e2e_project_eval_build_flow() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   // 1. Create a project
@@ -254,10 +250,10 @@ async fn test_e2e_project_eval_build_flow() {
   assert_eq!(steps[0].exit_code, Some(0));
 
   // 14. Verify build stats reflect our changes
-  let stats = fc_common::repo::builds::get_stats(&pool)
+  let build_stats = fc_common::repo::builds::get_stats(&pool)
     .await
     .expect("get stats");
-  assert!(stats.completed_builds.unwrap_or(0) >= 2);
+  assert!(build_stats.completed_builds.unwrap_or(0) >= 2);
 
   // 15. Create a channel and verify it works
   let channel = fc_common::repo::channels::create(&pool, CreateChannel {

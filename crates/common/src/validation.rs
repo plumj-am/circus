@@ -34,6 +34,10 @@ impl std::error::Error for ValidationError {}
 /// Requirements:
 /// - 3-32 characters
 /// - Alphanumeric, underscore, hyphen only
+///
+/// # Errors
+///
+/// Returns error if username format is invalid.
 pub fn validate_username(username: &str) -> Result<(), ValidationError> {
   if username.is_empty() {
     return Err(ValidationError {
@@ -55,6 +59,10 @@ pub fn validate_username(username: &str) -> Result<(), ValidationError> {
 }
 
 /// Validate email format
+///
+/// # Errors
+///
+/// Returns error if email format is invalid.
 pub fn validate_email(email: &str) -> Result<(), ValidationError> {
   if email.is_empty() {
     return Err(ValidationError {
@@ -80,6 +88,10 @@ pub fn validate_email(email: &str) -> Result<(), ValidationError> {
 /// - At least one lowercase letter
 /// - At least one number
 /// - At least one special character
+///
+/// # Errors
+///
+/// Returns error if password does not meet requirements.
 pub fn validate_password(password: &str) -> Result<(), ValidationError> {
   if password.len() < 12 {
     return Err(ValidationError {
@@ -128,6 +140,10 @@ pub fn validate_password(password: &str) -> Result<(), ValidationError> {
 }
 
 /// Validate role against allowed roles
+///
+/// # Errors
+///
+/// Returns error if role is not in the allowed list.
 pub fn validate_role(
   role: &str,
   allowed: &[&str],
@@ -152,6 +168,10 @@ pub fn validate_role(
 /// Validate full name (optional field)
 /// - Max 255 characters
 /// - Must not contain control characters
+///
+/// # Errors
+///
+/// Returns error if full name contains invalid characters or is too long.
 pub fn validate_full_name(name: &str) -> Result<(), ValidationError> {
   if name.len() > 255 {
     return Err(ValidationError {
@@ -174,6 +194,10 @@ pub fn validate_full_name(name: &str) -> Result<(), ValidationError> {
 /// Requirements:
 /// - 1-255 characters
 /// - Alphanumeric + common path characters
+///
+/// # Errors
+///
+/// Returns error if job name format is invalid.
 pub fn validate_job_name(name: &str) -> Result<(), ValidationError> {
   if name.is_empty() {
     return Err(ValidationError {

@@ -30,11 +30,13 @@ impl std::fmt::Debug for AlertManager {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.debug_struct("AlertManager")
       .field("config", &self.config)
-      .finish()
+      .finish_non_exhaustive()
   }
 }
 
 impl AlertManager {
+  /// Create an alert manager from config.
+  #[must_use]
   pub fn new(config: AlertConfig) -> Self {
     Self {
       config,
@@ -42,10 +44,14 @@ impl AlertManager {
     }
   }
 
-  pub fn is_enabled(&self) -> bool {
+  /// Check if alerts are enabled in the config.
+  #[must_use]
+  pub const fn is_enabled(&self) -> bool {
     self.config.enabled
   }
 
+  /// Calculate failure rate and dispatch alerts if threshold exceeded.
+  /// Returns the computed failure rate if alerts are enabled.
   pub async fn check_and_alert(
     &self,
     pool: &PgPool,
@@ -56,16 +62,15 @@ impl AlertManager {
       return None;
     }
 
-    let failure_rate = match build_metrics::calculate_failure_rate(
+    let Ok(failure_rate) = build_metrics::calculate_failure_rate(
       pool,
       project_id,
       jobset_id,
       self.config.time_window_minutes,
     )
     .await
-    {
-      Ok(rate) => rate,
-      Err(_) => return None,
+    else {
+      return None;
     };
 
     if failure_rate > self.config.error_threshold {
@@ -74,6 +79,7 @@ impl AlertManager {
 
       if time_since_last >= self.config.time_window_minutes {
         state.last_alert_at = Utc::now();
+        drop(state);
         info!(
           "Alert: failure rate {:.1}% exceeds threshold {:.1}%",
           failure_rate, self.config.error_threshold

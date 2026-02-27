@@ -6,6 +6,11 @@ use crate::{
   models::BuildDependency,
 };
 
+/// Create a build dependency relationship.
+///
+/// # Errors
+///
+/// Returns error if database insert fails or dependency already exists.
 pub async fn create(
   pool: &PgPool,
   build_id: Uuid,
@@ -31,6 +36,11 @@ pub async fn create(
   })
 }
 
+/// List all dependencies for a build.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_for_build(
   pool: &PgPool,
   build_id: Uuid,
@@ -46,6 +56,10 @@ pub async fn list_for_build(
 
 /// Batch check if all dependency builds are completed for multiple builds at
 /// once. Returns a map from `build_id` to whether all deps are completed.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn check_deps_for_builds(
   pool: &PgPool,
   build_ids: &[Uuid],
@@ -77,6 +91,10 @@ pub async fn check_deps_for_builds(
 }
 
 /// Check if all dependency builds for a given build are completed.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn all_deps_completed(pool: &PgPool, build_id: Uuid) -> Result<bool> {
   let row: (i64,) = sqlx::query_as(
     "SELECT COUNT(*) FROM build_dependencies bd JOIN builds b ON \

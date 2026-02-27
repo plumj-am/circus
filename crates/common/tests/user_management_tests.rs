@@ -1,17 +1,14 @@
 //! Integration tests for user management - CRUD, authentication, and
-//! relationships. Requires TEST_DATABASE_URL to be set to a PostgreSQL
+//! relationships. Requires `TEST_DATABASE_URL` to be set to a `PostgreSQL`
 //! connection string.
 
 use fc_common::{models::*, repo};
 use uuid::Uuid;
 
 async fn get_pool() -> Option<sqlx::PgPool> {
-  let url = match std::env::var("TEST_DATABASE_URL") {
-    Ok(url) => url,
-    Err(_) => {
-      println!("Skipping repo test: TEST_DATABASE_URL not set");
-      return None;
-    },
+  let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
+    println!("Skipping repo test: TEST_DATABASE_URL not set");
+    return None;
   };
 
   let pool = sqlx::postgres::PgPoolOptions::new()
@@ -28,13 +25,12 @@ async fn get_pool() -> Option<sqlx::PgPool> {
 
 #[tokio::test]
 async fn test_user_crud() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let username = format!("test-user-{}", Uuid::new_v4().simple());
-  let email = format!("{}@example.com", username);
+  let email = format!("{username}@example.com");
 
   // Create user
   let user = repo::users::create(&pool, &CreateUser {
@@ -82,7 +78,7 @@ async fn test_user_crud() {
   assert!(count > 0);
 
   // Update email
-  let new_email = format!("updated-{}", email);
+  let new_email = format!("updated-{email}");
   let updated = repo::users::update_email(&pool, user.id, &new_email)
     .await
     .expect("update email");
@@ -135,9 +131,8 @@ async fn test_user_crud() {
 
 #[tokio::test]
 async fn test_user_authentication() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let username = format!("auth-test-{}", Uuid::new_v4().simple());
@@ -146,7 +141,7 @@ async fn test_user_authentication() {
   // Create user
   let user = repo::users::create(&pool, &CreateUser {
     username:  username.clone(),
-    email:     format!("{}@example.com", username),
+    email:     format!("{username}@example.com"),
     full_name: None,
     password:  password.to_string(),
     role:      None,
@@ -234,13 +229,12 @@ async fn test_password_hashing() {
 
 #[tokio::test]
 async fn test_user_unique_constraints() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let username = format!("unique-{}", Uuid::new_v4().simple());
-  let email = format!("{}@example.com", username);
+  let email = format!("{username}@example.com");
 
   // Create first user
   let _ = repo::users::create(&pool, &CreateUser {
@@ -256,7 +250,7 @@ async fn test_user_unique_constraints() {
   // Try to create with same username
   let result = repo::users::create(&pool, &CreateUser {
     username:  username.clone(),
-    email:     format!("other-{}", email),
+    email:     format!("other-{email}"),
     full_name: None,
     password:  "password".to_string(),
     role:      None,
@@ -266,7 +260,7 @@ async fn test_user_unique_constraints() {
 
   // Try to create with same email
   let result = repo::users::create(&pool, &CreateUser {
-    username:  format!("other-{}", username),
+    username:  format!("other-{username}"),
     email:     email.clone(),
     full_name: None,
     password:  "password".to_string(),
@@ -285,13 +279,12 @@ async fn test_user_unique_constraints() {
 
 #[tokio::test]
 async fn test_oauth_user_creation() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let username = format!("oauth-user-{}", Uuid::new_v4().simple());
-  let email = format!("{}@github.com", username);
+  let email = format!("{username}@github.com");
   let oauth_provider_id = format!("github_{}", Uuid::new_v4().simple());
 
   // Create OAuth user
@@ -330,9 +323,8 @@ async fn test_oauth_user_creation() {
 
 #[tokio::test]
 async fn test_starred_jobs_crud() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   // Create prerequisite data
@@ -442,9 +434,8 @@ async fn test_starred_jobs_crud() {
 
 #[tokio::test]
 async fn test_starred_jobs_delete_by_job() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   // Setup
@@ -516,9 +507,8 @@ async fn test_starred_jobs_delete_by_job() {
 
 #[tokio::test]
 async fn test_project_members_crud() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   // Setup
@@ -615,9 +605,8 @@ async fn test_project_members_crud() {
 
 #[tokio::test]
 async fn test_project_members_permissions() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   // Setup
@@ -809,9 +798,8 @@ async fn test_project_members_permissions() {
 
 #[tokio::test]
 async fn test_user_not_found_errors() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let fake_id = Uuid::new_v4();

@@ -21,8 +21,7 @@ async fn test_database_connection() -> anyhow::Result<()> {
     Err(e) => {
       println!(
         "Skipping test_database_connection: no PostgreSQL instance available \
-         - {}",
-        e
+         - {e}"
       );
       return Ok(());
     },
@@ -38,7 +37,7 @@ async fn test_database_connection() -> anyhow::Result<()> {
   assert!(!info.version.is_empty());
 
   // Test pool stats
-  let stats = db.get_pool_stats().await;
+  let stats = db.get_pool_stats();
   assert!(stats.size >= 1);
 
   db.close().await;
@@ -58,8 +57,7 @@ async fn test_database_health_check() -> anyhow::Result<()> {
     Err(e) => {
       println!(
         "Skipping test_database_health_check: no PostgreSQL instance \
-         available - {}",
-        e
+         available - {e}"
       );
       return Ok(());
     },
@@ -83,8 +81,7 @@ async fn test_connection_info() -> anyhow::Result<()> {
     Ok(pool) => pool,
     Err(e) => {
       println!(
-        "Skipping test_connection_info: no PostgreSQL instance available - {}",
-        e
+        "Skipping test_connection_info: no PostgreSQL instance available - {e}"
       );
       return Ok(());
     },
@@ -104,8 +101,7 @@ async fn test_connection_info() -> anyhow::Result<()> {
     Ok(db) => db,
     Err(e) => {
       println!(
-        "Skipping test_connection_info: database connection failed - {}",
-        e
+        "Skipping test_connection_info: database connection failed - {e}"
       );
       pool.close().await;
       return Ok(());
@@ -141,14 +137,13 @@ async fn test_pool_stats() -> anyhow::Result<()> {
     Ok(db) => db,
     Err(e) => {
       println!(
-        "Skipping test_pool_stats: no PostgreSQL instance available - {}",
-        e
+        "Skipping test_pool_stats: no PostgreSQL instance available - {e}"
       );
       return Ok(());
     },
   };
 
-  let stats = db.get_pool_stats().await;
+  let stats = db.get_pool_stats();
 
   assert!(stats.size >= 1);
   assert!(stats.idle >= 1);
@@ -173,12 +168,12 @@ async fn test_database_config_validation() -> anyhow::Result<()> {
   assert!(config.validate().is_ok());
 
   // Invalid URL
-  let mut config = config.clone();
+  let mut config = config;
   config.url = "invalid://url".to_string();
   assert!(config.validate().is_err());
 
   // Empty URL
-  config.url = "".to_string();
+  config.url = String::new();
   assert!(config.validate().is_err());
 
   // Zero max connections

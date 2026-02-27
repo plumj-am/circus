@@ -7,6 +7,11 @@ use crate::{
   models::{Channel, CreateChannel},
 };
 
+/// Create a release channel.
+///
+/// # Errors
+///
+/// Returns error if database insert fails or channel already exists.
 pub async fn create(pool: &PgPool, input: CreateChannel) -> Result<Channel> {
   sqlx::query_as::<_, Channel>(
     "INSERT INTO channels (project_id, name, jobset_id) VALUES ($1, $2, $3) \
@@ -30,6 +35,11 @@ pub async fn create(pool: &PgPool, input: CreateChannel) -> Result<Channel> {
   })
 }
 
+/// Get a channel by ID.
+///
+/// # Errors
+///
+/// Returns error if database query fails or channel not found.
 pub async fn get(pool: &PgPool, id: Uuid) -> Result<Channel> {
   sqlx::query_as::<_, Channel>("SELECT * FROM channels WHERE id = $1")
     .bind(id)
@@ -38,6 +48,11 @@ pub async fn get(pool: &PgPool, id: Uuid) -> Result<Channel> {
     .ok_or_else(|| CiError::NotFound(format!("Channel {id} not found")))
 }
 
+/// List all channels for a project.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_for_project(
   pool: &PgPool,
   project_id: Uuid,
@@ -51,6 +66,11 @@ pub async fn list_for_project(
   .map_err(CiError::Database)
 }
 
+/// List all channels.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_all(pool: &PgPool) -> Result<Vec<Channel>> {
   sqlx::query_as::<_, Channel>("SELECT * FROM channels ORDER BY name")
     .fetch_all(pool)
@@ -59,6 +79,10 @@ pub async fn list_all(pool: &PgPool) -> Result<Vec<Channel>> {
 }
 
 /// Promote an evaluation to a channel (set it as the current evaluation).
+///
+/// # Errors
+///
+/// Returns error if database update fails or channel not found.
 pub async fn promote(
   pool: &PgPool,
   channel_id: Uuid,
@@ -75,6 +99,11 @@ pub async fn promote(
   .ok_or_else(|| CiError::NotFound(format!("Channel {channel_id} not found")))
 }
 
+/// Delete a channel.
+///
+/// # Errors
+///
+/// Returns error if database delete fails or channel not found.
 pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
   let result = sqlx::query("DELETE FROM channels WHERE id = $1")
     .bind(id)
@@ -88,6 +117,10 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
 }
 
 /// Upsert a channel (insert or update on conflict).
+///
+/// # Errors
+///
+/// Returns error if database operation fails.
 pub async fn upsert(
   pool: &PgPool,
   project_id: Uuid,
@@ -109,6 +142,10 @@ pub async fn upsert(
 
 /// Sync channels from declarative config.
 /// Deletes channels not in the declarative list and upserts those that are.
+///
+/// # Errors
+///
+/// Returns error if database operations fail.
 pub async fn sync_for_project(
   pool: &PgPool,
   project_id: Uuid,
@@ -146,6 +183,10 @@ pub async fn sync_for_project(
 
 /// Find the channel for a jobset and auto-promote if all builds in the
 /// evaluation succeeded.
+///
+/// # Errors
+///
+/// Returns error if database operations fail.
 pub async fn auto_promote_if_complete(
   pool: &PgPool,
   jobset_id: Uuid,
@@ -166,7 +207,7 @@ pub async fn auto_promote_if_complete(
     return Ok(());
   }
 
-  // All builds completed — promote to any channels tracking this jobset
+  // All builds completed, promote to any channels tracking this jobset
   let channels =
     sqlx::query_as::<_, Channel>("SELECT * FROM channels WHERE jobset_id = $1")
       .bind(jobset_id)

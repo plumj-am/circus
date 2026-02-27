@@ -9,6 +9,12 @@ use tokio::sync::Notify;
 
 use crate::worker::WorkerPool;
 
+/// Main queue runner loop. Polls for pending builds and dispatches them to
+/// workers.
+///
+/// # Errors
+///
+/// Returns error if database operations fail and `strict_errors` is enabled.
 pub async fn run(
   pool: PgPool,
   worker_pool: Arc<WorkerPool>,
@@ -42,7 +48,7 @@ pub async fn run(
               .await
             {
               Ok(true) => {
-                // All constituents done — mark aggregate as completed
+                // All constituents done, mark aggregate as completed
                 tracing::info!(
                     build_id = %build.id,
                     job = %build.job_name,
@@ -115,34 +121,36 @@ pub async fn run(
           }
 
           // Failed paths cache: skip known-failing derivations
-          if failed_paths_cache {
-            if let Ok(true) = repo::failed_paths_cache::is_cached_failure(
+          if failed_paths_cache
+            && matches!(
+              repo::failed_paths_cache::is_cached_failure(
+                &pool,
+                &build.drv_path,
+              )
+              .await,
+              Ok(true)
+            )
+          {
+            tracing::info!(
+                build_id = %build.id, drv = %build.drv_path,
+                "Cached failure: skipping known-failing derivation"
+            );
+            if let Err(e) = repo::builds::start(&pool, build.id).await {
+              tracing::warn!(build_id = %build.id, "Failed to start cached-failure build: {e}");
+            }
+            if let Err(e) = repo::builds::complete(
               &pool,
-              &build.drv_path,
+              build.id,
+              BuildStatus::CachedFailure,
+              None,
+              None,
+              Some("Build skipped: derivation is in failed paths cache"),
             )
             .await
             {
-              tracing::info!(
-                  build_id = %build.id, drv = %build.drv_path,
-                  "Cached failure: skipping known-failing derivation"
-              );
-              if let Err(e) = repo::builds::start(&pool, build.id).await {
-                tracing::warn!(build_id = %build.id, "Failed to start cached-failure build: {e}");
-              }
-              if let Err(e) = repo::builds::complete(
-                &pool,
-                build.id,
-                BuildStatus::CachedFailure,
-                None,
-                None,
-                Some("Build skipped: derivation is in failed paths cache"),
-              )
-              .await
-              {
-                tracing::warn!(build_id = %build.id, "Failed to complete cached-failure build: {e}");
-              }
-              continue;
+              tracing::warn!(build_id = %build.id, "Failed to complete cached-failure build: {e}");
             }
+            continue;
           }
 
           // Dependency-aware scheduling: skip if deps not met

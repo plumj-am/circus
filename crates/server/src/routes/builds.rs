@@ -133,10 +133,10 @@ async fn list_build_products(
 async fn build_stats(
   State(state): State<AppState>,
 ) -> Result<Json<fc_common::BuildStats>, ApiError> {
-  let stats = fc_common::repo::builds::get_stats(&state.pool)
+  let build_stats = fc_common::repo::builds::get_stats(&state.pool)
     .await
     .map_err(ApiError)?;
-  Ok(Json(stats))
+  Ok(Json(build_stats))
 }
 
 async fn recent_builds(
@@ -242,13 +242,10 @@ async fn download_build_product(
       },
     };
 
-    let stdout = match child.stdout.take() {
-      Some(s) => s,
-      None => {
-        return Err(ApiError(fc_common::CiError::Build(
-          "Failed to capture output".to_string(),
-        )));
-      },
+    let Some(stdout) = child.stdout.take() else {
+      return Err(ApiError(fc_common::CiError::Build(
+        "Failed to capture output".to_string(),
+      )));
     };
 
     let stream = tokio_util::io::ReaderStream::new(stdout);

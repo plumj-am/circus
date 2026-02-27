@@ -9,6 +9,11 @@ pub struct LogStorage {
 }
 
 impl LogStorage {
+  /// Create a log storage instance. Creates the directory if needed.
+  ///
+  /// # Errors
+  ///
+  /// Returns error if directory creation fails.
   pub fn new(log_dir: PathBuf) -> std::io::Result<Self> {
     std::fs::create_dir_all(&log_dir)?;
     Ok(Self { log_dir })
@@ -27,6 +32,10 @@ impl LogStorage {
   }
 
   /// Write build log content to file
+  ///
+  /// # Errors
+  ///
+  /// Returns error if file write fails.
   pub fn write_log(
     &self,
     build_id: &Uuid,
@@ -50,6 +59,10 @@ impl LogStorage {
   }
 
   /// Read a build log from disk. Returns None if the file doesn't exist.
+  ///
+  /// # Errors
+  ///
+  /// Returns error if file read fails.
   pub fn read_log(&self, build_id: &Uuid) -> std::io::Result<Option<String>> {
     let path = self.log_path(build_id);
     if !path.exists() {
@@ -60,6 +73,10 @@ impl LogStorage {
   }
 
   /// Delete a build log
+  ///
+  /// # Errors
+  ///
+  /// Returns error if file deletion fails.
   pub fn delete_log(&self, build_id: &Uuid) -> std::io::Result<()> {
     let path = self.log_path(build_id);
     if path.exists() {

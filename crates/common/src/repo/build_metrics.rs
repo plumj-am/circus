@@ -7,6 +7,8 @@ use crate::{
   models::BuildMetric,
 };
 
+type PercentileRow = (DateTime<Utc>, Option<f64>, Option<f64>, Option<f64>);
+
 /// Time-series data point for metrics visualization.
 #[derive(Debug, Clone)]
 pub struct TimeseriesPoint {
@@ -32,6 +34,11 @@ pub struct DurationPercentiles {
   pub p99:         Option<f64>,
 }
 
+/// Insert or update a build metric.
+///
+/// # Errors
+///
+/// Returns error if database operation fails.
 pub async fn upsert(
   pool: &PgPool,
   build_id: Uuid,
@@ -54,6 +61,11 @@ pub async fn upsert(
   .map_err(CiError::Database)
 }
 
+/// Calculate build failure rate over a time window.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn calculate_failure_rate(
   pool: &PgPool,
   project_id: Option<Uuid>,
@@ -87,6 +99,10 @@ pub async fn calculate_failure_rate(
 
 /// Get build success/failure counts over time.
 /// Buckets builds by time interval for charting.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn get_build_stats_timeseries(
   pool: &PgPool,
   project_id: Option<Uuid>,
@@ -136,6 +152,10 @@ pub async fn get_build_stats_timeseries(
 }
 
 /// Get build duration percentiles over time.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn get_duration_percentiles_timeseries(
   pool: &PgPool,
   project_id: Option<Uuid>,
@@ -143,18 +163,17 @@ pub async fn get_duration_percentiles_timeseries(
   hours: i32,
   bucket_minutes: i32,
 ) -> Result<Vec<DurationPercentiles>> {
-  let rows: Vec<(DateTime<Utc>, Option<f64>, Option<f64>, Option<f64>)> =
-    sqlx::query_as(
-      "SELECT 
+  let rows: Vec<PercentileRow> = sqlx::query_as(
+    "SELECT 
       date_trunc('minute', b.completed_at) + 
         (EXTRACT(MINUTE FROM b.completed_at)::int / $4) * INTERVAL '1 minute' \
-       * $4 AS bucket_time,
+     * $4 AS bucket_time,
       PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM \
-       (b.completed_at - b.started_at))) AS p50,
+     (b.completed_at - b.started_at))) AS p50,
       PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM \
-       (b.completed_at - b.started_at))) AS p95,
+     (b.completed_at - b.started_at))) AS p95,
       PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM \
-       (b.completed_at - b.started_at))) AS p99
+     (b.completed_at - b.started_at))) AS p99
     FROM builds b
     JOIN evaluations e ON b.evaluation_id = e.id
     JOIN jobsets j ON e.jobset_id = j.id
@@ -165,14 +184,14 @@ pub async fn get_duration_percentiles_timeseries(
       AND ($3::uuid IS NULL OR j.id = $3)
     GROUP BY bucket_time
     ORDER BY bucket_time ASC",
-    )
-    .bind(hours)
-    .bind(project_id)
-    .bind(jobset_id)
-    .bind(bucket_minutes)
-    .fetch_all(pool)
-    .await
-    .map_err(CiError::Database)?;
+  )
+  .bind(hours)
+  .bind(project_id)
+  .bind(jobset_id)
+  .bind(bucket_minutes)
+  .fetch_all(pool)
+  .await
+  .map_err(CiError::Database)?;
 
   Ok(
     rows
@@ -190,6 +209,10 @@ pub async fn get_duration_percentiles_timeseries(
 }
 
 /// Get queue depth over time.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn get_queue_depth_timeseries(
   pool: &PgPool,
   hours: i32,
@@ -228,6 +251,10 @@ pub async fn get_queue_depth_timeseries(
 }
 
 /// Get per-system build distribution.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn get_system_distribution(
   pool: &PgPool,
   project_id: Option<Uuid>,

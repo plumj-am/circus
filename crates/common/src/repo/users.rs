@@ -17,6 +17,10 @@ use crate::{
 };
 
 /// Hash a password using argon2id
+///
+/// # Errors
+///
+/// Returns error if password hashing fails.
 pub fn hash_password(password: &str) -> Result<String> {
   use argon2::{
     Argon2,
@@ -33,6 +37,10 @@ pub fn hash_password(password: &str) -> Result<String> {
 }
 
 /// Verify a password against a hash
+///
+/// # Errors
+///
+/// Returns error if password hash parsing fails.
 pub fn verify_password(password: &str, hash: &str) -> Result<bool> {
   use argon2::{Argon2, PasswordHash, PasswordVerifier};
 
@@ -47,6 +55,10 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool> {
 }
 
 /// Create a new user with validation
+///
+/// # Errors
+///
+/// Returns error if validation fails or database insert fails.
 pub async fn create(pool: &PgPool, data: &CreateUser) -> Result<User> {
   // Validate username
   validate_username(&data.username)
@@ -94,6 +106,10 @@ pub async fn create(pool: &PgPool, data: &CreateUser) -> Result<User> {
 }
 
 /// Authenticate a user with username and password
+///
+/// # Errors
+///
+/// Returns error if credentials are invalid or database query fails.
 pub async fn authenticate(
   pool: &PgPool,
   creds: &LoginCredentials,
@@ -129,6 +145,10 @@ pub async fn authenticate(
 }
 
 /// Get a user by ID
+///
+/// # Errors
+///
+/// Returns error if database query fails or user not found.
 pub async fn get(pool: &PgPool, id: Uuid) -> Result<User> {
   sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
     .bind(id)
@@ -145,6 +165,10 @@ pub async fn get(pool: &PgPool, id: Uuid) -> Result<User> {
 }
 
 /// Get a user by username
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn get_by_username(
   pool: &PgPool,
   username: &str,
@@ -157,6 +181,10 @@ pub async fn get_by_username(
 }
 
 /// Get a user by email
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn get_by_email(pool: &PgPool, email: &str) -> Result<Option<User>> {
   sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1")
     .bind(email)
@@ -166,6 +194,10 @@ pub async fn get_by_email(pool: &PgPool, email: &str) -> Result<Option<User>> {
 }
 
 /// List all users with pagination
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list(pool: &PgPool, limit: i64, offset: i64) -> Result<Vec<User>> {
   sqlx::query_as::<_, User>(
     "SELECT * FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2",
@@ -178,6 +210,10 @@ pub async fn list(pool: &PgPool, limit: i64, offset: i64) -> Result<Vec<User>> {
 }
 
 /// Count total users
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn count(pool: &PgPool) -> Result<i64> {
   let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
     .fetch_one(pool)
@@ -186,6 +222,10 @@ pub async fn count(pool: &PgPool) -> Result<i64> {
 }
 
 /// Update a user with the provided data
+///
+/// # Errors
+///
+/// Returns error if validation fails or database update fails.
 pub async fn update(
   pool: &PgPool,
   id: Uuid,
@@ -220,6 +260,10 @@ pub async fn update(
 }
 
 /// Update user email with validation
+///
+/// # Errors
+///
+/// Returns error if validation fails or database update fails.
 pub async fn update_email(
   pool: &PgPool,
   id: Uuid,
@@ -245,6 +289,10 @@ pub async fn update_email(
 }
 
 /// Update user full name with validation
+///
+/// # Errors
+///
+/// Returns error if validation fails or database update fails.
 pub async fn update_full_name(
   pool: &PgPool,
   id: Uuid,
@@ -263,6 +311,10 @@ pub async fn update_full_name(
 }
 
 /// Update user password with validation
+///
+/// # Errors
+///
+/// Returns error if validation fails or database update fails.
 pub async fn update_password(
   pool: &PgPool,
   id: Uuid,
@@ -281,6 +333,10 @@ pub async fn update_password(
 }
 
 /// Update user role with validation
+///
+/// # Errors
+///
+/// Returns error if validation fails or database update fails.
 pub async fn update_role(pool: &PgPool, id: Uuid, role: &str) -> Result<()> {
   validate_role(role, VALID_ROLES)
     .map_err(|e| CiError::Validation(e.to_string()))?;
@@ -294,6 +350,10 @@ pub async fn update_role(pool: &PgPool, id: Uuid, role: &str) -> Result<()> {
 }
 
 /// Enable/disable user
+///
+/// # Errors
+///
+/// Returns error if database update fails.
 pub async fn set_enabled(pool: &PgPool, id: Uuid, enabled: bool) -> Result<()> {
   sqlx::query("UPDATE users SET enabled = $1 WHERE id = $2")
     .bind(enabled)
@@ -304,6 +364,10 @@ pub async fn set_enabled(pool: &PgPool, id: Uuid, enabled: bool) -> Result<()> {
 }
 
 /// Set public dashboard preference
+///
+/// # Errors
+///
+/// Returns error if database update fails.
 pub async fn set_public_dashboard(
   pool: &PgPool,
   id: Uuid,
@@ -318,6 +382,10 @@ pub async fn set_public_dashboard(
 }
 
 /// Delete a user
+///
+/// # Errors
+///
+/// Returns error if database delete fails or user not found.
 pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
   let result = sqlx::query("DELETE FROM users WHERE id = $1")
     .bind(id)
@@ -330,6 +398,10 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
 }
 
 /// Create or update OAuth user
+///
+/// # Errors
+///
+/// Returns error if validation fails or database operation fails.
 pub async fn upsert_oauth_user(
   pool: &PgPool,
   username: &str,
@@ -399,6 +471,10 @@ pub async fn upsert_oauth_user(
 }
 
 /// Create a new session for a user. Returns (`session_token`, `session_id`).
+///
+/// # Errors
+///
+/// Returns error if database insert fails.
 pub async fn create_session(
   pool: &PgPool,
   user_id: Uuid,
@@ -427,6 +503,10 @@ pub async fn create_session(
 }
 
 /// Validate a session token and return the associated user if valid.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn validate_session(
   pool: &PgPool,
   token: &str,
@@ -444,17 +524,16 @@ pub async fn validate_session(
   .await?;
 
   // Update last_used_at
-  if result.is_some() {
-    if let Err(e) = sqlx::query(
+  if result.is_some()
+    && let Err(e) = sqlx::query(
       "UPDATE user_sessions SET last_used_at = NOW() WHERE session_token_hash \
        = $1",
     )
     .bind(&token_hash)
     .execute(pool)
     .await
-    {
-      tracing::warn!(token_hash = %token_hash, "Failed to update session last_used_at: {e}");
-    }
+  {
+    tracing::warn!(token_hash = %token_hash, "Failed to update session last_used_at: {e}");
   }
 
   Ok(result)

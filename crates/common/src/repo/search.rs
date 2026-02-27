@@ -146,6 +146,10 @@ pub struct SearchResults {
 }
 
 /// Execute a comprehensive search across all entities
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn search(
   pool: &PgPool,
   params: &SearchParams,
@@ -511,6 +515,10 @@ async fn search_builds(
 }
 
 /// Quick search - simple text search across entities
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn quick_search(
   pool: &PgPool,
   query: &str,

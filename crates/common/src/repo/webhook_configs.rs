@@ -7,6 +7,11 @@ use crate::{
   models::{CreateWebhookConfig, WebhookConfig},
 };
 
+/// Create a new webhook config.
+///
+/// # Errors
+///
+/// Returns error if database insert fails or config already exists.
 pub async fn create(
   pool: &PgPool,
   input: CreateWebhookConfig,
@@ -34,6 +39,11 @@ pub async fn create(
   })
 }
 
+/// Get a webhook config by ID.
+///
+/// # Errors
+///
+/// Returns error if database query fails or config not found.
 pub async fn get(pool: &PgPool, id: Uuid) -> Result<WebhookConfig> {
   sqlx::query_as::<_, WebhookConfig>(
     "SELECT * FROM webhook_configs WHERE id = $1",
@@ -44,6 +54,11 @@ pub async fn get(pool: &PgPool, id: Uuid) -> Result<WebhookConfig> {
   .ok_or_else(|| CiError::NotFound(format!("Webhook config {id} not found")))
 }
 
+/// List all webhook configs for a project.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_for_project(
   pool: &PgPool,
   project_id: Uuid,
@@ -58,6 +73,11 @@ pub async fn list_for_project(
   .map_err(CiError::Database)
 }
 
+/// Get a webhook config by project and forge type.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn get_by_project_and_forge(
   pool: &PgPool,
   project_id: Uuid,
@@ -74,6 +94,11 @@ pub async fn get_by_project_and_forge(
   .map_err(CiError::Database)
 }
 
+/// Delete a webhook config.
+///
+/// # Errors
+///
+/// Returns error if database delete fails or config not found.
 pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
   let result = sqlx::query("DELETE FROM webhook_configs WHERE id = $1")
     .bind(id)
@@ -86,6 +111,10 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
 }
 
 /// Upsert a webhook config (insert or update on conflict).
+///
+/// # Errors
+///
+/// Returns error if database operation fails.
 pub async fn upsert(
   pool: &PgPool,
   project_id: Uuid,
@@ -110,6 +139,10 @@ pub async fn upsert(
 
 /// Sync webhook configs from declarative config.
 /// Deletes configs not in the declarative list and upserts those that are.
+///
+/// # Errors
+///
+/// Returns error if database operations fail.
 pub async fn sync_for_project(
   pool: &PgPool,
   project_id: Uuid,

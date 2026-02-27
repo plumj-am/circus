@@ -96,7 +96,7 @@ async fn system_status(
     .await
     .map_err(|e| ApiError(fc_common::CiError::Database(e)))?;
 
-  let stats = fc_common::repo::builds::get_stats(pool)
+  let build_stats = fc_common::repo::builds::get_stats(pool)
     .await
     .map_err(ApiError)?;
   let builders = fc_common::repo::remote_builders::count(pool)
@@ -112,10 +112,10 @@ async fn system_status(
     projects_count:    projects.0,
     jobsets_count:     jobsets.0,
     evaluations_count: evaluations.0,
-    builds_pending:    stats.pending_builds.unwrap_or(0),
-    builds_running:    stats.running_builds.unwrap_or(0),
-    builds_completed:  stats.completed_builds.unwrap_or(0),
-    builds_failed:     stats.failed_builds.unwrap_or(0),
+    builds_pending:    build_stats.pending_builds.unwrap_or(0),
+    builds_running:    build_stats.running_builds.unwrap_or(0),
+    builds_completed:  build_stats.completed_builds.unwrap_or(0),
+    builds_failed:     build_stats.failed_builds.unwrap_or(0),
     remote_builders:   builders,
     channels_count:    channels.0,
   }))

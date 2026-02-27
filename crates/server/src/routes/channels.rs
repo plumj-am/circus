@@ -63,18 +63,15 @@ async fn create_channel(
   // Catch-up: if the jobset already has a completed evaluation, promote now
   if let Ok(Some(eval)) =
     fc_common::repo::evaluations::get_latest(&state.pool, jobset_id).await
+    && eval.status == fc_common::models::EvaluationStatus::Completed
+    && let Err(e) = fc_common::repo::channels::auto_promote_if_complete(
+      &state.pool,
+      jobset_id,
+      eval.id,
+    )
+    .await
   {
-    if eval.status == fc_common::models::EvaluationStatus::Completed {
-      if let Err(e) = fc_common::repo::channels::auto_promote_if_complete(
-        &state.pool,
-        jobset_id,
-        eval.id,
-      )
-      .await
-      {
-        tracing::warn!(jobset_id = %jobset_id, "Failed to auto-promote channel: {e}");
-      }
-    }
+    tracing::warn!(jobset_id = %jobset_id, "Failed to auto-promote channel: {e}");
   }
 
   // Re-fetch to include any promotion
@@ -159,13 +156,12 @@ async fn nixexprs_tarball(
   let _ = writeln!(nix_src, "in {{");
 
   for build in &succeeded {
-    let output_path = match &build.build_output_path {
-      Some(p) => p,
-      None => continue,
+    let Some(output_path) = &build.build_output_path else {
+      continue;
     };
     let system = build.system.as_deref().unwrap_or("x86_64-linux");
     // Sanitize job_name for use as a Nix attribute (replace dots/slashes)
-    let attr_name = build.job_name.replace('.', "-").replace('/', "-");
+    let attr_name = build.job_name.replace(['.', '/'], "-");
     let _ = writeln!(
       nix_src,
       "  \"{attr_name}\" = mkFakeDerivation {{ name = \"{}\"; system = \

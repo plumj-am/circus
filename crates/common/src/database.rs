@@ -12,6 +12,11 @@ pub struct Database {
 }
 
 impl Database {
+  /// Create a new database connection pool from config.
+  ///
+  /// # Errors
+  ///
+  /// Returns error if connection fails or health check fails.
   pub async fn new(config: DatabaseConfig) -> anyhow::Result<Self> {
     info!("Initializing database connection pool");
 
@@ -32,11 +37,17 @@ impl Database {
     Ok(Self { pool })
   }
 
+  /// Get a reference to the underlying connection pool.
   #[must_use]
   pub const fn pool(&self) -> &PgPool {
     &self.pool
   }
 
+  /// Run a simple query to verify the database is reachable.
+  ///
+  /// # Errors
+  ///
+  /// Returns error if query fails or returns unexpected result.
   pub async fn health_check(pool: &PgPool) -> anyhow::Result<()> {
     debug!("Performing database health check");
 
@@ -52,11 +63,17 @@ impl Database {
     Ok(())
   }
 
+  /// Close the connection pool gracefully.
   pub async fn close(&self) {
     info!("Closing database connection pool");
     self.pool.close().await;
   }
 
+  /// Query database metadata (version, user, address).
+  ///
+  /// # Errors
+  ///
+  /// Returns error if query fails.
   pub async fn get_connection_info(&self) -> anyhow::Result<ConnectionInfo> {
     let row = sqlx::query(
       r"
@@ -80,7 +97,9 @@ impl Database {
     })
   }
 
-  pub async fn get_pool_stats(&self) -> PoolStats {
+  /// Get current connection pool statistics (size, idle, active).
+  #[must_use]
+  pub fn get_pool_stats(&self) -> PoolStats {
     let pool = &self.pool;
 
     PoolStats {

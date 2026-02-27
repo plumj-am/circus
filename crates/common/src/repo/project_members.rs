@@ -12,6 +12,10 @@ use crate::{
 };
 
 /// Add a member to a project with role validation
+///
+/// # Errors
+///
+/// Returns error if validation fails or database insert fails.
 pub async fn create(
   pool: &PgPool,
   project_id: Uuid,
@@ -43,6 +47,10 @@ pub async fn create(
 }
 
 /// Get a project member by ID
+///
+/// # Errors
+///
+/// Returns error if database query fails or member not found.
 pub async fn get(pool: &PgPool, id: Uuid) -> Result<ProjectMember> {
   sqlx::query_as::<_, ProjectMember>(
     "SELECT * FROM project_members WHERE id = $1",
@@ -61,6 +69,10 @@ pub async fn get(pool: &PgPool, id: Uuid) -> Result<ProjectMember> {
 }
 
 /// Get a project member by project and user
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn get_by_project_and_user(
   pool: &PgPool,
   project_id: Uuid,
@@ -77,6 +89,10 @@ pub async fn get_by_project_and_user(
 }
 
 /// List all members of a project
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_for_project(
   pool: &PgPool,
   project_id: Uuid,
@@ -91,6 +107,10 @@ pub async fn list_for_project(
 }
 
 /// List all projects a user is a member of
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_for_user(
   pool: &PgPool,
   user_id: Uuid,
@@ -105,6 +125,10 @@ pub async fn list_for_user(
 }
 
 /// Update a project member's role with validation
+///
+/// # Errors
+///
+/// Returns error if validation fails or database update fails.
 pub async fn update(
   pool: &PgPool,
   id: Uuid,
@@ -135,6 +159,10 @@ pub async fn update(
 }
 
 /// Remove a member from a project
+///
+/// # Errors
+///
+/// Returns error if database delete fails or member not found.
 pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
   let result = sqlx::query("DELETE FROM project_members WHERE id = $1")
     .bind(id)
@@ -147,6 +175,10 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
 }
 
 /// Remove a specific user from a project
+///
+/// # Errors
+///
+/// Returns error if database delete fails or user not found.
 pub async fn delete_by_project_and_user(
   pool: &PgPool,
   project_id: Uuid,
@@ -168,6 +200,10 @@ pub async fn delete_by_project_and_user(
 }
 
 /// Check if a user has a specific role or higher in a project
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn check_permission(
   pool: &PgPool,
   project_id: Uuid,
@@ -186,6 +222,10 @@ pub async fn check_permission(
 }
 
 /// Upsert a project member (insert or update on conflict).
+///
+/// # Errors
+///
+/// Returns error if validation fails or database operation fails.
 pub async fn upsert(
   pool: &PgPool,
   project_id: Uuid,
@@ -211,6 +251,10 @@ pub async fn upsert(
 
 /// Sync project members from declarative config.
 /// Deletes members not in the declarative list and upserts those that are.
+///
+/// # Errors
+///
+/// Returns error if database operations fail.
 pub async fn sync_for_project(
   pool: &PgPool,
   project_id: Uuid,

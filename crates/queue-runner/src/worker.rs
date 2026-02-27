@@ -102,11 +102,13 @@ impl WorkerPool {
     .await;
   }
 
-  pub fn worker_count(&self) -> usize {
+  #[must_use]
+  pub const fn worker_count(&self) -> usize {
     self.worker_count
   }
 
-  pub fn active_builds(&self) -> &ActiveBuilds {
+  #[must_use]
+  pub const fn active_builds(&self) -> &ActiveBuilds {
     &self.active_builds
   }
 
@@ -135,9 +137,8 @@ impl WorkerPool {
 
     tokio::spawn(async move {
       let result = async {
-        let _permit = match semaphore.acquire().await {
-          Ok(p) => p,
-          Err(_) => return,
+        let Ok(_permit) = semaphore.acquire().await else {
+          return;
         };
 
         if let Err(e) = run_build(
@@ -287,7 +288,7 @@ async fn push_to_cache(
 
 /// Build S3 store URI with configuration options.
 /// Nix S3 URIs support query parameters for configuration:
-/// s3://bucket?region=us-east-1&endpoint=https://minio.example.com
+/// <s3://bucket?region=us-east-1&endpoint=https://minio.example.com>
 fn build_s3_store_uri(
   base_uri: &str,
   config: Option<&fc_common::config::S3CacheConfig>,
@@ -323,66 +324,6 @@ fn build_s3_store_uri(
     .join("&");
 
   format!("{base_uri}?{query}")
-}
-
-#[cfg(test)]
-mod tests {
-  use fc_common::config::S3CacheConfig;
-
-  use super::*;
-
-  #[test]
-  fn test_build_s3_store_uri_no_config() {
-    let result = build_s3_store_uri("s3://my-bucket", None);
-    assert_eq!(result, "s3://my-bucket");
-  }
-
-  #[test]
-  fn test_build_s3_store_uri_empty_config() {
-    let cfg = S3CacheConfig::default();
-    let result = build_s3_store_uri("s3://my-bucket", Some(&cfg));
-    assert_eq!(result, "s3://my-bucket");
-  }
-
-  #[test]
-  fn test_build_s3_store_uri_with_region() {
-    let cfg = S3CacheConfig {
-      region: Some("us-east-1".to_string()),
-      ..Default::default()
-    };
-    let result = build_s3_store_uri("s3://my-bucket", Some(&cfg));
-    assert_eq!(result, "s3://my-bucket?region=us-east-1");
-  }
-
-  #[test]
-  fn test_build_s3_store_uri_with_endpoint_and_path_style() {
-    let cfg = S3CacheConfig {
-      endpoint_url: Some("https://minio.example.com".to_string()),
-      use_path_style: true,
-      ..Default::default()
-    };
-    let result = build_s3_store_uri("s3://my-bucket", Some(&cfg));
-    assert!(result.starts_with("s3://my-bucket?"));
-    assert!(result.contains("endpoint=https%3A%2F%2Fminio.example.com"));
-    assert!(result.contains("use-path-style=true"));
-  }
-
-  #[test]
-  fn test_build_s3_store_uri_all_params() {
-    let cfg = S3CacheConfig {
-      region: Some("eu-west-1".to_string()),
-      endpoint_url: Some("https://s3.example.com".to_string()),
-      use_path_style: true,
-      ..Default::default()
-    };
-    let result = build_s3_store_uri("s3://cache-bucket", Some(&cfg));
-    assert!(result.starts_with("s3://cache-bucket?"));
-    assert!(result.contains("region=eu-west-1"));
-    assert!(result.contains("endpoint=https%3A%2F%2Fs3.example.com"));
-    assert!(result.contains("use-path-style=true"));
-    // Verify params are joined with &
-    assert_eq!(result.matches('&').count(), 2);
-  }
 }
 
 /// Try to run the build on a remote builder if one is available for the build's
@@ -478,7 +419,7 @@ async fn collect_metrics_and_alert(
     }
   }
 
-  for path in output_paths.iter() {
+  for path in output_paths {
     if let Ok(meta) = tokio::fs::metadata(path).await {
       let size = meta.len();
       if let Err(e) = repo::build_metrics::upsert(
@@ -497,21 +438,18 @@ async fn collect_metrics_and_alert(
     }
   }
 
-  let manager = match alert_manager {
-    Some(m) => m,
-    None => return,
+  let Some(manager) = alert_manager else {
+    return;
   };
 
-  if manager.is_enabled() {
-    if let Ok(evaluation) =
+  if manager.is_enabled()
+    && let Ok(evaluation) =
       repo::evaluations::get(pool, build.evaluation_id).await
-    {
-      if let Ok(jobset) = repo::jobsets::get(pool, evaluation.jobset_id).await {
-        manager
-          .check_and_alert(pool, Some(jobset.project_id), Some(jobset.id))
-          .await;
-      }
-    }
+    && let Ok(jobset) = repo::jobsets::get(pool, evaluation.jobset_id).await
+  {
+    manager
+      .check_and_alert(pool, Some(jobset.project_id), Some(jobset.id))
+      .await;
   }
 }
 
@@ -561,7 +499,7 @@ async fn run_build(
     {
       Some(r) => Ok(r),
       None => {
-        // No remote builder available or all failed — build locally
+        // No remote builder available or all failed, build locally
         crate::builder::run_nix_build(
           &build.drv_path,
           work_dir,
@@ -705,10 +643,10 @@ async fn run_build(
         }
 
         // Sign outputs at build time
-        if sign_outputs(&build_result.output_paths, signing_config).await {
-          if let Err(e) = repo::builds::mark_signed(pool, build.id).await {
-            tracing::warn!(build_id = %build.id, "Failed to mark build as signed: {e}");
-          }
+        if sign_outputs(&build_result.output_paths, signing_config).await
+          && let Err(e) = repo::builds::mark_signed(pool, build.id).await
+        {
+          tracing::warn!(build_id = %build.id, "Failed to mark build as signed: {e}");
         }
 
         // Push to external binary cache if configured
@@ -740,9 +678,9 @@ async fn run_build(
 
         collect_metrics_and_alert(
           pool,
-          &build,
+          build,
           &build_result.output_paths,
-          &alert_manager,
+          alert_manager,
         )
         .await;
 
@@ -775,8 +713,7 @@ async fn run_build(
 
         let failure_status = build_result
           .exit_code
-          .map(BuildStatus::from_exit_code)
-          .unwrap_or(BuildStatus::Failed);
+          .map_or(BuildStatus::Failed, BuildStatus::from_exit_code);
         repo::builds::complete(
           pool,
           build.id,
@@ -805,10 +742,10 @@ async fn run_build(
       let msg = e.to_string();
 
       // Write error log
-      if let Some(ref storage) = log_storage {
-        if let Err(e) = storage.write_log(&build.id, "", &msg) {
-          tracing::warn!(build_id = %build.id, "Failed to write error log: {e}");
-        }
+      if let Some(ref storage) = log_storage
+        && let Err(e) = storage.write_log(&build.id, "", &msg)
+      {
+        tracing::warn!(build_id = %build.id, "Failed to write error log: {e}");
       }
       // Clean up live log
       let _ = tokio::fs::remove_file(&live_log_path).await;
@@ -846,15 +783,73 @@ async fn run_build(
     // Auto-promote channels if all builds in the evaluation are done
     if updated_build.status.is_success()
       && let Ok(eval) = repo::evaluations::get(pool, build.evaluation_id).await
-    {
-      if let Err(e) =
+      && let Err(e) =
         repo::channels::auto_promote_if_complete(pool, eval.jobset_id, eval.id)
           .await
-      {
-        tracing::warn!(build_id = %build.id, "Failed to auto-promote channels: {e}");
-      }
+    {
+      tracing::warn!(build_id = %build.id, "Failed to auto-promote channels: {e}");
     }
   }
 
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use fc_common::config::S3CacheConfig;
+
+  use super::*;
+
+  #[test]
+  fn test_build_s3_store_uri_no_config() {
+    let result = build_s3_store_uri("s3://my-bucket", None);
+    assert_eq!(result, "s3://my-bucket");
+  }
+
+  #[test]
+  fn test_build_s3_store_uri_empty_config() {
+    let cfg = S3CacheConfig::default();
+    let result = build_s3_store_uri("s3://my-bucket", Some(&cfg));
+    assert_eq!(result, "s3://my-bucket");
+  }
+
+  #[test]
+  fn test_build_s3_store_uri_with_region() {
+    let cfg = S3CacheConfig {
+      region: Some("us-east-1".to_string()),
+      ..Default::default()
+    };
+    let result = build_s3_store_uri("s3://my-bucket", Some(&cfg));
+    assert_eq!(result, "s3://my-bucket?region=us-east-1");
+  }
+
+  #[test]
+  fn test_build_s3_store_uri_with_endpoint_and_path_style() {
+    let cfg = S3CacheConfig {
+      endpoint_url: Some("https://minio.example.com".to_string()),
+      use_path_style: true,
+      ..Default::default()
+    };
+    let result = build_s3_store_uri("s3://my-bucket", Some(&cfg));
+    assert!(result.starts_with("s3://my-bucket?"));
+    assert!(result.contains("endpoint=https%3A%2F%2Fminio.example.com"));
+    assert!(result.contains("use-path-style=true"));
+  }
+
+  #[test]
+  fn test_build_s3_store_uri_all_params() {
+    let cfg = S3CacheConfig {
+      region: Some("eu-west-1".to_string()),
+      endpoint_url: Some("https://s3.example.com".to_string()),
+      use_path_style: true,
+      ..Default::default()
+    };
+    let result = build_s3_store_uri("s3://cache-bucket", Some(&cfg));
+    assert!(result.starts_with("s3://cache-bucket?"));
+    assert!(result.contains("region=eu-west-1"));
+    assert!(result.contains("endpoint=https%3A%2F%2Fs3.example.com"));
+    assert!(result.contains("use-path-style=true"));
+    // Verify params are joined with &
+    assert_eq!(result.matches('&').count(), 2);
+  }
 }

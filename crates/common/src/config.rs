@@ -202,16 +202,18 @@ pub struct SigningConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct CacheUploadConfig {
   pub enabled:   bool,
   pub store_uri: Option<String>,
-  /// S3-specific configuration (used when store_uri starts with s3://)
+  /// S3-specific configuration (used when `store_uri` starts with s3://)
   pub s3:        Option<S3CacheConfig>,
 }
 
 /// S3-specific cache configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct S3CacheConfig {
   /// AWS region (e.g., "us-east-1")
   pub region:            Option<String>,
@@ -223,34 +225,10 @@ pub struct S3CacheConfig {
   pub secret_access_key: Option<String>,
   /// Session token for temporary credentials (optional)
   pub session_token:     Option<String>,
-  /// Endpoint URL for S3-compatible services (e.g., MinIO)
+  /// Endpoint URL for S3-compatible services (e.g., `MinIO`)
   pub endpoint_url:      Option<String>,
-  /// Whether to use path-style addressing (for MinIO compatibility)
+  /// Whether to use path-style addressing (for `MinIO` compatibility)
   pub use_path_style:    bool,
-}
-
-impl Default for S3CacheConfig {
-  fn default() -> Self {
-    Self {
-      region:            None,
-      prefix:            None,
-      access_key_id:     None,
-      secret_access_key: None,
-      session_token:     None,
-      endpoint_url:      None,
-      use_path_style:    false,
-    }
-  }
-}
-
-impl Default for CacheUploadConfig {
-  fn default() -> Self {
-    Self {
-      enabled:   false,
-      store_uri: None,
-      s3:        None,
-    }
-  }
 }
 
 /// Declarative project/jobset/api-key/user definitions.
@@ -493,6 +471,11 @@ impl Default for DatabaseConfig {
 }
 
 impl DatabaseConfig {
+  /// Validate database configuration.
+  ///
+  /// # Errors
+  ///
+  /// Returns error if configuration is invalid.
   pub fn validate(&self) -> anyhow::Result<()> {
     if self.url.is_empty() {
       return Err(anyhow::anyhow!("Database URL cannot be empty"));
@@ -606,6 +589,11 @@ impl Default for CacheConfig {
 }
 
 impl Config {
+  /// Load configuration from file and environment variables.
+  ///
+  /// # Errors
+  ///
+  /// Returns error if configuration loading or validation fails.
   pub fn load() -> anyhow::Result<Self> {
     let mut settings = config_crate::Config::builder();
 
@@ -639,6 +627,11 @@ impl Config {
     Ok(config)
   }
 
+  /// Validate all configuration sections.
+  ///
+  /// # Errors
+  ///
+  /// Returns error if any configuration section is invalid.
   pub fn validate(&self) -> anyhow::Result<()> {
     // Validate database URL
     if self.database.url.is_empty() {

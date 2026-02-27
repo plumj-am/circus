@@ -1,16 +1,13 @@
 //! Integration tests for advanced search functionality
-//! Requires TEST_DATABASE_URL to be set to a PostgreSQL connection string.
+//! Requires `TEST_DATABASE_URL` to be set to a `PostgreSQL` connection string.
 
 use fc_common::{BuildStatus, models::*, repo, repo::search::*};
 use uuid::Uuid;
 
 async fn get_pool() -> Option<sqlx::PgPool> {
-  let url = match std::env::var("TEST_DATABASE_URL") {
-    Ok(url) => url,
-    Err(_) => {
-      println!("Skipping search test: TEST_DATABASE_URL not set");
-      return None;
-    },
+  let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
+    println!("Skipping search test: TEST_DATABASE_URL not set");
+    return None;
   };
 
   let pool = sqlx::postgres::PgPoolOptions::new()
@@ -27,9 +24,8 @@ async fn get_pool() -> Option<sqlx::PgPool> {
 
 #[tokio::test]
 async fn test_project_search() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   // Create test projects
@@ -93,9 +89,8 @@ async fn test_project_search() {
 
 #[tokio::test]
 async fn test_build_search_with_filters() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   // Setup: project -> jobset -> evaluation -> builds
@@ -209,7 +204,7 @@ async fn test_build_search_with_filters() {
 
   // Search with status filter (succeeded)
   let params = SearchParams {
-    query:              "".to_string(),
+    query:              String::new(),
     entities:           vec![SearchEntity::Builds],
     limit:              10,
     offset:             0,
@@ -240,9 +235,8 @@ async fn test_build_search_with_filters() {
 
 #[tokio::test]
 async fn test_multi_entity_search() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   // Create project with jobset, evaluation, and build
@@ -324,9 +318,8 @@ async fn test_multi_entity_search() {
 
 #[tokio::test]
 async fn test_search_pagination() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   // Create multiple projects
@@ -334,7 +327,7 @@ async fn test_search_pagination() {
   for i in 0..5 {
     let project = repo::projects::create(&pool, CreateProject {
       name:           format!("page-test-{}-{}", i, Uuid::new_v4().simple()),
-      description:    Some(format!("Page test project {}", i)),
+      description:    Some(format!("Page test project {i}")),
       repository_url: "https://github.com/test/page".to_string(),
     })
     .await
@@ -385,9 +378,8 @@ async fn test_search_pagination() {
 
 #[tokio::test]
 async fn test_search_sorting() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   // Create projects in reverse alphabetical order
@@ -433,14 +425,13 @@ async fn test_search_sorting() {
 
 #[tokio::test]
 async fn test_empty_search() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   // Empty query should return all entities (up to limit)
   let params = SearchParams {
-    query:              "".to_string(),
+    query:              String::new(),
     entities:           vec![SearchEntity::Projects],
     limit:              10,
     offset:             0,
@@ -459,9 +450,8 @@ async fn test_empty_search() {
 
 #[tokio::test]
 async fn test_quick_search() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   // Create test data: project -> jobset -> evaluation -> build

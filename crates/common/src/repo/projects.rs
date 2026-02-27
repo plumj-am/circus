@@ -6,6 +6,11 @@ use crate::{
   models::{CreateProject, Project, UpdateProject},
 };
 
+/// Create a new project.
+///
+/// # Errors
+///
+/// Returns error if database insert fails or project name already exists.
 pub async fn create(pool: &PgPool, input: CreateProject) -> Result<Project> {
   sqlx::query_as::<_, Project>(
     "INSERT INTO projects (name, description, repository_url) VALUES ($1, $2, \
@@ -26,6 +31,11 @@ pub async fn create(pool: &PgPool, input: CreateProject) -> Result<Project> {
   })
 }
 
+/// Get a project by ID.
+///
+/// # Errors
+///
+/// Returns error if database query fails or project not found.
 pub async fn get(pool: &PgPool, id: Uuid) -> Result<Project> {
   sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1")
     .bind(id)
@@ -34,6 +44,11 @@ pub async fn get(pool: &PgPool, id: Uuid) -> Result<Project> {
     .ok_or_else(|| CiError::NotFound(format!("Project {id} not found")))
 }
 
+/// Get a project by name.
+///
+/// # Errors
+///
+/// Returns error if database query fails or project not found.
 pub async fn get_by_name(pool: &PgPool, name: &str) -> Result<Project> {
   sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE name = $1")
     .bind(name)
@@ -42,6 +57,11 @@ pub async fn get_by_name(pool: &PgPool, name: &str) -> Result<Project> {
     .ok_or_else(|| CiError::NotFound(format!("Project '{name}' not found")))
 }
 
+/// List projects with pagination.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list(
   pool: &PgPool,
   limit: i64,
@@ -57,6 +77,11 @@ pub async fn list(
   .map_err(CiError::Database)
 }
 
+/// Count total number of projects.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn count(pool: &PgPool) -> Result<i64> {
   let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM projects")
     .fetch_one(pool)
@@ -65,12 +90,17 @@ pub async fn count(pool: &PgPool) -> Result<i64> {
   Ok(row.0)
 }
 
+/// Update a project with partial fields.
+///
+/// # Errors
+///
+/// Returns error if database update fails or project not found.
 pub async fn update(
   pool: &PgPool,
   id: Uuid,
   input: UpdateProject,
 ) -> Result<Project> {
-  // Build dynamic update — only set provided fields
+  // Dynamic update - only set provided fields
   let existing = get(pool, id).await?;
 
   let name = input.name.unwrap_or(existing.name);
@@ -97,6 +127,11 @@ pub async fn update(
   })
 }
 
+/// Insert or update a project by name.
+///
+/// # Errors
+///
+/// Returns error if database operation fails.
 pub async fn upsert(pool: &PgPool, input: CreateProject) -> Result<Project> {
   sqlx::query_as::<_, Project>(
     "INSERT INTO projects (name, description, repository_url) VALUES ($1, $2, \
@@ -111,6 +146,11 @@ pub async fn upsert(pool: &PgPool, input: CreateProject) -> Result<Project> {
   .map_err(CiError::Database)
 }
 
+/// Delete a project by ID.
+///
+/// # Errors
+///
+/// Returns error if database delete fails or project not found.
 pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
   let result = sqlx::query("DELETE FROM projects WHERE id = $1")
     .bind(id)

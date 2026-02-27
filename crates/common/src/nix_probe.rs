@@ -65,12 +65,12 @@ fn to_flake_ref(url: &str) -> String {
     .unwrap_or(url_trimmed);
   let without_dotgit = without_scheme.trim_end_matches(".git");
 
-  // github.com/owner/repo → github:owner/repo
+  // github.com/owner/repo -> github:owner/repo
   if let Some(path) = without_dotgit.strip_prefix("github.com/") {
     return format!("github:{path}");
   }
 
-  // gitlab.com/owner/repo → gitlab:owner/repo
+  // gitlab.com/owner/repo -> gitlab:owner/repo
   if let Some(path) = without_dotgit.strip_prefix("gitlab.com/") {
     return format!("gitlab:{path}");
   }
@@ -84,6 +84,10 @@ fn to_flake_ref(url: &str) -> String {
 }
 
 /// Probe a flake repository to discover its outputs and suggest jobsets.
+///
+/// # Errors
+///
+/// Returns error if nix flake show command fails or times out.
 pub async fn probe_flake(
   repo_url: &str,
   revision: Option<&str>,
@@ -157,13 +161,10 @@ pub async fn probe_flake(
         CiError::NixEval(format!("Failed to parse flake show output: {e}"))
       })?;
 
-  let top = match raw.as_object() {
-    Some(obj) => obj,
-    None => {
-      return Err(CiError::NixEval(
-        "Unexpected flake show output format".to_string(),
-      ));
-    },
+  let Some(top) = raw.as_object() else {
+    return Err(CiError::NixEval(
+      "Unexpected flake show output format".to_string(),
+    ));
   };
 
   let mut outputs = Vec::new();
@@ -220,7 +221,7 @@ pub async fn probe_flake(
   }
 
   // Sort jobsets by priority (highest first)
-  suggested_jobsets.sort_by(|a, b| b.priority.cmp(&a.priority));
+  suggested_jobsets.sort_by_key(|j| std::cmp::Reverse(j.priority));
 
   // Extract metadata from the flake
   let metadata = FlakeMetadata {
@@ -441,7 +442,7 @@ mod tests {
       },
     ];
 
-    jobsets.sort_by(|a, b| b.priority.cmp(&a.priority));
+    jobsets.sort_by_key(|j| std::cmp::Reverse(j.priority));
     assert_eq!(jobsets[0].name, "hydraJobs");
     assert_eq!(jobsets[1].name, "checks");
     assert_eq!(jobsets[2].name, "packages");

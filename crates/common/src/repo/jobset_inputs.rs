@@ -7,6 +7,11 @@ use crate::{
   models::JobsetInput,
 };
 
+/// Create a new jobset input.
+///
+/// # Errors
+///
+/// Returns error if database insert fails or input already exists.
 pub async fn create(
   pool: &PgPool,
   jobset_id: Uuid,
@@ -38,6 +43,11 @@ pub async fn create(
   })
 }
 
+/// List all inputs for a jobset.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_for_jobset(
   pool: &PgPool,
   jobset_id: Uuid,
@@ -51,6 +61,11 @@ pub async fn list_for_jobset(
   .map_err(CiError::Database)
 }
 
+/// Delete a jobset input.
+///
+/// # Errors
+///
+/// Returns error if database delete fails or input not found.
 pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
   let result = sqlx::query("DELETE FROM jobset_inputs WHERE id = $1")
     .bind(id)
@@ -63,6 +78,10 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
 }
 
 /// Upsert a jobset input (insert or update on conflict).
+///
+/// # Errors
+///
+/// Returns error if database operation fails.
 pub async fn upsert(
   pool: &PgPool,
   jobset_id: Uuid,
@@ -89,6 +108,10 @@ pub async fn upsert(
 
 /// Sync jobset inputs from declarative config.
 /// Deletes inputs not in the config and upserts those that are.
+///
+/// # Errors
+///
+/// Returns error if database operations fail.
 pub async fn sync_for_jobset(
   pool: &PgPool,
   jobset_id: Uuid,

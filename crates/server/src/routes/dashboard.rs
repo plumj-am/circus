@@ -46,7 +46,7 @@ struct BuildView {
   log_url:       String,
 }
 
-/// Enhanced build view for queue page with elapsed time and builder info
+/// Queue page build info with elapsed time and builder details
 struct QueueBuildView {
   id:           Uuid,
   job_name:     String,
@@ -379,7 +379,7 @@ struct ChannelsTemplate {
   channels: Vec<Channel>,
 }
 
-/// Enhanced builder view with load and activity info
+/// Builder info with load and activity metrics
 struct BuilderView {
   id:             Uuid,
   name:           String,
@@ -455,7 +455,7 @@ async fn home(
   State(state): State<AppState>,
   extensions: Extensions,
 ) -> Html<String> {
-  let stats = fc_common::repo::builds::get_stats(&state.pool)
+  let build_stats = fc_common::repo::builds::get_stats(&state.pool)
     .await
     .unwrap_or_default();
   let builds = fc_common::repo::builds::list_recent(&state.pool, 10)
@@ -499,13 +499,13 @@ async fn home(
         last_eval = Some(e);
       }
     }
-    let (status, class, time) = match &last_eval {
-      Some(e) => {
+    let (status, class, time) = last_eval.as_ref().map_or_else(
+      || ("-".into(), "pending".into(), "-".into()),
+      |e| {
         let (t, c) = eval_badge(&e.status);
         (t, c, e.evaluation_time.format("%Y-%m-%d %H:%M").to_string())
       },
-      None => ("-".into(), "pending".into(), "-".into()),
-    };
+    );
     project_summaries.push(ProjectSummaryView {
       id: p.id,
       name: p.name.clone(),
@@ -517,11 +517,11 @@ async fn home(
   }
 
   let tmpl = HomeTemplate {
-    total_builds:     stats.total_builds.unwrap_or(0),
-    completed_builds: stats.completed_builds.unwrap_or(0),
-    failed_builds:    stats.failed_builds.unwrap_or(0),
-    running_builds:   stats.running_builds.unwrap_or(0),
-    pending_builds:   stats.pending_builds.unwrap_or(0),
+    total_builds:     build_stats.total_builds.unwrap_or(0),
+    completed_builds: build_stats.completed_builds.unwrap_or(0),
+    failed_builds:    build_stats.failed_builds.unwrap_or(0),
+    running_builds:   build_stats.running_builds.unwrap_or(0),
+    pending_builds:   build_stats.pending_builds.unwrap_or(0),
     recent_builds:    builds.iter().map(build_view).collect(),
     recent_evals:     evals.iter().map(eval_view).collect(),
     projects:         project_summaries,
@@ -581,9 +581,9 @@ async fn project_page(
   Path(id): Path<Uuid>,
   extensions: Extensions,
 ) -> Html<String> {
-  let project = match fc_common::repo::projects::get(&state.pool, id).await {
-    Ok(p) => p,
-    Err(_) => return Html("Project not found".to_string()),
+  let Ok(project) = fc_common::repo::projects::get(&state.pool, id).await
+  else {
+    return Html("Project not found".to_string());
   };
   let jobsets =
     fc_common::repo::jobsets::list_for_project(&state.pool, id, 100, 0)
@@ -604,7 +604,7 @@ async fn project_page(
     .unwrap_or_default();
     evals.append(&mut js_evals);
   }
-  evals.sort_by(|a, b| b.evaluation_time.cmp(&a.evaluation_time));
+  evals.sort_by_key(|e| std::cmp::Reverse(e.evaluation_time));
   evals.truncate(10);
 
   let tmpl = ProjectTemplate {
@@ -625,18 +625,13 @@ async fn jobset_page(
   State(state): State<AppState>,
   Path(id): Path<Uuid>,
 ) -> Html<String> {
-  let jobset = match fc_common::repo::jobsets::get(&state.pool, id).await {
-    Ok(j) => j,
-    Err(_) => return Html("Jobset not found".to_string()),
+  let Ok(jobset) = fc_common::repo::jobsets::get(&state.pool, id).await else {
+    return Html("Jobset not found".to_string());
   };
-  let project = match fc_common::repo::projects::get(
-    &state.pool,
-    jobset.project_id,
-  )
-  .await
-  {
-    Ok(p) => p,
-    Err(_) => return Html("Project not found".to_string()),
+  let Ok(project) =
+    fc_common::repo::projects::get(&state.pool, jobset.project_id).await
+  else {
+    return Html("Project not found".to_string());
   };
 
   let evals = fc_common::repo::evaluations::list_filtered(
@@ -769,24 +764,20 @@ async fn evaluation_page(
   State(state): State<AppState>,
   Path(id): Path<Uuid>,
 ) -> Html<String> {
-  let eval = match fc_common::repo::evaluations::get(&state.pool, id).await {
-    Ok(e) => e,
-    Err(_) => return Html("Evaluation not found".to_string()),
+  let Ok(eval) = fc_common::repo::evaluations::get(&state.pool, id).await
+  else {
+    return Html("Evaluation not found".to_string());
   };
 
-  let jobset =
-    match fc_common::repo::jobsets::get(&state.pool, eval.jobset_id).await {
-      Ok(j) => j,
-      Err(_) => return Html("Jobset not found".to_string()),
-    };
-  let project = match fc_common::repo::projects::get(
-    &state.pool,
-    jobset.project_id,
-  )
-  .await
-  {
-    Ok(p) => p,
-    Err(_) => return Html("Project not found".to_string()),
+  let Ok(jobset) =
+    fc_common::repo::jobsets::get(&state.pool, eval.jobset_id).await
+  else {
+    return Html("Jobset not found".to_string());
+  };
+  let Ok(project) =
+    fc_common::repo::projects::get(&state.pool, jobset.project_id).await
+  else {
+    return Html("Project not found".to_string());
   };
 
   let builds = fc_common::repo::builds::list_filtered(
@@ -919,31 +910,24 @@ async fn build_page(
   State(state): State<AppState>,
   Path(id): Path<Uuid>,
 ) -> Html<String> {
-  let build = match fc_common::repo::builds::get(&state.pool, id).await {
-    Ok(b) => b,
-    Err(_) => return Html("Build not found".to_string()),
+  let Ok(build) = fc_common::repo::builds::get(&state.pool, id).await else {
+    return Html("Build not found".to_string());
   };
 
-  let eval =
-    match fc_common::repo::evaluations::get(&state.pool, build.evaluation_id)
-      .await
-    {
-      Ok(e) => e,
-      Err(_) => return Html("Evaluation not found".to_string()),
-    };
-  let jobset =
-    match fc_common::repo::jobsets::get(&state.pool, eval.jobset_id).await {
-      Ok(j) => j,
-      Err(_) => return Html("Jobset not found".to_string()),
-    };
-  let project = match fc_common::repo::projects::get(
-    &state.pool,
-    jobset.project_id,
-  )
-  .await
-  {
-    Ok(p) => p,
-    Err(_) => return Html("Project not found".to_string()),
+  let Ok(eval) =
+    fc_common::repo::evaluations::get(&state.pool, build.evaluation_id).await
+  else {
+    return Html("Evaluation not found".to_string());
+  };
+  let Ok(jobset) =
+    fc_common::repo::jobsets::get(&state.pool, eval.jobset_id).await
+  else {
+    return Html("Jobset not found".to_string());
+  };
+  let Ok(project) =
+    fc_common::repo::projects::get(&state.pool, jobset.project_id).await
+  else {
+    return Html("Project not found".to_string());
   };
 
   let eval_commit_short = if eval.commit_hash.len() > 12 {
@@ -1016,12 +1000,10 @@ async fn queue_page(State(state): State<AppState>) -> Html<String> {
   let running_builds: Vec<QueueBuildView> = running
     .iter()
     .map(|b| {
-      let elapsed = if let Some(started) = b.started_at {
+      let elapsed = b.started_at.map_or_else(String::new, |started| {
         let dur = chrono::Utc::now() - started;
         format_elapsed(dur.num_seconds())
-      } else {
-        String::new()
-      };
+      });
       let builder_name =
         b.builder_id.and_then(|id| builder_map.get(&id).cloned());
       QueueBuildView {
@@ -1114,7 +1096,7 @@ async fn admin_page(
     .fetch_one(pool)
     .await
     .unwrap_or((0,));
-  let stats = fc_common::repo::builds::get_stats(pool)
+  let build_stats = fc_common::repo::builds::get_stats(pool)
     .await
     .unwrap_or_default();
   let builders_count = fc_common::repo::remote_builders::count(pool)
@@ -1129,10 +1111,10 @@ async fn admin_page(
     projects_count:    projects.0,
     jobsets_count:     jobsets.0,
     evaluations_count: evaluations.0,
-    builds_pending:    stats.pending_builds.unwrap_or(0),
-    builds_running:    stats.running_builds.unwrap_or(0),
-    builds_completed:  stats.completed_builds.unwrap_or(0),
-    builds_failed:     stats.failed_builds.unwrap_or(0),
+    builds_pending:    build_stats.pending_builds.unwrap_or(0),
+    builds_running:    build_stats.running_builds.unwrap_or(0),
+    builds_completed:  build_stats.completed_builds.unwrap_or(0),
+    builds_failed:     build_stats.failed_builds.unwrap_or(0),
     remote_builders:   builders_count,
     channels_count:    channels.0,
   };
@@ -1381,36 +1363,28 @@ async fn logout_action(
     .and_then(|v| v.to_str().ok())
   {
     // Check for user session
-    if let Some(session_id) = cookie_header
-      .split(';')
-      .filter_map(|pair| {
-        let pair = pair.trim();
-        let (k, v) = pair.split_once('=')?;
-        if k.trim() == "fc_user_session" {
-          Some(v.trim().to_string())
-        } else {
-          None
-        }
-      })
-      .next()
-    {
+    if let Some(session_id) = cookie_header.split(';').find_map(|pair| {
+      let pair = pair.trim();
+      let (k, v) = pair.split_once('=')?;
+      if k.trim() == "fc_user_session" {
+        Some(v.trim().to_string())
+      } else {
+        None
+      }
+    }) {
       state.sessions.remove(&session_id);
     }
 
     // Check for legacy API key session
-    if let Some(session_id) = cookie_header
-      .split(';')
-      .filter_map(|pair| {
-        let pair = pair.trim();
-        let (k, v) = pair.split_once('=')?;
-        if k.trim() == "fc_session" {
-          Some(v.trim().to_string())
-        } else {
-          None
-        }
-      })
-      .next()
-    {
+    if let Some(session_id) = cookie_header.split(';').find_map(|pair| {
+      let pair = pair.trim();
+      let (k, v) = pair.split_once('=')?;
+      if k.trim() == "fc_session" {
+        Some(v.trim().to_string())
+      } else {
+        None
+      }
+    }) {
       state.sessions.remove(&session_id);
     }
   }
@@ -1556,12 +1530,13 @@ async fn starred_page(
             Vec::new()
           };
 
-          if let Some(build) = builds.first() {
-            let (text, class) = status_badge(&build.status);
-            (text, class, Some(build.id))
-          } else {
-            ("No builds".to_string(), "pending".to_string(), None)
-          }
+          builds.first().map_or_else(
+            || ("No builds".to_string(), "pending".to_string(), None),
+            |build| {
+              let (text, class) = status_badge(&build.status);
+              (text, class, Some(build.id))
+            },
+          )
         } else {
           ("No builds".to_string(), "pending".to_string(), None)
         };

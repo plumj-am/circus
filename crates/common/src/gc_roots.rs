@@ -13,6 +13,10 @@ use uuid::Uuid;
 /// Remove GC root symlinks with mtime older than `max_age`. Returns count
 /// removed. Symlinks whose filename matches a UUID in `pinned_build_ids` are
 /// skipped regardless of age.
+///
+/// # Errors
+///
+/// Returns error if directory read fails.
 pub fn cleanup_old_roots(
   roots_dir: &Path,
   max_age: Duration,
@@ -29,23 +33,20 @@ pub fn cleanup_old_roots(
     let entry = entry?;
 
     // Check if this root is pinned (filename is a build UUID with keep=true)
-    if let Some(name) = entry.file_name().to_str() {
-      if let Ok(build_id) = name.parse::<Uuid>() {
-        if pinned_build_ids.contains(&build_id) {
-          debug!(build_id = %build_id, "Skipping pinned GC root");
-          continue;
-        }
-      }
+    if let Some(name) = entry.file_name().to_str()
+      && let Ok(build_id) = name.parse::<Uuid>()
+      && pinned_build_ids.contains(&build_id)
+    {
+      debug!(build_id = %build_id, "Skipping pinned GC root");
+      continue;
     }
 
-    let metadata = match entry.metadata() {
-      Ok(m) => m,
-      Err(_) => continue,
+    let Ok(metadata) = entry.metadata() else {
+      continue;
     };
 
-    let modified = match metadata.modified() {
-      Ok(t) => t,
-      Err(_) => continue,
+    let Ok(modified) = metadata.modified() else {
+      continue;
     };
 
     if let Ok(age) = now.duration_since(modified)
@@ -71,6 +72,11 @@ pub struct GcRoots {
 }
 
 impl GcRoots {
+  /// Create a GC roots manager. Creates the directory if enabled.
+  ///
+  /// # Errors
+  ///
+  /// Returns error if directory creation or permission setting fails.
   pub fn new(roots_dir: PathBuf, enabled: bool) -> std::io::Result<Self> {
     if enabled {
       std::fs::create_dir_all(&roots_dir)?;
@@ -87,6 +93,10 @@ impl GcRoots {
   }
 
   /// Register a GC root for a build output. Returns the symlink path.
+  ///
+  /// # Errors
+  ///
+  /// Returns error if path is invalid or symlink creation fails.
   pub fn register(
     &self,
     build_id: &uuid::Uuid,

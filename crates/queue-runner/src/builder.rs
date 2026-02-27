@@ -10,6 +10,11 @@ const MAX_LOG_SIZE: usize = 100 * 1024 * 1024; // 100MB
   skip(work_dir, live_log_path),
   fields(drv_path, store_uri)
 )]
+/// Run a nix build on a remote builder via SSH.
+///
+/// # Errors
+///
+/// Returns error if nix build command fails or times out.
 pub async fn run_nix_build_remote(
   drv_path: &str,
   work_dir: &Path,
@@ -120,14 +125,11 @@ pub async fn run_nix_build_remote(
   })
   .await;
 
-  match result {
-    Ok(inner) => inner,
-    Err(_) => {
-      Err(CiError::Timeout(format!(
-        "Remote build timed out after {timeout:?}"
-      )))
-    },
-  }
+  result.unwrap_or_else(|_| {
+    Err(CiError::Timeout(format!(
+      "Remote build timed out after {timeout:?}"
+    )))
+  })
 }
 
 pub struct BuildResult {
@@ -165,6 +167,10 @@ pub fn parse_nix_log_line(line: &str) -> Option<(&'static str, String)> {
 /// Run `nix build` for a derivation path.
 /// If `live_log_path` is provided, build output is streamed to that file
 /// incrementally.
+///
+/// # Errors
+///
+/// Returns error if nix build command fails or times out.
 #[tracing::instrument(skip(work_dir, live_log_path), fields(drv_path))]
 pub async fn run_nix_build(
   drv_path: &str,
@@ -299,12 +305,9 @@ pub async fn run_nix_build(
   })
   .await;
 
-  match result {
-    Ok(inner) => inner,
-    Err(_) => {
-      Err(CiError::Timeout(format!(
-        "Build timed out after {timeout:?}"
-      )))
-    },
-  }
+  result.unwrap_or_else(|_| {
+    Err(CiError::Timeout(format!(
+      "Build timed out after {timeout:?}"
+    )))
+  })
 }

@@ -89,12 +89,9 @@ fn build_github_client(config: &GitHubOAuthConfig) -> GitHubOAuthClient {
 }
 
 async fn github_login(State(state): State<AppState>) -> impl IntoResponse {
-  let config = match &state.config.oauth.github {
-    Some(c) => c,
-    None => {
-      return (StatusCode::NOT_FOUND, "GitHub OAuth not configured")
-        .into_response();
-    },
+  let Some(config) = &state.config.oauth.github else {
+    return (StatusCode::NOT_FOUND, "GitHub OAuth not configured")
+      .into_response();
   };
 
   let client = build_github_client(config);
@@ -141,13 +138,10 @@ async fn github_callback(
   headers: axum::http::HeaderMap,
   Query(params): Query<OAuthCallbackParams>,
 ) -> Result<impl IntoResponse, ApiError> {
-  let config = match &state.config.oauth.github {
-    Some(c) => c,
-    None => {
-      return Err(ApiError(fc_common::CiError::NotFound(
-        "GitHub OAuth not configured".to_string(),
-      )));
-    },
+  let Some(config) = &state.config.oauth.github else {
+    return Err(ApiError(fc_common::CiError::NotFound(
+      "GitHub OAuth not configured".to_string(),
+    )));
   };
 
   // Verify CSRF token from cookie
@@ -290,7 +284,7 @@ async fn github_callback(
   };
 
   let clear_state =
-    format!("fc_oauth_state=; {}; Path=/; Max-Age=0", security_flags);
+    format!("fc_oauth_state=; {security_flags}; Path=/; Max-Age=0");
   let session_cookie = format!(
     "fc_user_session={}; {}; Path=/; Max-Age={}",
     session.0,
@@ -371,21 +365,21 @@ mod tests {
   fn test_secure_flag_detection() {
     // HTTP should not have Secure flag
     let http_uri = "http://localhost:3000/callback";
-    let secure_flag = if http_uri.starts_with("https://") {
+    let http_secure_flag = if http_uri.starts_with("https://") {
       "; Secure"
     } else {
       ""
     };
-    assert_eq!(secure_flag, "");
+    assert_eq!(http_secure_flag, "");
 
     // HTTPS should have Secure flag
     let https_uri = "https://example.com/callback";
-    let secure_flag = if https_uri.starts_with("https://") {
+    let https_secure_flag = if https_uri.starts_with("https://") {
       "; Secure"
     } else {
       ""
     };
-    assert_eq!(secure_flag, "; Secure");
+    assert_eq!(https_secure_flag, "; Secure");
   }
 
   #[test]
@@ -437,7 +431,7 @@ mod tests {
 
   #[test]
   fn test_github_emails_find_primary_verified() {
-    let emails = vec![
+    let emails = [
       GitHubEmailResponse {
         email:    "secondary@example.com".to_string(),
         primary:  false,
@@ -467,7 +461,7 @@ mod tests {
   #[test]
   fn test_github_emails_fallback_to_verified() {
     // No primary email, should fall back to first verified
-    let emails = vec![
+    let emails = [
       GitHubEmailResponse {
         email:    "unverified@example.com".to_string(),
         primary:  false,
@@ -492,7 +486,7 @@ mod tests {
   #[test]
   fn test_github_emails_no_verified() {
     // No verified emails
-    let emails = vec![GitHubEmailResponse {
+    let emails = [GitHubEmailResponse {
       email:    "unverified@example.com".to_string(),
       primary:  true,
       verified: false,
@@ -540,8 +534,8 @@ mod tests {
     let max_age = 7 * 24 * 60 * 60;
 
     let cookie = format!(
-      "fc_user_session={}; HttpOnly; SameSite=Lax; Path=/; Max-Age={}{}",
-      session_token, max_age, secure_flag
+      "fc_user_session={session_token}; HttpOnly; SameSite=Lax; Path=/; \
+       Max-Age={max_age}{secure_flag}"
     );
 
     assert!(cookie.contains("fc_user_session=test-session-token"));

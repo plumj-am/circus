@@ -7,6 +7,11 @@ use crate::{
   models::{CreateNotificationConfig, NotificationConfig},
 };
 
+/// Create a new notification config.
+///
+/// # Errors
+///
+/// Returns error if database insert fails or config already exists.
 pub async fn create(
   pool: &PgPool,
   input: CreateNotificationConfig,
@@ -33,6 +38,11 @@ pub async fn create(
   })
 }
 
+/// List all enabled notification configs for a project.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_for_project(
   pool: &PgPool,
   project_id: Uuid,
@@ -47,6 +57,11 @@ pub async fn list_for_project(
   .map_err(CiError::Database)
 }
 
+/// Delete a notification config.
+///
+/// # Errors
+///
+/// Returns error if database delete fails or config not found.
 pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
   let result = sqlx::query("DELETE FROM notification_configs WHERE id = $1")
     .bind(id)
@@ -61,6 +76,10 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
 }
 
 /// Upsert a notification config (insert or update on conflict).
+///
+/// # Errors
+///
+/// Returns error if database operation fails.
 pub async fn upsert(
   pool: &PgPool,
   project_id: Uuid,
@@ -85,6 +104,10 @@ pub async fn upsert(
 
 /// Sync notification configs from declarative config.
 /// Deletes configs not in the declarative list and upserts those that are.
+///
+/// # Errors
+///
+/// Returns error if database operations fail.
 pub async fn sync_for_project(
   pool: &PgPool,
   project_id: Uuid,

@@ -1,15 +1,12 @@
 //! Integration tests for repository CRUD operations.
-//! Requires TEST_DATABASE_URL to be set to a PostgreSQL connection string.
+//! Requires `TEST_DATABASE_URL` to be set to a `PostgreSQL` connection string.
 
 use fc_common::{models::*, repo};
 
 async fn get_pool() -> Option<sqlx::PgPool> {
-  let url = match std::env::var("TEST_DATABASE_URL") {
-    Ok(url) => url,
-    Err(_) => {
-      println!("Skipping repo test: TEST_DATABASE_URL not set");
-      return None;
-    },
+  let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
+    println!("Skipping repo test: TEST_DATABASE_URL not set");
+    return None;
   };
 
   let pool = sqlx::postgres::PgPoolOptions::new()
@@ -85,7 +82,7 @@ async fn create_test_build(
     evaluation_id: eval_id,
     job_name:      job_name.to_string(),
     drv_path:      drv_path.to_string(),
-    system:        system.map(|s| s.to_string()),
+    system:        system.map(std::string::ToString::to_string),
     outputs:       None,
     is_aggregate:  None,
     constituents:  None,
@@ -98,9 +95,8 @@ async fn create_test_build(
 
 #[tokio::test]
 async fn test_project_crud() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   // Create
@@ -148,9 +144,8 @@ async fn test_project_crud() {
 
 #[tokio::test]
 async fn test_project_unique_constraint() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let name = format!("unique-test-{}", uuid::Uuid::new_v4());
@@ -176,9 +171,8 @@ async fn test_project_unique_constraint() {
 
 #[tokio::test]
 async fn test_jobset_crud() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let project = create_test_project(&pool, "jobset").await;
@@ -242,9 +236,8 @@ async fn test_jobset_crud() {
 
 #[tokio::test]
 async fn test_evaluation_and_build_lifecycle() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   // Set up project and jobset
@@ -391,9 +384,8 @@ async fn test_evaluation_and_build_lifecycle() {
 
 #[tokio::test]
 async fn test_not_found_errors() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let fake_id = uuid::Uuid::new_v4();
@@ -423,9 +415,8 @@ async fn test_not_found_errors() {
 
 #[tokio::test]
 async fn test_batch_get_completed_by_drv_paths() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let project = create_test_project(&pool, "batch-drv").await;
@@ -493,9 +484,8 @@ async fn test_batch_get_completed_by_drv_paths() {
 
 #[tokio::test]
 async fn test_batch_check_deps_for_builds() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let project = create_test_project(&pool, "batch-deps").await;
@@ -568,9 +558,8 @@ async fn test_batch_check_deps_for_builds() {
 
 #[tokio::test]
 async fn test_list_filtered_with_system_filter() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let project = create_test_project(&pool, "filter-sys").await;
@@ -641,9 +630,8 @@ async fn test_list_filtered_with_system_filter() {
 
 #[tokio::test]
 async fn test_list_filtered_with_job_name_filter() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let project = create_test_project(&pool, "filter-job").await;
@@ -705,9 +693,8 @@ async fn test_list_filtered_with_job_name_filter() {
 
 #[tokio::test]
 async fn test_reset_orphaned_batch_limit() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let project = create_test_project(&pool, "orphan").await;
@@ -747,9 +734,8 @@ async fn test_reset_orphaned_batch_limit() {
 
 #[tokio::test]
 async fn test_build_cancel_cascade() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let project = create_test_project(&pool, "cancel-cascade").await;
@@ -786,9 +772,8 @@ async fn test_build_cancel_cascade() {
 
 #[tokio::test]
 async fn test_dedup_by_drv_path() {
-  let pool = match get_pool().await {
-    Some(p) => p,
-    None => return,
+  let Some(pool) = get_pool().await else {
+    return;
   };
 
   let project = create_test_project(&pool, "dedup").await;

@@ -1,5 +1,5 @@
 //! Tests for the git clone/fetch module.
-//! Uses git2 to create a temporary repository, then exercises clone_or_fetch.
+//! Uses git2 to create a temporary repository, then exercises `clone_or_fetch`.
 
 use git2::{Repository, Signature};
 use tempfile::TempDir;

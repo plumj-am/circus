@@ -7,6 +7,10 @@ use git2::Repository;
 ///
 /// If `branch` is `Some`, resolve `refs/remotes/origin/<branch>` instead of
 /// HEAD.
+///
+/// # Errors
+///
+/// Returns error if git operations fail.
 #[tracing::instrument(skip(work_dir))]
 pub fn clone_or_fetch(
   url: &str,
@@ -20,7 +24,7 @@ pub fn clone_or_fetch(
 
   let repo = if is_fetch {
     let repo = Repository::open(&repo_path)?;
-    // Fetch origin — scope the borrow so `remote` is dropped before we move
+    // Fetch origin. Scope the borrow so `remote` is dropped before we move
     // `repo`
     {
       let mut remote = repo.find_remote("origin")?;
@@ -34,12 +38,11 @@ pub fn clone_or_fetch(
   // Resolve commit from remote refs (which are always up-to-date after fetch).
   // When no branch is specified, detect the default branch from local HEAD's
   // tracking target.
-  let branch_name = match branch {
-    Some(b) => b.to_string(),
-    None => {
-      let head = repo.head()?;
-      head.shorthand().unwrap_or("master").to_string()
-    },
+  let branch_name = if let Some(b) = branch {
+    b.to_string()
+  } else {
+    let head = repo.head()?;
+    head.shorthand().unwrap_or("master").to_string()
   };
 
   let remote_ref = format!("refs/remotes/origin/{branch_name}");

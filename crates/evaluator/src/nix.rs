@@ -105,6 +105,10 @@ pub fn parse_eval_output(stdout: &str) -> EvalResult {
 /// Evaluate nix expressions and return discovered jobs.
 /// If `flake_mode` is true, uses nix-eval-jobs with --flake flag.
 /// If `flake_mode` is false, evaluates a legacy expression file.
+///
+/// # Errors
+///
+/// Returns error if nix evaluation command fails or times out.
 #[tracing::instrument(skip(config, inputs), fields(flake_mode, nix_expression))]
 pub async fn evaluate(
   repo_path: &Path,

@@ -7,6 +7,11 @@ use crate::{
   models::{CreateRemoteBuilder, RemoteBuilder},
 };
 
+/// Create a new remote builder.
+///
+/// # Errors
+///
+/// Returns error if database insert fails or builder already exists.
 pub async fn create(
   pool: &PgPool,
   input: CreateRemoteBuilder,
@@ -40,6 +45,11 @@ pub async fn create(
   })
 }
 
+/// Get a remote builder by ID.
+///
+/// # Errors
+///
+/// Returns error if database query fails or builder not found.
 pub async fn get(pool: &PgPool, id: Uuid) -> Result<RemoteBuilder> {
   sqlx::query_as::<_, RemoteBuilder>(
     "SELECT * FROM remote_builders WHERE id = $1",
@@ -50,6 +60,11 @@ pub async fn get(pool: &PgPool, id: Uuid) -> Result<RemoteBuilder> {
   .ok_or_else(|| CiError::NotFound(format!("Remote builder {id} not found")))
 }
 
+/// List all remote builders.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list(pool: &PgPool) -> Result<Vec<RemoteBuilder>> {
   sqlx::query_as::<_, RemoteBuilder>(
     "SELECT * FROM remote_builders ORDER BY speed_factor DESC, name",
@@ -59,6 +74,11 @@ pub async fn list(pool: &PgPool) -> Result<Vec<RemoteBuilder>> {
   .map_err(CiError::Database)
 }
 
+/// List all enabled remote builders.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn list_enabled(pool: &PgPool) -> Result<Vec<RemoteBuilder>> {
   sqlx::query_as::<_, RemoteBuilder>(
     "SELECT * FROM remote_builders WHERE enabled = true ORDER BY speed_factor \
@@ -71,6 +91,10 @@ pub async fn list_enabled(pool: &PgPool) -> Result<Vec<RemoteBuilder>> {
 
 /// Find a suitable builder for the given system.
 /// Excludes builders that are temporarily disabled due to consecutive failures.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn find_for_system(
   pool: &PgPool,
   system: &str,
@@ -87,9 +111,14 @@ pub async fn find_for_system(
 }
 
 /// Record a build failure for a remote builder.
-/// Increments consecutive_failures (capped at 4), sets last_failure,
-/// and computes disabled_until with exponential backoff.
+///
+/// Increments `consecutive_failures` (capped at 4), sets `last_failure`,
+/// and computes `disabled_until` with exponential backoff.
 /// Backoff formula (from Hydra): delta = 60 * 3^(min(failures, 4) - 1) seconds.
+///
+/// # Errors
+///
+/// Returns error if database update fails or builder not found.
 pub async fn record_failure(pool: &PgPool, id: Uuid) -> Result<RemoteBuilder> {
   sqlx::query_as::<_, RemoteBuilder>(
     "UPDATE remote_builders SET consecutive_failures = \
@@ -105,7 +134,11 @@ pub async fn record_failure(pool: &PgPool, id: Uuid) -> Result<RemoteBuilder> {
 }
 
 /// Record a build success for a remote builder.
-/// Resets consecutive_failures and clears disabled_until.
+/// Resets `consecutive_failures` and clears `disabled_until`.
+///
+/// # Errors
+///
+/// Returns error if database update fails or builder not found.
 pub async fn record_success(pool: &PgPool, id: Uuid) -> Result<RemoteBuilder> {
   sqlx::query_as::<_, RemoteBuilder>(
     "UPDATE remote_builders SET consecutive_failures = 0, disabled_until = \
@@ -117,12 +150,17 @@ pub async fn record_success(pool: &PgPool, id: Uuid) -> Result<RemoteBuilder> {
   .ok_or_else(|| CiError::NotFound(format!("Remote builder {id} not found")))
 }
 
+/// Update a remote builder with partial fields.
+///
+/// # Errors
+///
+/// Returns error if database update fails or builder not found.
 pub async fn update(
   pool: &PgPool,
   id: Uuid,
   input: crate::models::UpdateRemoteBuilder,
 ) -> Result<RemoteBuilder> {
-  // Build dynamic update — use COALESCE pattern
+  // Dynamic update using COALESCE pattern
   sqlx::query_as::<_, RemoteBuilder>(
     "UPDATE remote_builders SET name = COALESCE($1, name), ssh_uri = \
      COALESCE($2, ssh_uri), systems = COALESCE($3, systems), max_jobs = \
@@ -148,6 +186,11 @@ pub async fn update(
   .ok_or_else(|| CiError::NotFound(format!("Remote builder {id} not found")))
 }
 
+/// Delete a remote builder.
+///
+/// # Errors
+///
+/// Returns error if database delete fails or builder not found.
 pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
   let result = sqlx::query("DELETE FROM remote_builders WHERE id = $1")
     .bind(id)
@@ -160,6 +203,11 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
   Ok(())
 }
 
+/// Count total remote builders.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
 pub async fn count(pool: &PgPool) -> Result<i64> {
   let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM remote_builders")
     .fetch_one(pool)
@@ -169,18 +217,13 @@ pub async fn count(pool: &PgPool) -> Result<i64> {
 }
 
 /// Upsert a remote builder (insert or update on conflict by name).
+///
+/// # Errors
+///
+/// Returns error if database operation fails.
 pub async fn upsert(
   pool: &PgPool,
-  name: &str,
-  ssh_uri: &str,
-  systems: &[String],
-  max_jobs: i32,
-  speed_factor: i32,
-  supported_features: &[String],
-  mandatory_features: &[String],
-  enabled: bool,
-  public_host_key: Option<&str>,
-  ssh_key_file: Option<&str>,
+  params: &crate::models::RemoteBuilderParams<'_>,
 ) -> Result<RemoteBuilder> {
   sqlx::query_as::<_, RemoteBuilder>(
     "INSERT INTO remote_builders (name, ssh_uri, systems, max_jobs, \
@@ -194,16 +237,16 @@ pub async fn upsert(
      remote_builders.public_host_key), ssh_key_file = \
      COALESCE(EXCLUDED.ssh_key_file, remote_builders.ssh_key_file) RETURNING *",
   )
-  .bind(name)
-  .bind(ssh_uri)
-  .bind(systems)
-  .bind(max_jobs)
-  .bind(speed_factor)
-  .bind(supported_features)
-  .bind(mandatory_features)
-  .bind(enabled)
-  .bind(public_host_key)
-  .bind(ssh_key_file)
+  .bind(params.name)
+  .bind(params.ssh_uri)
+  .bind(params.systems)
+  .bind(params.max_jobs)
+  .bind(params.speed_factor)
+  .bind(params.supported_features)
+  .bind(params.mandatory_features)
+  .bind(params.enabled)
+  .bind(params.public_host_key)
+  .bind(params.ssh_key_file)
   .fetch_one(pool)
   .await
   .map_err(CiError::Database)
@@ -211,6 +254,10 @@ pub async fn upsert(
 
 /// Sync remote builders from declarative config.
 /// Deletes builders not in the declarative list and upserts those that are.
+///
+/// # Errors
+///
+/// Returns error if database operations fail.
 pub async fn sync_all(
   pool: &PgPool,
   builders: &[DeclarativeRemoteBuilder],
@@ -227,20 +274,19 @@ pub async fn sync_all(
 
   // Upsert each builder
   for builder in builders {
-    upsert(
-      pool,
-      &builder.name,
-      &builder.ssh_uri,
-      &builder.systems,
-      builder.max_jobs,
-      builder.speed_factor,
-      &builder.supported_features,
-      &builder.mandatory_features,
-      builder.enabled,
-      builder.public_host_key.as_deref(),
-      builder.ssh_key_file.as_deref(),
-    )
-    .await?;
+    let params = crate::models::RemoteBuilderParams {
+      name:               &builder.name,
+      ssh_uri:            &builder.ssh_uri,
+      systems:            &builder.systems,
+      max_jobs:           builder.max_jobs,
+      speed_factor:       builder.speed_factor,
+      supported_features: &builder.supported_features,
+      mandatory_features: &builder.mandatory_features,
+      enabled:            builder.enabled,
+      public_host_key:    builder.public_host_key.as_deref(),
+      ssh_key_file:       builder.ssh_key_file.as_deref(),
+    };
+    upsert(pool, &params).await?;
   }
 
   Ok(())
