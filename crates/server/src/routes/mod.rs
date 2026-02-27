@@ -43,8 +43,35 @@ use crate::{
 
 static STYLE_CSS: &str = include_str!("../../static/style.css");
 
+/// Helper to generate secure cookie flags based on server configuration.
+/// Returns a string containing cookie security attributes: HttpOnly, SameSite,
+/// and optionally Secure.
+///
+/// The Secure flag is set when:
+/// 1. `force_secure_cookies` is enabled in config (for HTTPS reverse proxies),
+/// OR 2. The server is not bound to localhost/127.0.0.1 AND not in permissive
+/// mode
+pub fn cookie_security_flags(
+  config: &fc_common::config::ServerConfig,
+) -> String {
+  let is_localhost = config.host == "127.0.0.1"
+    || config.host == "localhost"
+    || config.host == "::1";
+
+  let secure_flag = if config.force_secure_cookies
+    || (!is_localhost && !config.cors_permissive)
+  {
+    "; Secure"
+  } else {
+    ""
+  };
+
+  format!("HttpOnly; SameSite=Strict{secure_flag}")
+}
+
 struct RateLimitState {
   requests:     DashMap<IpAddr, Vec<Instant>>,
+  rps:          u64,
   burst:        u32,
   last_cleanup: std::sync::atomic::AtomicU64,
 }
@@ -89,8 +116,21 @@ async fn rate_limit_middleware(
     let mut entry = rl.requests.entry(ip).or_default();
     entry.retain(|t| now.duration_since(*t) < window);
 
-    if entry.len() >= rl.burst as usize {
+    // Token bucket algorithm: allow burst, then enforce rps limit
+    let request_count = entry.len();
+    if request_count >= rl.burst as usize {
       return StatusCode::TOO_MANY_REQUESTS.into_response();
+    }
+
+    // If within burst but need to check rate, ensure we don't exceed rps
+    if request_count >= rl.rps as usize {
+      // Check if oldest request in window is still within the rps constraint
+      if let Some(oldest) = entry.first() {
+        let elapsed = now.duration_since(*oldest);
+        if elapsed < window {
+          return StatusCode::TOO_MANY_REQUESTS.into_response();
+        }
+      }
     }
 
     entry.push(now);
@@ -176,11 +216,12 @@ pub fn router(state: AppState, config: &ServerConfig) -> Router {
         ));
 
   // Add rate limiting if configured
-  if let (Some(_rps), Some(burst)) =
+  if let (Some(rps), Some(burst)) =
     (config.rate_limit_rps, config.rate_limit_burst)
   {
     let rl_state = Arc::new(RateLimitState {
       requests: DashMap::new(),
+      rps,
       burst,
       last_cleanup: std::sync::atomic::AtomicU64::new(0),
     });

@@ -105,16 +105,26 @@ async fn github_login(State(state): State<AppState>) -> impl IntoResponse {
     .url();
 
   // Store CSRF token in a cookie for verification
-  // Add Secure flag when using HTTPS (detected via redirect_uri)
-  let secure_flag = if config.redirect_uri.starts_with("https://") {
-    "; Secure"
-  } else {
-    ""
+  // Use SameSite=Lax for OAuth flow (must work across redirect)
+  let security_flags = {
+    let is_localhost = config.redirect_uri.starts_with("http://localhost")
+      || config.redirect_uri.starts_with("http://127.0.0.1");
+
+    let secure_flag = if state.config.server.force_secure_cookies
+      || (!is_localhost && config.redirect_uri.starts_with("https://"))
+    {
+      "; Secure"
+    } else {
+      ""
+    };
+
+    format!("HttpOnly; SameSite=Lax{secure_flag}")
   };
+
   let cookie = format!(
-    "fc_oauth_state={}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600{}",
+    "fc_oauth_state={}; {}; Path=/; Max-Age=600",
     csrf_token.secret(),
-    secure_flag
+    security_flags
   );
 
   Response::builder()
@@ -263,20 +273,29 @@ async fn github_callback(
     .map_err(ApiError)?;
 
   // Clear OAuth state cookie and set session cookie
-  // Add Secure flag when using HTTPS (detected via redirect_uri)
-  let secure_flag = if config.redirect_uri.starts_with("https://") {
-    "; Secure"
-  } else {
-    ""
+  // Use SameSite=Lax for OAuth callback (must work across redirect)
+  let security_flags = {
+    let is_localhost = config.redirect_uri.starts_with("http://localhost")
+      || config.redirect_uri.starts_with("http://127.0.0.1");
+
+    let secure_flag = if state.config.server.force_secure_cookies
+      || (!is_localhost && config.redirect_uri.starts_with("https://"))
+    {
+      "; Secure"
+    } else {
+      ""
+    };
+
+    format!("HttpOnly; SameSite=Lax{secure_flag}")
   };
-  let clear_state = format!(
-    "fc_oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0{secure_flag}"
-  );
+
+  let clear_state =
+    format!("fc_oauth_state=; {}; Path=/; Max-Age=0", security_flags);
   let session_cookie = format!(
-    "fc_user_session={}; HttpOnly; SameSite=Lax; Path=/; Max-Age={}{}",
+    "fc_user_session={}; {}; Path=/; Max-Age={}",
     session.0,
-    7 * 24 * 60 * 60, // 7 days
-    secure_flag
+    security_flags,
+    7 * 24 * 60 * 60 // 7 days
   );
 
   Ok(

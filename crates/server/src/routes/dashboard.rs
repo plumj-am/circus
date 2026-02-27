@@ -1277,17 +1277,10 @@ async fn login_action(
           created_at: std::time::Instant::now(),
         });
 
-      let secure_flag = if !state.config.server.cors_permissive
-        && state.config.server.host != "127.0.0.1"
-        && state.config.server.host != "localhost"
-      {
-        "; Secure"
-      } else {
-        ""
-      };
+      let security_flags =
+        crate::routes::cookie_security_flags(&state.config.server);
       let cookie = format!(
-        "fc_user_session={session_id}; HttpOnly; SameSite=Strict; Path=/; \
-         Max-Age=86400{secure_flag}"
+        "fc_user_session={session_id}; {security_flags}; Path=/; Max-Age=86400"
       );
       return (
         [(axum::http::header::SET_COOKIE, cookie)],
@@ -1341,17 +1334,10 @@ async fn login_action(
           created_at: std::time::Instant::now(),
         });
 
-      let secure_flag = if !state.config.server.cors_permissive
-        && state.config.server.host != "127.0.0.1"
-        && state.config.server.host != "localhost"
-      {
-        "; Secure"
-      } else {
-        ""
-      };
+      let security_flags =
+        crate::routes::cookie_security_flags(&state.config.server);
       let cookie = format!(
-        "fc_session={session_id}; HttpOnly; SameSite=Strict; Path=/; \
-         Max-Age=86400{secure_flag}"
+        "fc_session={session_id}; {security_flags}; Path=/; Max-Age=86400"
       );
       (
         [(axum::http::header::SET_COOKIE, cookie)],
