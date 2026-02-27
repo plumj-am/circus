@@ -16,9 +16,14 @@ performance.
 
 ## Executive Summary
 
-FC currently implements more or less 50% of Hydra's core features, and has
+FC currently implements _more or less_ 50% of Hydra's core features, and has
 various improvements over Hydra's architecture. As of writing, some gaps (such
 as the plugin architecture, VCS diversity and notification integrations) remain.
+
+As FC is currently in _heavy_ development, those gaps will remain for the
+foreseeable future, however, most _critical_ functionality has already been
+implemented. In any case, I believe FC has made good progress on the path of
+being a "better Hydra".
 
 ### Strengths
 
@@ -35,7 +40,29 @@ as the plugin architecture, VCS diversity and notification integrations) remain.
 - Limited VCS support (Git only in FC vs 6 types in Hydra)
 - No plugin architecture for extensibility
 - Missing several notification integrations (Slack, BitBucket, etc.)
-- No declarative project specification (coming soon)
-- No coverage/build metrics collection
 
-TODO: add a better comparison matrix
+## Feature-by-Feature
+
+### FC Server
+
+`fc-server` crate is the REST API server that powers FC. In comparison to
+support for full CRUD operations (on par with Hydra), FC exceeds Hydra in
+several areas, such as log streaming, evaluation comparison, build actions or
+metrics visualization from the API. Below is a comparison table for the sake of
+historical documentation and progress tracking:
+
+| Feature                  | Hydra            | FC                  | Status   | Notes                              |
+| ------------------------ | ---------------- | ------------------- | -------- | ---------------------------------- |
+| **REST API Structure**   | OpenAPI 3.0 spec | REST                | Complete | FC has cleaner `/api/v1` structure |
+| **Project Endpoints**    | Full CRUD        | Full CRUD           | Complete |                                    |
+| **Jobset Endpoints**     | Full CRUD        | Full CRUD           | Complete | FC has jobset inputs               |
+| **Build Endpoints**      | Full             | Full + actions      | Complete | FC has cancel/restart/bump         |
+| **Evaluation Endpoints** | Basic            | Full + trigger      | Complete | FC has trigger + compare           |
+| **Search API**           | Full search      | Advanced search     | Complete | Multi-entity, filters, sorting     |
+| **Channel API**          | Management       | Full CRUD           | Complete |                                    |
+| **User API**             | User management  | Full CRUD + auth    | Complete |                                    |
+| **Binary Cache API**     | NAR/manifest     | Full cache protocol | Complete | e                                  |
+| **Webhook API**          | Push trigger     | GitHub/Gitea        | Complete | FC has HMAC verification           |
+| **Badge API**            | Status badges    | Implemented         | Complete | Both support badges                |
+| **Metrics API**          | Prometheus       | Prometheus          | Complete | Both expose metrics                |
+| **Log Streaming**        | Polling only     | SSE streaming       | Complete | FC has Server-Sent Events          |
