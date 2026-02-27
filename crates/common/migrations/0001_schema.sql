@@ -508,6 +508,41 @@ CREATE TRIGGER trg_jobsets_delete_notify
 AFTER DELETE ON jobsets FOR EACH ROW
 EXECUTE FUNCTION notify_jobsets_changed ();
 
+-- notification_tasks: persistent notification retry queue
+-- Stores notification delivery tasks with automatic retry and exponential backoff
+CREATE TABLE notification_tasks (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4 (),
+  notification_type VARCHAR(50) NOT NULL CHECK (
+    notification_type IN (
+      'webhook',
+      'github_status',
+      'gitea_status',
+      'gitlab_status',
+      'email'
+    )
+  ),
+  payload JSONB NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (
+    status IN ('pending', 'running', 'completed', 'failed')
+  ),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 5,
+  next_retry_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  last_error TEXT,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  completed_at TIMESTAMP WITH TIME ZONE
+);
+
+-- Indexes: notification_tasks
+CREATE INDEX idx_notification_tasks_status_next_retry ON notification_tasks (
+  status,
+  next_retry_at
+)
+WHERE
+  status IN ('pending', 'running');
+
+CREATE INDEX idx_notification_tasks_created_at ON notification_tasks (created_at);
+
 -- Views
 CREATE VIEW active_jobsets AS
 SELECT

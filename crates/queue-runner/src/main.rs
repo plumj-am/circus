@@ -90,6 +90,7 @@ async fn main() -> anyhow::Result<()> {
       () = gc_loop(gc_config_for_loop, db.pool().clone()) => {}
       () = failed_paths_cleanup_loop(db.pool().clone(), failed_paths_ttl, failed_paths_cache) => {}
       () = cancel_checker_loop(db.pool().clone(), active_builds) => {}
+      () = notification_retry_loop(db.pool().clone(), notifications_config.clone()) => {}
       () = shutdown_signal() => {
           tracing::info!("Shutdown signal received, draining in-flight builds...");
           worker_pool_for_drain.drain();
@@ -214,6 +215,103 @@ async fn cancel_checker_loop(pool: sqlx::PgPool, active_builds: ActiveBuilds) {
       Err(e) => {
         tracing::warn!("Failed to check for cancelled builds: {e}");
       },
+    }
+  }
+}
+
+async fn notification_retry_loop(
+  pool: sqlx::PgPool,
+  config: fc_common::config::NotificationsConfig,
+) {
+  if !config.enable_retry_queue {
+    return std::future::pending().await;
+  }
+
+  let poll_interval =
+    std::time::Duration::from_secs(config.retry_poll_interval);
+  let retention_days = config.retention_days;
+
+  let cleanup_pool = pool.clone();
+  tokio::spawn(async move {
+    let cleanup_interval = std::time::Duration::from_secs(3600);
+    loop {
+      tokio::time::sleep(cleanup_interval).await;
+      match repo::notification_tasks::cleanup_old_tasks(
+        &cleanup_pool,
+        retention_days,
+      )
+      .await
+      {
+        Ok(count) if count > 0 => {
+          tracing::info!(count, "Cleaned up old notification tasks");
+        },
+        Ok(_) => {},
+        Err(e) => {
+          tracing::error!("Notification task cleanup failed: {e}");
+        },
+      }
+    }
+  });
+
+  loop {
+    tokio::time::sleep(poll_interval).await;
+
+    let tasks = match repo::notification_tasks::list_pending(&pool, 10).await {
+      Ok(t) => t,
+      Err(e) => {
+        tracing::warn!("Failed to fetch pending notification tasks: {e}");
+        continue;
+      },
+    };
+
+    for task in tasks {
+      if let Err(e) =
+        repo::notification_tasks::mark_running(&pool, task.id).await
+      {
+        tracing::warn!(task_id = %task.id, "Failed to mark task as running: {e}");
+        continue;
+      }
+
+      match fc_common::notifications::process_notification_task(&task).await {
+        Ok(()) => {
+          if let Err(e) =
+            repo::notification_tasks::mark_completed(&pool, task.id).await
+          {
+            tracing::error!(task_id = %task.id, "Failed to mark task as completed: {e}");
+          } else {
+            tracing::info!(
+                task_id = %task.id,
+                notification_type = %task.notification_type,
+                attempts = task.attempts + 1,
+                "Notification task completed"
+            );
+          }
+        },
+        Err(err) => {
+          if let Err(e) = repo::notification_tasks::mark_failed_and_retry(
+            &pool, task.id, &err,
+          )
+          .await
+          {
+            tracing::error!(task_id = %task.id, "Failed to update task status: {e}");
+          } else {
+            let status_after = if task.attempts + 1 >= task.max_attempts {
+              "failed permanently"
+            } else {
+              "scheduled for retry"
+            };
+            tracing::warn!(
+                task_id = %task.id,
+                notification_type = %task.notification_type,
+                attempts = task.attempts + 1,
+                max_attempts = task.max_attempts,
+                error = %err,
+                status = status_after,
+                "Notification task failed"
+            );
+          }
+        },
+      }
     }
   }
 }

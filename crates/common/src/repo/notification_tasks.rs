@@ -1,0 +1,179 @@
+//! Database operations for notification task retry queue
+
+use sqlx::PgPool;
+use uuid::Uuid;
+
+use crate::{error::Result, models::NotificationTask};
+
+/// Create a new notification task for later delivery
+pub async fn create(
+  pool: &PgPool,
+  notification_type: &str,
+  payload: serde_json::Value,
+  max_attempts: i32,
+) -> Result<NotificationTask> {
+  let task = sqlx::query_as::<_, NotificationTask>(
+    r#"
+    INSERT INTO notification_tasks (notification_type, payload, max_attempts)
+    VALUES ($1, $2, $3)
+    RETURNING *
+    "#,
+  )
+  .bind(notification_type)
+  .bind(payload)
+  .bind(max_attempts)
+  .fetch_one(pool)
+  .await?;
+
+  Ok(task)
+}
+
+/// Fetch pending tasks that are ready for retry
+pub async fn list_pending(
+  pool: &PgPool,
+  limit: i32,
+) -> Result<Vec<NotificationTask>> {
+  let tasks = sqlx::query_as::<_, NotificationTask>(
+    r#"
+    SELECT *
+    FROM notification_tasks
+    WHERE status = 'pending'
+      AND next_retry_at <= NOW()
+    ORDER BY next_retry_at ASC
+    LIMIT $1
+    "#,
+  )
+  .bind(limit)
+  .fetch_all(pool)
+  .await?;
+
+  Ok(tasks)
+}
+
+/// Mark a task as running (claimed by worker)
+pub async fn mark_running(pool: &PgPool, task_id: Uuid) -> Result<()> {
+  sqlx::query(
+    r#"
+    UPDATE notification_tasks
+    SET status = 'running',
+        attempts = attempts + 1
+    WHERE id = $1
+    "#,
+  )
+  .bind(task_id)
+  .execute(pool)
+  .await?;
+
+  Ok(())
+}
+
+/// Mark a task as completed successfully
+pub async fn mark_completed(pool: &PgPool, task_id: Uuid) -> Result<()> {
+  sqlx::query(
+    r#"
+    UPDATE notification_tasks
+    SET status = 'completed',
+        completed_at = NOW()
+    WHERE id = $1
+    "#,
+  )
+  .bind(task_id)
+  .execute(pool)
+  .await?;
+
+  Ok(())
+}
+
+/// Mark a task as failed and schedule retry with exponential backoff
+/// Backoff formula: 1s, 2s, 4s, 8s, 16s...
+pub async fn mark_failed_and_retry(
+  pool: &PgPool,
+  task_id: Uuid,
+  error: &str,
+) -> Result<()> {
+  sqlx::query(
+    r#"
+    UPDATE notification_tasks
+    SET status = CASE
+        WHEN attempts >= max_attempts THEN 'failed'::varchar
+        ELSE 'pending'::varchar
+      END,
+        last_error = $2,
+        next_retry_at = CASE
+          WHEN attempts >= max_attempts THEN NOW()
+          ELSE NOW() + (POWER(2, attempts) || ' seconds')::interval
+        END,
+        completed_at = CASE
+          WHEN attempts >= max_attempts THEN NOW()
+          ELSE NULL
+        END
+    WHERE id = $1
+    "#,
+  )
+  .bind(task_id)
+  .bind(error)
+  .execute(pool)
+  .await?;
+
+  Ok(())
+}
+
+/// Get task by ID
+pub async fn get(pool: &PgPool, task_id: Uuid) -> Result<NotificationTask> {
+  let task = sqlx::query_as::<_, NotificationTask>(
+    r#"
+    SELECT * FROM notification_tasks WHERE id = $1
+    "#,
+  )
+  .bind(task_id)
+  .fetch_one(pool)
+  .await?;
+
+  Ok(task)
+}
+
+/// Clean up old completed/failed tasks (older than retention days)
+pub async fn cleanup_old_tasks(
+  pool: &PgPool,
+  retention_days: i64,
+) -> Result<u64> {
+  let result = sqlx::query(
+    r#"
+    DELETE FROM notification_tasks
+    WHERE status IN ('completed', 'failed')
+      AND (completed_at < NOW() - ($1 || ' days')::interval
+           OR created_at < NOW() - ($1 || ' days')::interval)
+    "#,
+  )
+  .bind(retention_days)
+  .execute(pool)
+  .await?;
+
+  Ok(result.rows_affected())
+}
+
+/// Count pending tasks (for monitoring)
+pub async fn count_pending(pool: &PgPool) -> Result<i64> {
+  let count: (i64,) = sqlx::query_as(
+    r#"
+    SELECT COUNT(*) FROM notification_tasks WHERE status = 'pending'
+    "#,
+  )
+  .fetch_one(pool)
+  .await?;
+
+  Ok(count.0)
+}
+
+/// Count failed tasks (for monitoring)
+pub async fn count_failed(pool: &PgPool) -> Result<i64> {
+  let count: (i64,) = sqlx::query_as(
+    r#"
+    SELECT COUNT(*) FROM notification_tasks WHERE status = 'failed'
+    "#,
+  )
+  .fetch_one(pool)
+  .await?;
+
+  Ok(count.0)
+}

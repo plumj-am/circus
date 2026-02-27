@@ -2,11 +2,13 @@
 
 use std::sync::OnceLock;
 
+use sqlx::PgPool;
 use tracing::{error, info, warn};
 
 use crate::{
   config::{EmailConfig, NotificationsConfig},
   models::{Build, BuildStatus, Project},
+  repo,
 };
 
 /// Shared HTTP client for all notification dispatches.
@@ -17,7 +19,162 @@ fn http_client() -> &'static reqwest::Client {
 }
 
 /// Dispatch all configured notifications for a completed build.
+/// If retry queue is enabled, enqueues tasks; otherwise sends immediately.
 pub async fn dispatch_build_finished(
+  pool: Option<&PgPool>,
+  build: &Build,
+  project: &Project,
+  commit_hash: &str,
+  config: &NotificationsConfig,
+) {
+  // If retry queue is enabled and pool is available, enqueue tasks
+  if config.enable_retry_queue
+    && let Some(pool) = pool
+  {
+    enqueue_notifications(pool, build, project, commit_hash, config).await;
+    return;
+  }
+
+  // Otherwise, send immediately (legacy fire-and-forget behavior)
+  send_notifications_immediate(build, project, commit_hash, config).await;
+}
+
+/// Enqueue notification tasks for reliable delivery with retry
+async fn enqueue_notifications(
+  pool: &PgPool,
+  build: &Build,
+  project: &Project,
+  commit_hash: &str,
+  config: &NotificationsConfig,
+) {
+  let max_attempts = config.max_retry_attempts;
+
+  // 1. Generic webhook notification
+  if let Some(ref url) = config.webhook_url {
+    let payload = serde_json::json!({
+      "type": "webhook",
+      "url": url,
+      "build_id": build.id,
+      "build_status": build.status,
+      "build_job": build.job_name,
+      "build_drv": build.drv_path,
+      "build_output": build.build_output_path,
+      "project_name": project.name,
+      "project_url": project.repository_url,
+      "commit_hash": commit_hash,
+    });
+
+    if let Err(e) =
+      repo::notification_tasks::create(pool, "webhook", payload, max_attempts)
+        .await
+    {
+      error!(build_id = %build.id, "Failed to enqueue webhook notification: {e}");
+    }
+  }
+
+  // 2. GitHub commit status
+  if let Some(ref token) = config.github_token
+    && project.repository_url.contains("github.com")
+  {
+    let payload = serde_json::json!({
+      "type": "github_status",
+      "token": token,
+      "repository_url": project.repository_url,
+      "commit_hash": commit_hash,
+      "build_id": build.id,
+      "build_status": build.status,
+      "build_job": build.job_name,
+    });
+
+    if let Err(e) = repo::notification_tasks::create(
+      pool,
+      "github_status",
+      payload,
+      max_attempts,
+    )
+    .await
+    {
+      error!(build_id = %build.id, "Failed to enqueue GitHub status notification: {e}");
+    }
+  }
+
+  // 3. Gitea/Forgejo commit status
+  if let (Some(url), Some(token)) = (&config.gitea_url, &config.gitea_token) {
+    let payload = serde_json::json!({
+      "type": "gitea_status",
+      "base_url": url,
+      "token": token,
+      "repository_url": project.repository_url,
+      "commit_hash": commit_hash,
+      "build_id": build.id,
+      "build_status": build.status,
+      "build_job": build.job_name,
+    });
+
+    if let Err(e) = repo::notification_tasks::create(
+      pool,
+      "gitea_status",
+      payload,
+      max_attempts,
+    )
+    .await
+    {
+      error!(build_id = %build.id, "Failed to enqueue Gitea status notification: {e}");
+    }
+  }
+
+  // 4. GitLab commit status
+  if let (Some(url), Some(token)) = (&config.gitlab_url, &config.gitlab_token) {
+    let payload = serde_json::json!({
+      "type": "gitlab_status",
+      "base_url": url,
+      "token": token,
+      "repository_url": project.repository_url,
+      "commit_hash": commit_hash,
+      "build_id": build.id,
+      "build_status": build.status,
+      "build_job": build.job_name,
+    });
+
+    if let Err(e) = repo::notification_tasks::create(
+      pool,
+      "gitlab_status",
+      payload,
+      max_attempts,
+    )
+    .await
+    {
+      error!(build_id = %build.id, "Failed to enqueue GitLab status notification: {e}");
+    }
+  }
+
+  // 5. Email notification
+  let is_failure = !build.status.is_success();
+  if let Some(ref email_config) = config.email
+    && (!email_config.on_failure_only || is_failure)
+  {
+    let payload = serde_json::json!({
+      "type": "email",
+      "config": email_config,
+      "build_id": build.id,
+      "build_status": build.status,
+      "build_job": build.job_name,
+      "build_drv": build.drv_path,
+      "build_output": build.build_output_path,
+      "project_name": project.name,
+    });
+
+    if let Err(e) =
+      repo::notification_tasks::create(pool, "email", payload, max_attempts)
+        .await
+    {
+      error!(build_id = %build.id, "Failed to enqueue email notification: {e}");
+    }
+  }
+}
+
+/// Send notifications immediately (legacy fire-and-forget behavior)
+async fn send_notifications_immediate(
   build: &Build,
   project: &Project,
   commit_hash: &str,
@@ -445,6 +602,325 @@ async fn send_email_notification(
         error!(build_id = %build.id, to = to_addr, "Failed to send email: {e}");
       },
     }
+  }
+}
+
+/// Process a notification task from the retry queue
+pub async fn process_notification_task(
+  task: &crate::models::NotificationTask,
+) -> Result<(), String> {
+  let task_type = task.notification_type.as_str();
+  let payload = &task.payload;
+
+  match task_type {
+    "webhook" => {
+      let url = payload["url"]
+        .as_str()
+        .ok_or("Missing url in webhook payload")?;
+      let status_str = match payload["build_status"].as_str() {
+        Some("succeeded") | Some("cached_failure") => "success",
+        Some("failed") => "failure",
+        Some("cancelled") => "cancelled",
+        Some("aborted") => "aborted",
+        Some("unsupported_system") => "skipped",
+        _ => "pending",
+      };
+
+      let body = serde_json::json!({
+        "build_id": payload["build_id"],
+        "build_status": status_str,
+        "build_job": payload["build_job"],
+        "build_drv": payload["build_drv"],
+        "build_output": payload["build_output"],
+        "project_name": payload["project_name"],
+        "project_url": payload["project_url"],
+        "commit_hash": payload["commit_hash"],
+      });
+
+      let resp = http_client()
+        .post(url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("HTTP request failed: {e}"))?;
+
+      if !resp.status().is_success() {
+        return Err(format!("Webhook returned status: {}", resp.status()));
+      }
+
+      Ok(())
+    },
+    "github_status" => {
+      let token = payload["token"]
+        .as_str()
+        .ok_or("Missing token in github_status payload")?;
+      let repo_url = payload["repository_url"]
+        .as_str()
+        .ok_or("Missing repository_url")?;
+      let commit = payload["commit_hash"]
+        .as_str()
+        .ok_or("Missing commit_hash")?;
+      let job_name =
+        payload["build_job"].as_str().ok_or("Missing build_job")?;
+
+      let (owner, repo) = parse_github_repo(repo_url)
+        .ok_or_else(|| format!("Cannot parse GitHub repo from {repo_url}"))?;
+
+      let (state, description) = match payload["build_status"].as_str() {
+        Some("succeeded") | Some("cached_failure") => {
+          ("success", "Build succeeded")
+        },
+        Some("failed") => ("failure", "Build failed"),
+        Some("running") => ("pending", "Build in progress"),
+        Some("cancelled") => ("error", "Build cancelled"),
+        _ => ("pending", "Build queued"),
+      };
+
+      let url = format!(
+        "https://api.github.com/repos/{owner}/{repo}/statuses/{commit}"
+      );
+      let body = serde_json::json!({
+        "state": state,
+        "description": description,
+        "context": format!("fc/{job_name}"),
+      });
+
+      let resp = http_client()
+        .post(&url)
+        .header("Authorization", format!("token {token}"))
+        .header("User-Agent", "fc-ci")
+        .header("Accept", "application/vnd.github+json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("GitHub API request failed: {e}"))?;
+
+      if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("GitHub API returned {status}: {text}"));
+      }
+
+      Ok(())
+    },
+    "gitea_status" => {
+      let base_url = payload["base_url"]
+        .as_str()
+        .ok_or("Missing base_url in gitea_status payload")?;
+      let token = payload["token"].as_str().ok_or("Missing token")?;
+      let repo_url = payload["repository_url"]
+        .as_str()
+        .ok_or("Missing repository_url")?;
+      let commit = payload["commit_hash"]
+        .as_str()
+        .ok_or("Missing commit_hash")?;
+      let job_name =
+        payload["build_job"].as_str().ok_or("Missing build_job")?;
+
+      let (owner, repo) = parse_gitea_repo(repo_url, base_url)
+        .ok_or_else(|| format!("Cannot parse Gitea repo from {repo_url}"))?;
+
+      let (state, description) = match payload["build_status"].as_str() {
+        Some("succeeded") | Some("cached_failure") => {
+          ("success", "Build succeeded")
+        },
+        Some("failed") => ("failure", "Build failed"),
+        Some("running") => ("pending", "Build in progress"),
+        Some("cancelled") => ("error", "Build cancelled"),
+        _ => ("pending", "Build queued"),
+      };
+
+      let url =
+        format!("{base_url}/api/v1/repos/{owner}/{repo}/statuses/{commit}");
+      let body = serde_json::json!({
+        "state": state,
+        "description": description,
+        "context": format!("fc/{job_name}"),
+      });
+
+      let resp = http_client()
+        .post(&url)
+        .header("Authorization", format!("token {token}"))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Gitea API request failed: {e}"))?;
+
+      if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Gitea API returned {status}: {text}"));
+      }
+
+      Ok(())
+    },
+    "gitlab_status" => {
+      let base_url = payload["base_url"]
+        .as_str()
+        .ok_or("Missing base_url in gitlab_status payload")?;
+      let token = payload["token"].as_str().ok_or("Missing token")?;
+      let repo_url = payload["repository_url"]
+        .as_str()
+        .ok_or("Missing repository_url")?;
+      let commit = payload["commit_hash"]
+        .as_str()
+        .ok_or("Missing commit_hash")?;
+      let job_name =
+        payload["build_job"].as_str().ok_or("Missing build_job")?;
+
+      let project_path =
+        parse_gitlab_project(repo_url, base_url).ok_or_else(|| {
+          format!("Cannot parse GitLab project from {repo_url}")
+        })?;
+
+      let (state, description) = match payload["build_status"].as_str() {
+        Some("succeeded") | Some("cached_failure") => {
+          ("success", "Build succeeded")
+        },
+        Some("failed") => ("failed", "Build failed"),
+        Some("running") => ("running", "Build in progress"),
+        Some("cancelled") => ("canceled", "Build cancelled"),
+        _ => ("pending", "Build queued"),
+      };
+
+      let encoded_project = urlencoding::encode(&project_path);
+      let url = format!(
+        "{}/api/v4/projects/{}/statuses/{}",
+        base_url.trim_end_matches('/'),
+        encoded_project,
+        commit
+      );
+
+      let body = serde_json::json!({
+        "state": state,
+        "description": description,
+        "name": format!("fc/{job_name}"),
+      });
+
+      let resp = http_client()
+        .post(&url)
+        .header("PRIVATE-TOKEN", token)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("GitLab API request failed: {e}"))?;
+
+      if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("GitLab API returned {status}: {text}"));
+      }
+
+      Ok(())
+    },
+    "email" => {
+      // Email sending is complex, so we'll reuse the existing function
+      // by deserializing the config from payload
+      let email_config: EmailConfig =
+        serde_json::from_value(payload["config"].clone())
+          .map_err(|e| format!("Failed to deserialize email config: {e}"))?;
+
+      // Create a minimal Build struct from payload
+      let build_id = payload["build_id"]
+        .as_str()
+        .and_then(|s| uuid::Uuid::parse_str(s).ok())
+        .ok_or("Invalid build_id")?;
+      let job_name = payload["build_job"]
+        .as_str()
+        .ok_or("Missing build_job")?
+        .to_string();
+      let drv_path = payload["build_drv"]
+        .as_str()
+        .ok_or("Missing build_drv")?
+        .to_string();
+      let build_output_path =
+        payload["build_output"].as_str().map(String::from);
+
+      let status_str = payload["build_status"]
+        .as_str()
+        .ok_or("Missing build_status")?;
+      let status = match status_str {
+        "succeeded" => BuildStatus::Succeeded,
+        "failed" => BuildStatus::Failed,
+        _ => BuildStatus::Failed,
+      };
+
+      let project_name = payload["project_name"]
+        .as_str()
+        .ok_or("Missing project_name")?;
+
+      // Simplified email send (direct implementation to avoid complex struct
+      // creation)
+      use lettre::{
+        AsyncSmtpTransport,
+        AsyncTransport,
+        Message,
+        Tokio1Executor,
+        transport::smtp::authentication::Credentials,
+      };
+
+      let status_display = match status {
+        BuildStatus::Succeeded => "SUCCESS",
+        _ => "FAILURE",
+      };
+
+      let subject =
+        format!("[FC] {} - {} ({})", status_display, job_name, project_name);
+      let body = format!(
+        "Build notification from FC CI\n\nProject: {}\nJob: {}\nStatus: \
+         {}\nDerivation: {}\nOutput: {}\nBuild ID: {}\n",
+        project_name,
+        job_name,
+        status_display,
+        drv_path,
+        build_output_path.as_deref().unwrap_or("N/A"),
+        build_id,
+      );
+
+      for to_addr in &email_config.to_addresses {
+        let email = Message::builder()
+          .from(
+            email_config
+              .from_address
+              .parse()
+              .map_err(|e| format!("Invalid from address: {e}"))?,
+          )
+          .to(
+            to_addr
+              .parse()
+              .map_err(|e| format!("Invalid to address: {e}"))?,
+          )
+          .subject(&subject)
+          .body(body.clone())
+          .map_err(|e| format!("Failed to build email: {e}"))?;
+
+        let mut mailer_builder = if email_config.tls {
+          AsyncSmtpTransport::<Tokio1Executor>::relay(&email_config.smtp_host)
+            .map_err(|e| format!("Failed to create SMTP transport: {e}"))?
+        } else {
+          AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(
+            &email_config.smtp_host,
+          )
+        }
+        .port(email_config.smtp_port);
+
+        if let (Some(user), Some(pass)) =
+          (&email_config.smtp_user, &email_config.smtp_password)
+        {
+          mailer_builder = mailer_builder
+            .credentials(Credentials::new(user.clone(), pass.clone()));
+        }
+
+        let mailer = mailer_builder.build();
+        mailer
+          .send(email)
+          .await
+          .map_err(|e| format!("Failed to send email: {e}"))?;
+      }
+
+      Ok(())
+    },
+    _ => Err(format!("Unknown notification type: {task_type}")),
   }
 }
 

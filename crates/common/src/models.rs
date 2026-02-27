@@ -488,6 +488,33 @@ pub struct UserSession {
   pub last_used_at:       Option<DateTime<Utc>>,
 }
 
+/// Notification task for reliable delivery with retry
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct NotificationTask {
+  pub id:                Uuid,
+  pub notification_type: String,
+  pub payload:           serde_json::Value,
+  pub status:            NotificationTaskStatus,
+  pub attempts:          i32,
+  pub max_attempts:      i32,
+  pub next_retry_at:     DateTime<Utc>,
+  pub last_error:        Option<String>,
+  pub created_at:        DateTime<Utc>,
+  pub completed_at:      Option<DateTime<Utc>>,
+}
+
+#[derive(
+  Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type,
+)]
+#[serde(rename_all = "lowercase")]
+#[sqlx(type_name = "varchar", rename_all = "lowercase")]
+pub enum NotificationTaskStatus {
+  Pending,
+  Running,
+  Completed,
+  Failed,
+}
+
 // Pagination
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

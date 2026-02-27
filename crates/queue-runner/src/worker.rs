@@ -834,6 +834,7 @@ async fn run_build(
       get_project_for_build(pool, build).await
     {
       fc_common::notifications::dispatch_build_finished(
+        Some(pool),
         &updated_build,
         &project,
         &commit_hash,

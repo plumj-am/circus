@@ -134,14 +134,26 @@ impl std::fmt::Debug for GitHubOAuthConfig {
 #[serde(default)]
 #[derive(Default)]
 pub struct NotificationsConfig {
-  pub webhook_url:  Option<String>,
-  pub github_token: Option<String>,
-  pub gitea_url:    Option<String>,
-  pub gitea_token:  Option<String>,
-  pub gitlab_url:   Option<String>,
-  pub gitlab_token: Option<String>,
-  pub email:        Option<EmailConfig>,
-  pub alerts:       Option<AlertConfig>,
+  pub webhook_url:         Option<String>,
+  pub github_token:        Option<String>,
+  pub gitea_url:           Option<String>,
+  pub gitea_token:         Option<String>,
+  pub gitlab_url:          Option<String>,
+  pub gitlab_token:        Option<String>,
+  pub email:               Option<EmailConfig>,
+  pub alerts:              Option<AlertConfig>,
+  /// Enable notification retry queue (persistent, with exponential backoff)
+  #[serde(default = "default_true")]
+  pub enable_retry_queue:  bool,
+  /// Maximum retry attempts per notification (default 5)
+  #[serde(default = "default_notification_max_attempts")]
+  pub max_retry_attempts:  i32,
+  /// Retention period for old completed/failed tasks in days (default 7)
+  #[serde(default = "default_notification_retention_days")]
+  pub retention_days:      i64,
+  /// Polling interval for retry worker in seconds (default 5)
+  #[serde(default = "default_notification_poll_interval")]
+  pub retry_poll_interval: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -432,6 +444,18 @@ const fn default_scheduling_shares() -> i32 {
 
 fn default_role() -> String {
   "read-only".to_string()
+}
+
+const fn default_notification_max_attempts() -> i32 {
+  5
+}
+
+const fn default_notification_retention_days() -> i64 {
+  7
+}
+
+const fn default_notification_poll_interval() -> u64 {
+  5
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
