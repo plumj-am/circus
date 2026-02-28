@@ -375,6 +375,51 @@ Ensure the PostgreSQL server on the head node allows connections from builder
 machines via `pg_hba.conf` (the NixOS `services.postgresql` module handles this
 with `authentication` settings).
 
+#### Remote Builders via SSH
+
+FC supports an alternative deployment model where a single queue-runner
+dispatches builds to remote builder machines via SSH. In this setup:
+
+- **Head node**: runs `fc-server`, `fc-evaluator`, and **one** `fc-queue-runner`
+- **Builder machines**: standard NixOS machines with SSH access and Nix
+  installed (no FC software required)
+
+The queue-runner automatically attempts remote builds using:
+
+```bash
+nix build --store ssh://<builder>
+```
+
+when a build's `system` matches a configured remote builder. If no remote
+builder is available or all fail, it falls back to local execution.
+
+You can configure remote builders via the REST API:
+
+```bash
+# Create a remote builder
+curl -X POST http://localhost:3000/api/v1/admin/builders \
+  -H 'Authorization: Bearer <admin-key>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "builder-1",
+    "ssh_uri": "builder-1.example.org",
+    "systems": ["x86_64-linux", "aarch64-linux"],
+    "max_jobs": 4,
+    "speed_factor": 1,
+    "enabled": true
+  }'
+```
+
+Do note that this requires some SSH key setup. Namely.
+
+- The queue-runner machine needs SSH access to each builder (public key in
+  `~/.ssh/authorized_keys` on builders)
+- Use `ssh_key_file` in the builder config if using a non-default key
+- Add known host keys via `public_host_key` to prevent MITM warnings
+
+The queue-runner tracks builder health automatically: consecutive failures
+disable the builder with exponential backoff until it recovers.
+
 ## Security
 
 FC implements multiple security layers to protect your CI infrastructure. See
