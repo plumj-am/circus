@@ -23,7 +23,6 @@ fc-evaluator    = { path = "./crates/evaluator" }
 fc-queue-runner = { path = "./crates/queue-runner" }
 fc-server       = { path = "./crates/server" }
 
-
 anyhow = "1.0.101"
 argon2 = "0.5.3"
 askama = "0.15.4"
@@ -38,6 +37,7 @@ futures = "0.3.31"
 git2 = "0.20.4"
 hex = "0.4.3"
 hmac = "0.12.1"
+humantime-serde = "1.1.1"
 lettre = { version = "0.11.19", default-features = false, features = [
   "tokio1-rustls-tls",
   "smtp-transport",

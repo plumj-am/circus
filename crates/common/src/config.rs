@@ -1,6 +1,7 @@
 //! Configuration management for FC CI
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use config as config_crate;
 use serde::{Deserialize, Serialize};
@@ -90,6 +91,12 @@ pub struct QueueRunnerConfig {
   /// TTL in seconds for failed paths cache entries (default 24h).
   #[serde(default = "default_failed_paths_ttl")]
   pub failed_paths_ttl: u64,
+
+  /// Timeout after which builds for unsupported systems are aborted.
+  /// None or 0 = disabled (Hydra maxUnsupportedTime compatibility).
+  #[serde(default)]
+  #[serde(with = "humantime_serde")]
+  pub unsupported_timeout: Option<Duration>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -546,13 +553,14 @@ impl Default for EvaluatorConfig {
 impl Default for QueueRunnerConfig {
   fn default() -> Self {
     Self {
-      workers:            4,
-      poll_interval:      5,
-      build_timeout:      3600,
-      work_dir:           PathBuf::from("/tmp/fc-queue-runner"),
-      strict_errors:      false,
-      failed_paths_cache: true,
-      failed_paths_ttl:   86400,
+      workers:             4,
+      poll_interval:       5,
+      build_timeout:       3600,
+      work_dir:            PathBuf::from("/tmp/fc-queue-runner"),
+      strict_errors:       false,
+      failed_paths_cache:  true,
+      failed_paths_ttl:    86400,
+      unsupported_timeout: None,
     }
   }
 }
@@ -852,5 +860,66 @@ mod tests {
       env::remove_var("FC_DATABASE__URL");
       env::remove_var("FC_SERVER__PORT");
     }
+  }
+
+  #[test]
+  fn test_unsupported_timeout_config() {
+    let mut config = Config::default();
+    config.queue_runner.unsupported_timeout = Some(Duration::from_secs(3600));
+
+    // Serialize and deserialize to verify serde works
+    let toml_str = toml::to_string(&config).unwrap();
+    let parsed: Config = toml::from_str(&toml_str).unwrap();
+    assert_eq!(
+      parsed.queue_runner.unsupported_timeout,
+      Some(Duration::from_secs(3600))
+    );
+  }
+
+  #[test]
+  fn test_unsupported_timeout_default() {
+    let config = Config::default();
+    assert_eq!(config.queue_runner.unsupported_timeout, None);
+  }
+
+  #[test]
+  fn test_unsupported_timeout_various_formats() {
+    // Test 30 minutes
+    let mut config = Config::default();
+    config.queue_runner.unsupported_timeout = Some(Duration::from_secs(1800));
+    let toml_str = toml::to_string(&config).unwrap();
+    let parsed: Config = toml::from_str(&toml_str).unwrap();
+    assert_eq!(
+      parsed.queue_runner.unsupported_timeout,
+      Some(Duration::from_secs(1800))
+    );
+
+    // Test disabled (0s)
+    let mut config = Config::default();
+    config.queue_runner.unsupported_timeout = Some(Duration::from_secs(0));
+    let toml_str = toml::to_string(&config).unwrap();
+    let parsed: Config = toml::from_str(&toml_str).unwrap();
+    assert_eq!(
+      parsed.queue_runner.unsupported_timeout,
+      Some(Duration::from_secs(0))
+    );
+  }
+
+  #[test]
+  fn test_humantime_serde_parsing() {
+    // Test that we can directly parse a QueueRunnerConfig with humantime format
+    let toml = r#"
+workers = 4
+poll_interval = 5
+build_timeout = 3600
+work_dir = "/tmp/fc"
+unsupported_timeout = "2h 30m"
+    "#;
+
+    let qr_config: QueueRunnerConfig = toml::from_str(toml).unwrap();
+    assert_eq!(
+      qr_config.unsupported_timeout,
+      Some(Duration::from_secs(9000)) // 2.5 hours
+    );
   }
 }
