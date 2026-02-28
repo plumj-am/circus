@@ -1,6 +1,9 @@
 //! Notification dispatch for build events
 
-use std::sync::OnceLock;
+use std::{
+  sync::OnceLock,
+  time::{SystemTime, UNIX_EPOCH},
+};
 
 use sqlx::PgPool;
 use tracing::{error, info, warn};
@@ -475,12 +478,44 @@ async fn set_github_status(
     .await
   {
     Ok(resp) => {
-      if resp.status().is_success() {
+      let is_success = resp.status().is_success();
+      let status = resp.status();
+
+      // Extract rate limit state from response headers before consuming body
+      let rate_limit = extract_rate_limit_from_headers(resp.headers());
+
+      if is_success {
         info!(build_id = %build.id, "Set GitHub commit status: {state}");
       } else {
-        let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         warn!("GitHub status API returned {status}: {text}");
+      }
+
+      // Handle rate limiting based on extracted state
+      if let Some(rate_limit) = rate_limit {
+        let now = SystemTime::now()
+          .duration_since(UNIX_EPOCH)
+          .unwrap()
+          .as_secs();
+
+        // Log when approaching limit (Hydra threshold: 2000)
+        if rate_limit.remaining <= 2000 {
+          let seconds_until_reset = rate_limit.reset_at.saturating_sub(now);
+          info!(
+            "GitHub rate limit: {}/{}, resets in {}s",
+            rate_limit.remaining, rate_limit.limit, seconds_until_reset
+          );
+        }
+
+        // Sleep when critical (Hydra threshold: 1000)
+        if rate_limit.remaining <= 1000 {
+          let delay = calculate_delay(&rate_limit, now);
+          warn!(
+            "GitHub rate limit critical: {}/{}, sleeping {}s",
+            rate_limit.remaining, rate_limit.limit, delay
+          );
+          tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+        }
       }
     },
     Err(e) => error!("GitHub status API request failed: {e}"),
