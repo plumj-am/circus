@@ -596,6 +596,32 @@ async fn run_build(
           .map(|obj| obj.keys().cloned().collect())
           .unwrap_or_default();
 
+        // Store build outputs in normalized table
+        for (i, output_path) in build_result.output_paths.iter().enumerate() {
+          let output_name = output_names.get(i).cloned().unwrap_or_else(|| {
+            if i == 0 {
+              "out".to_string()
+            } else {
+              format!("out{i}")
+            }
+          });
+
+          if let Err(e) = repo::build_outputs::create(
+            pool,
+            build.id,
+            &output_name,
+            Some(output_path),
+          )
+          .await
+          {
+            tracing::warn!(
+              build_id = %build.id,
+              output_name = %output_name,
+              "Failed to store build output: {e}"
+            );
+          }
+        }
+
         // Register GC roots and create build products for each output
         for (i, output_path) in build_result.output_paths.iter().enumerate() {
           let output_name = output_names.get(i).cloned().unwrap_or_else(|| {
