@@ -487,6 +487,14 @@ pub struct StarredJob {
   pub created_at: DateTime<Utc>,
 }
 
+/// Normalized build output (Hydra-compatible)
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct BuildOutput {
+  pub build: Uuid,
+  pub name:  String,
+  pub path:  Option<String>,
+}
+
 /// Project membership for per-project permissions
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct ProjectMember {

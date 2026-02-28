@@ -512,3 +512,21 @@ pub async fn set_builder(
     .map_err(CiError::Database)?;
   Ok(())
 }
+
+/// Delete a build by ID.
+///
+/// # Errors
+///
+/// Returns error if database query fails or build not found.
+pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
+  let result = sqlx::query("DELETE FROM builds WHERE id = $1")
+    .bind(id)
+    .execute(pool)
+    .await?;
+
+  if result.rows_affected() == 0 {
+    return Err(CiError::NotFound(format!("Build {id} not found")));
+  }
+
+  Ok(())
+}

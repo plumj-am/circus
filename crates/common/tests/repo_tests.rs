@@ -814,3 +814,98 @@ async fn test_dedup_by_drv_path() {
   // Cleanup
   repo::projects::delete(&pool, project.id).await.ok();
 }
+
+#[tokio::test]
+async fn test_build_outputs_crud() {
+  let Some(pool) = get_pool().await else {
+    return;
+  };
+
+  // Create project, jobset, evaluation, build
+  let project = create_test_project(&pool, "test-project").await;
+  let jobset = create_test_jobset(&pool, project.id).await;
+  let eval = create_test_eval(&pool, jobset.id).await;
+  let build = create_test_build(
+    &pool,
+    eval.id,
+    "test-job",
+    "/nix/store/test.drv",
+    None,
+  )
+  .await;
+
+  // Create outputs
+  let _out1 = repo::build_outputs::create(
+    &pool,
+    build.id,
+    "out",
+    Some("/nix/store/abc-result"),
+  )
+  .await
+  .expect("create output 1");
+
+  let _out2 = repo::build_outputs::create(
+    &pool,
+    build.id,
+    "dev",
+    Some("/nix/store/def-result-dev"),
+  )
+  .await
+  .expect("create output 2");
+
+  // List outputs for build
+  let outputs = repo::build_outputs::list_for_build(&pool, build.id)
+    .await
+    .expect("list outputs");
+  assert_eq!(outputs.len(), 2);
+  assert_eq!(outputs[0].name, "dev"); // Alphabetical order
+  assert_eq!(outputs[1].name, "out");
+
+  // Find by path
+  let found = repo::build_outputs::find_by_path(&pool, "/nix/store/abc-result")
+    .await
+    .expect("find by path");
+  assert_eq!(found.len(), 1);
+  assert_eq!(found[0].build, build.id);
+  assert_eq!(found[0].name, "out");
+
+  // Cleanup
+  repo::projects::delete(&pool, project.id).await.ok();
+}
+
+#[tokio::test]
+async fn test_build_outputs_cascade_delete() {
+  let Some(pool) = get_pool().await else {
+    return;
+  };
+
+  let project = create_test_project(&pool, "test-project").await;
+  let jobset = create_test_jobset(&pool, project.id).await;
+  let eval = create_test_eval(&pool, jobset.id).await;
+  let build = create_test_build(
+    &pool,
+    eval.id,
+    "test-job",
+    "/nix/store/test.drv",
+    None,
+  )
+  .await;
+
+  repo::build_outputs::create(&pool, build.id, "out", Some("/nix/store/abc"))
+    .await
+    .expect("create output");
+
+  // Delete build
+  repo::builds::delete(&pool, build.id)
+    .await
+    .expect("delete build");
+
+  // Verify outputs cascade deleted
+  let outputs = repo::build_outputs::list_for_build(&pool, build.id)
+    .await
+    .expect("list outputs after delete");
+  assert_eq!(outputs.len(), 0);
+
+  // Cleanup
+  repo::projects::delete(&pool, project.id).await.ok();
+}
