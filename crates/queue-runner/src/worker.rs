@@ -588,23 +588,35 @@ async fn run_build(
       };
 
       if build_result.success {
-        // Parse output names from build's outputs JSON
-        let output_names: Vec<String> = build
+        // Build a reverse lookup map: path -> output_name
+        // The outputs JSON is a HashMap<String, String> where keys are output names
+        // and values are store paths. We need to match paths to names correctly.
+        let path_to_name: std::collections::HashMap<String, String> = build
           .outputs
           .as_ref()
           .and_then(|v| v.as_object())
-          .map(|obj| obj.keys().cloned().collect())
+          .map(|obj| {
+            obj
+              .iter()
+              .filter_map(|(name, path)| {
+                path.as_str().map(|p| (p.to_string(), name.clone()))
+              })
+              .collect()
+          })
           .unwrap_or_default();
 
         // Store build outputs in normalized table
         for (i, output_path) in build_result.output_paths.iter().enumerate() {
-          let output_name = output_names.get(i).cloned().unwrap_or_else(|| {
-            if i == 0 {
-              "out".to_string()
-            } else {
-              format!("out{i}")
-            }
-          });
+          let output_name = path_to_name
+            .get(output_path)
+            .cloned()
+            .unwrap_or_else(|| {
+              if i == 0 {
+                "out".to_string()
+              } else {
+                format!("out{i}")
+              }
+            });
 
           if let Err(e) = repo::build_outputs::create(
             pool,
@@ -624,13 +636,16 @@ async fn run_build(
 
         // Register GC roots and create build products for each output
         for (i, output_path) in build_result.output_paths.iter().enumerate() {
-          let output_name = output_names.get(i).cloned().unwrap_or_else(|| {
-            if i == 0 {
-              build.job_name.clone()
-            } else {
-              format!("{}-{i}", build.job_name)
-            }
-          });
+          let output_name = path_to_name
+            .get(output_path)
+            .cloned()
+            .unwrap_or_else(|| {
+              if i == 0 {
+                build.job_name.clone()
+              } else {
+                format!("{}-{i}", build.job_name)
+              }
+            });
 
           // Register GC root
           let mut gc_root_path = None;
