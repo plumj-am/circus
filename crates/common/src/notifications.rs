@@ -173,7 +173,151 @@ async fn enqueue_notifications(
   }
 }
 
-/// Send notifications immediately (legacy fire-and-forget behavior)
+/// Enqueue commit status notifications for GitHub/GitLab/Gitea/Forgejo.
+///
+/// # Errors
+///
+/// Logs database errors if task creation fails.
+async fn enqueue_commit_status_notification(
+  pool: &PgPool,
+  build: &Build,
+  project: &Project,
+  commit_hash: &str,
+  config: &NotificationsConfig,
+) {
+  let max_attempts = config.max_retry_attempts;
+
+  // GitHub commit status
+  if let Some(ref token) = config.github_token
+    && project.repository_url.contains("github.com")
+  {
+    let payload = serde_json::json!({
+      "type": "github_status",
+      "token": token,
+      "repository_url": project.repository_url,
+      "commit_hash": commit_hash,
+      "build_id": build.id,
+      "build_status": build.status,
+      "build_job": build.job_name,
+    });
+
+    if let Err(e) = repo::notification_tasks::create(
+      pool,
+      "github_status",
+      payload,
+      max_attempts,
+    )
+    .await
+    {
+      error!(build_id = %build.id, "Failed to enqueue GitHub status notification: {e}");
+    }
+  }
+
+  // Gitea/Forgejo commit status
+  if let (Some(url), Some(token)) = (&config.gitea_url, &config.gitea_token) {
+    let payload = serde_json::json!({
+      "type": "gitea_status",
+      "base_url": url,
+      "token": token,
+      "repository_url": project.repository_url,
+      "commit_hash": commit_hash,
+      "build_id": build.id,
+      "build_status": build.status,
+      "build_job": build.job_name,
+    });
+
+    if let Err(e) = repo::notification_tasks::create(
+      pool,
+      "gitea_status",
+      payload,
+      max_attempts,
+    )
+    .await
+    {
+      error!(build_id = %build.id, "Failed to enqueue Gitea status notification: {e}");
+    }
+  }
+
+  // GitLab commit status
+  if let (Some(url), Some(token)) = (&config.gitlab_url, &config.gitlab_token) {
+    let payload = serde_json::json!({
+      "type": "gitlab_status",
+      "base_url": url,
+      "token": token,
+      "repository_url": project.repository_url,
+      "commit_hash": commit_hash,
+      "build_id": build.id,
+      "build_status": build.status,
+      "build_job": build.job_name,
+    });
+
+    if let Err(e) = repo::notification_tasks::create(
+      pool,
+      "gitlab_status",
+      payload,
+      max_attempts,
+    )
+    .await
+    {
+      error!(build_id = %build.id, "Failed to enqueue GitLab status notification: {e}");
+    }
+  }
+}
+
+/// Dispatch commit status notification when a build is created (pending state).
+///
+/// # Errors
+///
+/// Logs database errors if task creation fails.
+pub async fn dispatch_build_created(
+  pool: &PgPool,
+  build: &Build,
+  project: &Project,
+  commit_hash: &str,
+  config: &NotificationsConfig,
+) {
+  if !config.enable_retry_queue {
+    return;
+  }
+
+  enqueue_commit_status_notification(pool, build, project, commit_hash, config)
+    .await;
+  info!(
+    build_id = %build.id,
+    job = %build.job_name,
+    status = %build.status,
+    "Enqueued commit status notification for build creation"
+  );
+}
+
+/// Dispatch commit status notification when a build starts (running state).
+///
+/// # Errors
+///
+/// Logs database errors if task creation fails.
+pub async fn dispatch_build_started(
+  pool: &PgPool,
+  build: &Build,
+  project: &Project,
+  commit_hash: &str,
+  config: &NotificationsConfig,
+) {
+  if !config.enable_retry_queue {
+    return;
+  }
+
+  enqueue_commit_status_notification(pool, build, project, commit_hash, config)
+    .await;
+  info!(
+    build_id = %build.id,
+    job = %build.job_name,
+    status = %build.status,
+    "Enqueued commit status notification for build start"
+  );
+}
+
+/// Send notifications immediately.
+/// This is the "legacy" fire-and-forget behavior.
 async fn send_notifications_immediate(
   build: &Build,
   project: &Project,
