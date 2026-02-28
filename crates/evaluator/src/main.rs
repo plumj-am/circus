@@ -30,6 +30,7 @@ async fn main() -> anyhow::Result<()> {
 
   let pool = db.pool().clone();
   let eval_config = config.evaluator;
+  let notifications_config = config.notifications;
 
   let wakeup = Arc::new(tokio::sync::Notify::new());
   let listener_handle = fc_common::pg_notify::spawn_listener(
@@ -39,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
   );
 
   tokio::select! {
-      result = fc_evaluator::eval_loop::run(pool, eval_config, wakeup) => {
+      result = fc_evaluator::eval_loop::run(pool, eval_config, notifications_config, wakeup) => {
           if let Err(e) = result {
               tracing::error!("Evaluator loop failed: {e}");
           }

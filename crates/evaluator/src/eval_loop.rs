@@ -28,6 +28,7 @@ use uuid::Uuid;
 pub async fn run(
   pool: PgPool,
   config: EvaluatorConfig,
+  notifications_config: fc_common::config::NotificationsConfig,
   wakeup: Arc<Notify>,
 ) -> anyhow::Result<()> {
   let poll_interval = Duration::from_secs(config.poll_interval);
@@ -37,7 +38,15 @@ pub async fn run(
   let strict = config.strict_errors;
 
   loop {
-    if let Err(e) = run_cycle(&pool, &config, nix_timeout, git_timeout).await {
+    if let Err(e) = run_cycle(
+      &pool,
+      &config,
+      &notifications_config,
+      nix_timeout,
+      git_timeout,
+    )
+    .await
+    {
       if strict {
         return Err(e);
       }
@@ -51,6 +60,7 @@ pub async fn run(
 async fn run_cycle(
   pool: &PgPool,
   config: &EvaluatorConfig,
+  notifications_config: &fc_common::config::NotificationsConfig,
   nix_timeout: Duration,
   git_timeout: Duration,
 ) -> anyhow::Result<()> {
@@ -76,8 +86,15 @@ async fn run_cycle(
   stream::iter(ready)
     .for_each_concurrent(max_concurrent, |jobset| {
       async move {
-        if let Err(e) =
-          evaluate_jobset(pool, &jobset, config, nix_timeout, git_timeout).await
+        if let Err(e) = evaluate_jobset(
+          pool,
+          &jobset,
+          config,
+          notifications_config,
+          nix_timeout,
+          git_timeout,
+        )
+        .await
         {
           tracing::error!(
               jobset_id = %jobset.id,
@@ -111,6 +128,7 @@ async fn evaluate_jobset(
   pool: &PgPool,
   jobset: &fc_common::models::ActiveJobset,
   config: &EvaluatorConfig,
+  notifications_config: &fc_common::config::NotificationsConfig,
   nix_timeout: Duration,
   git_timeout: Duration,
 ) -> anyhow::Result<()> {
@@ -325,6 +343,41 @@ async fn evaluate_jobset(
       );
 
       create_builds_from_eval(pool, eval.id, &eval_result).await?;
+
+      // Dispatch pending notifications for created builds
+      if notifications_config.enable_retry_queue {
+        if let Ok(project) = repo::projects::get(pool, jobset.project_id).await
+        {
+          if let Ok(builds) =
+            repo::builds::list_for_evaluation(pool, eval.id).await
+          {
+            for build in builds {
+              // Skip aggregate builds (they complete later when constituents
+              // finish)
+              if !build.is_aggregate {
+                fc_common::notifications::dispatch_build_created(
+                  pool,
+                  &build,
+                  &project,
+                  &eval.commit_hash,
+                  notifications_config,
+                )
+                .await;
+              }
+            }
+          } else {
+            tracing::warn!(
+              eval_id = %eval.id,
+              "Failed to fetch builds for pending notifications"
+            );
+          }
+        } else {
+          tracing::warn!(
+            project_id = %jobset.project_id,
+            "Failed to fetch project for pending notifications"
+          );
+        }
+      }
 
       repo::evaluations::update_status(
         pool,
