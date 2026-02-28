@@ -209,8 +209,8 @@ pub async fn run(
           }
 
           // Unsupported system timeout: abort builds with no available builders
-          if let Some(timeout) = unsupported_timeout {
-            if let Some(system) = &build.system {
+          if let Some(timeout) = unsupported_timeout
+            && let Some(system) = &build.system {
               match repo::remote_builders::find_for_system(&pool, system).await {
                 Ok(builders) if builders.is_empty() => {
                   let timeout_at = build.created_at + timeout;
@@ -252,7 +252,6 @@ pub async fn run(
                 },
               }
             }
-          }
 
           // One-at-a-time scheduling: check if jobset allows concurrent builds
           // First, get the evaluation to find the jobset

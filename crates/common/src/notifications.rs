@@ -28,6 +28,7 @@ pub struct RateLimitState {
   pub reset_at:  u64,
 }
 
+#[must_use] 
 pub fn extract_rate_limit_from_headers(
   headers: &reqwest::header::HeaderMap,
 ) -> Option<RateLimitState> {
@@ -37,6 +38,7 @@ pub fn extract_rate_limit_from_headers(
   Some(RateLimitState { limit, remaining, reset_at })
 }
 
+#[must_use] 
 pub fn calculate_delay(state: &RateLimitState, now: u64) -> u64 {
   let seconds_until_reset = state.reset_at.saturating_sub(now).max(1);
   let consumed = state.limit.saturating_sub(state.remaining);

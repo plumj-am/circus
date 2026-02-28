@@ -28,13 +28,12 @@ pub async fn create(
   .fetch_one(pool)
   .await
   .map_err(|e| {
-    if let sqlx::Error::Database(db_err) = &e {
-      if db_err.is_unique_violation() {
+    if let sqlx::Error::Database(db_err) = &e
+      && db_err.is_unique_violation() {
         return CiError::Conflict(format!(
           "Build output with name '{name}' already exists for build {build}"
         ));
       }
-    }
     CiError::Database(e)
   })
 }
