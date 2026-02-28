@@ -166,7 +166,7 @@ CREATE TABLE build_outputs (
   PRIMARY KEY (build, name)
 );
 
-CREATE INDEX idx_build_outputs_path ON build_outputs USING hash (path);
+CREATE INDEX idx_build_outputs_path ON build_outputs USING btree (path);
 
 -- build_products: output artifacts and metadata
 CREATE TABLE build_products (
