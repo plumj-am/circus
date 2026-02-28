@@ -158,6 +158,16 @@ CREATE TABLE builds (
   UNIQUE (evaluation_id, job_name)
 );
 
+-- build_outputs: normalized output storage
+CREATE TABLE build_outputs (
+  build UUID NOT NULL REFERENCES builds (id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  path TEXT,
+  PRIMARY KEY (build, name)
+);
+
+CREATE INDEX idx_build_outputs_path ON build_outputs USING hash (path);
+
 -- build_products: output artifacts and metadata
 CREATE TABLE build_products (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4 (),
@@ -534,10 +544,7 @@ CREATE TABLE notification_tasks (
 );
 
 -- Indexes: notification_tasks
-CREATE INDEX idx_notification_tasks_status_next_retry ON notification_tasks (
-  status,
-  next_retry_at
-)
+CREATE INDEX idx_notification_tasks_status_next_retry ON notification_tasks (status, next_retry_at)
 WHERE
   status IN ('pending', 'running');
 
