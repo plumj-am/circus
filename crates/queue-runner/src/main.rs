@@ -40,6 +40,7 @@ async fn main() -> anyhow::Result<()> {
   let failed_paths_cache = qr_config.failed_paths_cache;
   let failed_paths_ttl = qr_config.failed_paths_ttl;
   let work_dir = qr_config.work_dir;
+  let unsupported_timeout = qr_config.unsupported_timeout;
 
   // Ensure the work directory exists
   tokio::fs::create_dir_all(&work_dir).await?;
@@ -82,7 +83,7 @@ async fn main() -> anyhow::Result<()> {
   let active_builds = worker_pool.active_builds().clone();
 
   tokio::select! {
-      result = fc_queue_runner::runner_loop::run(db.pool().clone(), worker_pool, poll_interval, wakeup, strict_errors, failed_paths_cache, notifications_config.clone()) => {
+      result = fc_queue_runner::runner_loop::run(db.pool().clone(), worker_pool, poll_interval, wakeup, strict_errors, failed_paths_cache, notifications_config.clone(), unsupported_timeout) => {
           if let Err(e) = result {
               tracing::error!("Runner loop failed: {e}");
           }

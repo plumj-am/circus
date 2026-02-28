@@ -38,6 +38,7 @@ pub async fn run(
   strict_errors: bool,
   failed_paths_cache: bool,
   notifications_config: fc_common::config::NotificationsConfig,
+  unsupported_timeout: Option<Duration>,
 ) -> anyhow::Result<()> {
   // Reset orphaned builds from previous crashes (older than 5 minutes)
   match repo::builds::reset_orphaned(&pool, 300).await {
@@ -205,6 +206,52 @@ pub async fn run(
               );
               continue;
             },
+          }
+
+          // Unsupported system timeout: abort builds with no available builders
+          if let Some(timeout) = unsupported_timeout {
+            if let Some(system) = &build.system {
+              match repo::remote_builders::find_for_system(&pool, system).await {
+                Ok(builders) if builders.is_empty() => {
+                  let timeout_at = build.created_at + timeout;
+                  if chrono::Utc::now() > timeout_at {
+                    tracing::info!(
+                      build_id = %build.id,
+                      system = %system,
+                      timeout = ?timeout,
+                      "Aborting build: no builder available for system type"
+                    );
+
+                    if let Err(e) = repo::builds::start(&pool, build.id).await {
+                      tracing::warn!(build_id = %build.id, "Failed to start unsupported build: {e}");
+                    }
+
+                    if let Err(e) = repo::builds::complete(
+                      &pool,
+                      build.id,
+                      BuildStatus::UnsupportedSystem,
+                      None,
+                      None,
+                      Some("No builder available for system type"),
+                    )
+                    .await
+                    {
+                      tracing::warn!(build_id = %build.id, "Failed to complete unsupported build: {e}");
+                    }
+
+                    continue;
+                  }
+                },
+                Ok(_) => {}, // Builders available, proceed normally
+                Err(e) => {
+                  tracing::error!(
+                    build_id = %build.id,
+                    "Failed to check builders for unsupported system: {e}"
+                  );
+                  continue;
+                },
+              }
+            }
           }
 
           // One-at-a-time scheduling: check if jobset allows concurrent builds

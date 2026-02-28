@@ -923,3 +923,20 @@ unsupported_timeout = "2h 30m"
     );
   }
 }
+
+#[cfg(test)]
+mod humantime_option_test {
+    use super::*;
+    
+    #[test]
+    fn test_option_humantime_missing() {
+        let toml = r#"
+workers = 4
+poll_interval = 5
+build_timeout = 3600
+work_dir = "/tmp/fc"
+        "#;
+        let config: QueueRunnerConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.unsupported_timeout, None);
+    }
+}
