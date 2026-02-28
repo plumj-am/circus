@@ -1,13 +1,28 @@
 use std::{sync::Arc, time::Duration};
 
 use fc_common::{
-  models::{BuildStatus, JobsetState},
+  models::{Build, BuildStatus, JobsetState},
   repo,
 };
 use sqlx::PgPool;
 use tokio::sync::Notify;
 
 use crate::worker::WorkerPool;
+
+/// Fetch project and commit hash for a build by traversing:
+///
+/// Build -> Evaluation -> Jobset -> Project.
+async fn get_project_for_build(
+  pool: &PgPool,
+  build: &Build,
+) -> Option<(fc_common::models::Project, String)> {
+  let eval = repo::evaluations::get(pool, build.evaluation_id)
+    .await
+    .ok()?;
+  let jobset = repo::jobsets::get(pool, eval.jobset_id).await.ok()?;
+  let project = repo::projects::get(pool, jobset.project_id).await.ok()?;
+  Some((project, eval.commit_hash))
+}
 
 /// Main queue runner loop. Polls for pending builds and dispatches them to
 /// workers.
@@ -22,6 +37,7 @@ pub async fn run(
   wakeup: Arc<Notify>,
   strict_errors: bool,
   failed_paths_cache: bool,
+  notifications_config: fc_common::config::NotificationsConfig,
 ) -> anyhow::Result<()> {
   // Reset orphaned builds from previous crashes (older than 5 minutes)
   match repo::builds::reset_orphaned(&pool, 300).await {
@@ -68,6 +84,23 @@ pub async fn run(
                 .await
                 {
                   tracing::warn!(build_id = %build.id, "Failed to complete aggregate build: {e}");
+                  continue;
+                }
+
+                // Dispatch completion notification for aggregate build
+                if let Ok(updated_build) =
+                  repo::builds::get(&pool, build.id).await
+                  && let Some((project, commit_hash)) =
+                    get_project_for_build(&pool, &updated_build).await
+                {
+                  fc_common::notifications::dispatch_build_finished(
+                    Some(&pool),
+                    &updated_build,
+                    &project,
+                    &commit_hash,
+                    &notifications_config,
+                  )
+                  .await;
                 }
                 continue;
               },

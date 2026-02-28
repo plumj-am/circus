@@ -82,7 +82,7 @@ async fn main() -> anyhow::Result<()> {
   let active_builds = worker_pool.active_builds().clone();
 
   tokio::select! {
-      result = fc_queue_runner::runner_loop::run(db.pool().clone(), worker_pool, poll_interval, wakeup, strict_errors, failed_paths_cache) => {
+      result = fc_queue_runner::runner_loop::run(db.pool().clone(), worker_pool, poll_interval, wakeup, strict_errors, failed_paths_cache, notifications_config.clone()) => {
           if let Err(e) = result {
               tracing::error!("Runner loop failed: {e}");
           }

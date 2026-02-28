@@ -474,6 +474,22 @@ async fn run_build(
     return Ok(());
   }
 
+  let claimed_build = claimed.unwrap(); // Safe: we checked is_some()
+
+  // Dispatch build started notification
+  if let Some((project, commit_hash)) =
+    get_project_for_build(pool, &claimed_build).await
+  {
+    fc_common::notifications::dispatch_build_started(
+      pool,
+      &claimed_build,
+      &project,
+      &commit_hash,
+      notifications_config,
+    )
+    .await;
+  }
+
   tracing::info!(build_id = %build.id, job = %build.job_name, "Starting build");
 
   // Create a build step record
