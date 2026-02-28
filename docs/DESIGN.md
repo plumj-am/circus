@@ -46,3 +46,10 @@ Hydra follows a tightly-coupled architecture with three main daemons:
 ```plaintext
 Git Repository -> Evaluator -> Database -> Queue Runner -> Build Hosts -> Results -> Database - Web UI
 ```
+
+1. **hydra-server** (Perl/Catalyst): Web interface and REST API
+2. **hydra-evaluator**: Polls Git repos, evaluates Nix expressions, creates
+   `.drv` files
+3. **hydra-queue-runner**: Dispatches builds to available builders via SSH/Nix
+   remote
+4. **Database (PostgreSQL)**: Central state management for all components
