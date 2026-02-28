@@ -18,6 +18,29 @@ fn http_client() -> &'static reqwest::Client {
   CLIENT.get_or_init(reqwest::Client::new)
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct RateLimitState {
+  pub limit:     u64,
+  pub remaining: u64,
+  pub reset_at:  u64,
+}
+
+pub fn extract_rate_limit_from_headers(
+  headers: &reqwest::header::HeaderMap,
+) -> Option<RateLimitState> {
+  let limit = headers.get("X-RateLimit-Limit")?.to_str().ok()?.parse().ok()?;
+  let remaining = headers.get("X-RateLimit-Remaining")?.to_str().ok()?.parse().ok()?;
+  let reset_at = headers.get("X-RateLimit-Reset")?.to_str().ok()?.parse().ok()?;
+  Some(RateLimitState { limit, remaining, reset_at })
+}
+
+pub fn calculate_delay(state: &RateLimitState, now: u64) -> u64 {
+  let seconds_until_reset = state.reset_at.saturating_sub(now).max(1);
+  let consumed = state.limit.saturating_sub(state.remaining);
+  let delay = (consumed * 5) / seconds_until_reset;
+  delay.max(1)
+}
+
 /// Dispatch all configured notifications for a completed build.
 /// If retry queue is enabled, enqueues tasks; otherwise sends immediately.
 pub async fn dispatch_build_finished(

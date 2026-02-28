@@ -1,5 +1,7 @@
 //! Integration tests for database and configuration
 
+mod notifications_tests;
+
 use fc_common::{
   Database,
   config::{Config, DatabaseConfig},
