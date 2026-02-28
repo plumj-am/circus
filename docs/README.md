@@ -185,48 +185,49 @@ development.
 
 <!--markdownlint-disable MD013 -->
 
-| Section         | Key                    | Default                                       | Description                               |
-| --------------- | ---------------------- | --------------------------------------------- | ----------------------------------------- |
-| `database`      | `url`                  | `postgresql://fc_ci:password@localhost/fc_ci` | PostgreSQL connection URL                 |
-| `database`      | `max_connections`      | `20`                                          | Maximum connection pool size              |
-| `database`      | `min_connections`      | `5`                                           | Minimum idle connections                  |
-| `database`      | `connect_timeout`      | `30`                                          | Connection timeout (seconds)              |
-| `database`      | `idle_timeout`         | `600`                                         | Idle connection timeout (seconds)         |
-| `database`      | `max_lifetime`         | `1800`                                        | Maximum connection lifetime (seconds)     |
-| `server`        | `host`                 | `127.0.0.1`                                   | HTTP listen address                       |
-| `server`        | `port`                 | `3000`                                        | HTTP listen port                          |
-| `server`        | `request_timeout`      | `30`                                          | Per-request timeout (seconds)             |
-| `server`        | `max_body_size`        | `10485760`                                    | Maximum request body size (10 MB)         |
-| `server`        | `api_key`              | none                                          | Optional legacy API key (prefer DB keys)  |
-| `server`        | `cors_permissive`      | `false`                                       | Allow all CORS origins                    |
-| `server`        | `allowed_origins`      | `[]`                                          | Allowed CORS origins list                 |
-| `server`        | `rate_limit_rps`       | none                                          | Requests per second limit                 |
-| `server`        | `rate_limit_burst`     | none                                          | Burst size for rate limiting              |
-| `evaluator`     | `poll_interval`        | `60`                                          | Seconds between git poll cycles           |
-| `evaluator`     | `git_timeout`          | `600`                                         | Git operation timeout (seconds)           |
-| `evaluator`     | `nix_timeout`          | `1800`                                        | Nix evaluation timeout (seconds)          |
-| `evaluator`     | `max_concurrent_evals` | `4`                                           | Maximum concurrent evaluations            |
-| `evaluator`     | `work_dir`             | `/tmp/fc-evaluator`                           | Working directory for clones              |
-| `evaluator`     | `restrict_eval`        | `true`                                        | Pass `--option restrict-eval true` to Nix |
-| `evaluator`     | `allow_ifd`            | `false`                                       | Allow import-from-derivation              |
-| `queue_runner`  | `workers`              | `4`                                           | Concurrent build slots                    |
-| `queue_runner`  | `poll_interval`        | `5`                                           | Seconds between build queue polls         |
-| `queue_runner`  | `build_timeout`        | `3600`                                        | Per-build timeout (seconds)               |
-| `queue_runner`  | `work_dir`             | `/tmp/fc-queue-runner`                        | Working directory for builds              |
-| `gc`            | `enabled`              | `true`                                        | Manage GC roots for build outputs         |
-| `gc`            | `gc_roots_dir`         | `/nix/var/nix/gcroots/per-user/fc/fc-roots`   | GC roots directory                        |
-| `gc`            | `max_age_days`         | `30`                                          | Remove GC roots older than N days         |
-| `gc`            | `cleanup_interval`     | `3600`                                        | GC cleanup interval (seconds)             |
-| `logs`          | `log_dir`              | `/var/lib/fc/logs`                            | Build log storage directory               |
-| `logs`          | `compress`             | `false`                                       | Compress stored logs                      |
-| `cache`         | `enabled`              | `true`                                        | Serve a Nix binary cache at `/nix-cache/` |
-| `cache`         | `secret_key_file`      | none                                          | Signing key for binary cache              |
-| `signing`       | `enabled`              | `false`                                       | Sign build outputs                        |
-| `signing`       | `key_file`             | none                                          | Signing key file path                     |
-| `notifications` | `webhook_url`          | none                                          | HTTP endpoint to POST build status JSON   |
-| `notifications` | `github_token`         | none                                          | GitHub token for commit status updates    |
-| `notifications` | `gitea_url`            | none                                          | Gitea/Forgejo instance URL                |
-| `notifications` | `gitea_token`          | none                                          | Gitea/Forgejo API token                   |
+| Section         | Key                    | Default                                       | Description                                           |
+| --------------- | ---------------------- | --------------------------------------------- | ----------------------------------------------------- |
+| `database`      | `url`                  | `postgresql://fc_ci:password@localhost/fc_ci` | PostgreSQL connection URL                             |
+| `database`      | `max_connections`      | `20`                                          | Maximum connection pool size                          |
+| `database`      | `min_connections`      | `5`                                           | Minimum idle connections                              |
+| `database`      | `connect_timeout`      | `30`                                          | Connection timeout (seconds)                          |
+| `database`      | `idle_timeout`         | `600`                                         | Idle connection timeout (seconds)                     |
+| `database`      | `max_lifetime`         | `1800`                                        | Maximum connection lifetime (seconds)                 |
+| `server`        | `host`                 | `127.0.0.1`                                   | HTTP listen address                                   |
+| `server`        | `port`                 | `3000`                                        | HTTP listen port                                      |
+| `server`        | `request_timeout`      | `30`                                          | Per-request timeout (seconds)                         |
+| `server`        | `max_body_size`        | `10485760`                                    | Maximum request body size (10 MB)                     |
+| `server`        | `api_key`              | none                                          | Optional legacy API key (prefer DB keys)              |
+| `server`        | `cors_permissive`      | `false`                                       | Allow all CORS origins                                |
+| `server`        | `allowed_origins`      | `[]`                                          | Allowed CORS origins list                             |
+| `server`        | `force_secure_cookies` | `false`                                       | Force Secure flag on cookies (enable for HTTPS proxy) |
+| `server`        | `rate_limit_rps`       | none                                          | Requests per second limit per IP (DoS protection)     |
+| `server`        | `rate_limit_burst`     | none                                          | Burst size for rate limiting (e.g., 20)               |
+| `evaluator`     | `poll_interval`        | `60`                                          | Seconds between git poll cycles                       |
+| `evaluator`     | `git_timeout`          | `600`                                         | Git operation timeout (seconds)                       |
+| `evaluator`     | `nix_timeout`          | `1800`                                        | Nix evaluation timeout (seconds)                      |
+| `evaluator`     | `max_concurrent_evals` | `4`                                           | Maximum concurrent evaluations                        |
+| `evaluator`     | `work_dir`             | `/tmp/fc-evaluator`                           | Working directory for clones                          |
+| `evaluator`     | `restrict_eval`        | `true`                                        | Pass `--option restrict-eval true` to Nix             |
+| `evaluator`     | `allow_ifd`            | `false`                                       | Allow import-from-derivation                          |
+| `queue_runner`  | `workers`              | `4`                                           | Concurrent build slots                                |
+| `queue_runner`  | `poll_interval`        | `5`                                           | Seconds between build queue polls                     |
+| `queue_runner`  | `build_timeout`        | `3600`                                        | Per-build timeout (seconds)                           |
+| `queue_runner`  | `work_dir`             | `/tmp/fc-queue-runner`                        | Working directory for builds                          |
+| `gc`            | `enabled`              | `true`                                        | Manage GC roots for build outputs                     |
+| `gc`            | `gc_roots_dir`         | `/nix/var/nix/gcroots/per-user/fc/fc-roots`   | GC roots directory                                    |
+| `gc`            | `max_age_days`         | `30`                                          | Remove GC roots older than N days                     |
+| `gc`            | `cleanup_interval`     | `3600`                                        | GC cleanup interval (seconds)                         |
+| `logs`          | `log_dir`              | `/var/lib/fc/logs`                            | Build log storage directory                           |
+| `logs`          | `compress`             | `false`                                       | Compress stored logs                                  |
+| `cache`         | `enabled`              | `true`                                        | Serve a Nix binary cache at `/nix-cache/`             |
+| `cache`         | `secret_key_file`      | none                                          | Signing key for binary cache                          |
+| `signing`       | `enabled`              | `false`                                       | Sign build outputs                                    |
+| `signing`       | `key_file`             | none                                          | Signing key file path                                 |
+| `notifications` | `webhook_url`          | none                                          | HTTP endpoint to POST build status JSON               |
+| `notifications` | `github_token`         | none                                          | GitHub token for commit status updates                |
+| `notifications` | `gitea_url`            | none                                          | Gitea/Forgejo instance URL                            |
+| `notifications` | `gitea_token`          | none                                          | Gitea/Forgejo API token                               |
 
 <!--markdownlint-enable MD013 -->
 
@@ -300,6 +301,11 @@ proxy:
       server.host = "127.0.0.1";
       server.port = 3000;
 
+      # Security: enable when behind HTTPS reverse proxy
+      server.force_secure_cookies = true;
+      server.rate_limit_rps = 100;
+      server.rate_limit_burst = 20;
+
       evaluator.poll_interval = 300;
       evaluator.restrict_eval = true;
       queue_runner.workers = 8;
@@ -368,6 +374,11 @@ database URL:
 Ensure the PostgreSQL server on the head node allows connections from builder
 machines via `pg_hba.conf` (the NixOS `services.postgresql` module handles this
 with `authentication` settings).
+
+## Security
+
+FC implements multiple security layers to protect your CI infrastructure. See
+[the security document](./SECURITY.md) for more details.
 
 ## Authentication
 
