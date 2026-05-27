@@ -120,16 +120,10 @@ pub async fn run(pool: &PgPool, config: &DeclarativeConfig) -> Result<()> {
     );
 
     for decl_jobset in &decl_project.jobsets {
-      // Parse state string to JobsetState enum
-      let state = decl_jobset.state.as_ref().map(|s| {
-        match s.as_str() {
-          "disabled" => JobsetState::Disabled,
-          "one_shot" => JobsetState::OneShot,
-          "one_at_a_time" => JobsetState::OneAtATime,
-          _ => JobsetState::Enabled, /* Default to enabled for "enabled" or
-                                      * unknown values */
-        }
-      });
+      let state = decl_jobset
+        .state
+        .as_deref()
+        .map(JobsetState::from_config_str);
 
       let jobset = repo::jobsets::upsert(pool, CreateJobset {
         project_id: project.id,
@@ -367,6 +361,16 @@ pub async fn run(pool: &PgPool, config: &DeclarativeConfig) -> Result<()> {
           "Synced declarative project members"
       );
     }
+  }
+
+  // Wake the evaluator so it picks up newly bootstrapped jobsets immediately
+  // instead of waiting for the next poll interval.
+  if let Err(e) = sqlx::query("SELECT pg_notify($1, '')")
+    .bind(crate::pg_notify::CHANNEL_JOBSETS_CHANGED)
+    .execute(pool)
+    .await
+  {
+    tracing::warn!("Failed to notify evaluator after bootstrap: {e}");
   }
 
   tracing::info!("Declarative bootstrap complete");

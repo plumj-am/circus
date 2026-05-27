@@ -94,6 +94,18 @@ impl JobsetState {
       Self::OneAtATime => "one_at_a_time",
     }
   }
+
+  /// Parses a state string from declarative config.
+  /// Unrecognised values default to `Enabled`.
+  #[must_use]
+  pub fn from_config_str(s: &str) -> Self {
+    match s {
+      "disabled" => Self::Disabled,
+      "one_shot" => Self::OneShot,
+      "one_at_a_time" => Self::OneAtATime,
+      _ => Self::Enabled,
+    }
+  }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
