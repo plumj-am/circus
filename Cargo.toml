@@ -7,22 +7,17 @@ edition      = "2024"
 license      = "MPL-2.0"
 repository   = "https://github.com/manic-systems/circus"
 rust-version = "1.95.0"
-version      = "0.4.0-dev"
+version      = "0.5.0-dev"
 
 [workspace.dependencies]
 # Components
-circus-common       = { path = "./crates/common", version = "0.4.0-dev" }
-circus-evaluator    = { path = "./crates/evaluator", version = "0.4.0-dev" }
-circus-migrations   = { path = "./crates/migrations", version = "0.4.0-dev" }
-circus-queue-runner = { path = "./crates/queue-runner", version = "0.4.0-dev" }
-circus-server       = { path = "./crates/server", version = "0.4.0-dev" }
+circus-common       = { path = "./crates/common", version = "0.5.0-dev" }
+circus-evaluator    = { path = "./crates/evaluator", version = "0.5.0-dev" }
+circus-migrations   = { path = "./crates/migrations", version = "0.5.0-dev" }
+circus-queue-runner = { path = "./crates/queue-runner", version = "0.5.0-dev" }
+circus-server       = { path = "./crates/server", version = "0.5.0-dev" }
 
 anyhow = "1.0.102"
-# `rand_core::OsRng` in ./crates/common/src/repo/users.rs:28
-# Item `os::OsRng` is configured out by feature flag.
-# crate/feature flag chain:
-# argon/std -> password-hash/std -> rand_core/std -> getrandom
-argon2 = { version = "0.5.3", features = [ "std" ] }
 askama = "0.16.0"
 async-stream = "0.3.6"
 axum = "0.8.9"
@@ -74,6 +69,11 @@ urlencoding = "2.1.3"
 uuid = { version = "1.23.1", features = [ "v4", "serde" ] }
 whoami = { version = "2.1.2", features = [ "std" ] }
 xz2 = "0.1.7"
+
+# In fc-common `os::OsRng` is configured out by feature flag.
+# argon/std -> password-hash/std -> rand_core/std -> getrandom
+# Add it back.
+argon2 = { version = "0.5.3", features = [ "std" ] }
 
 # See:
 #  <https://doc.rust-lang.org/rustc/lints/listing/allowed-by-default.html>
