@@ -7,6 +7,7 @@ use axum::{
   routing::post,
 };
 use circus_common::{models::CreateEvaluation, repo};
+use hmac::KeyInit;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

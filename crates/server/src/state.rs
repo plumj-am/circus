@@ -5,6 +5,7 @@ use circus_common::{
   models::{ApiKey, User},
 };
 use dashmap::DashMap;
+use hmac::KeyInit;
 use sqlx::PgPool;
 
 /// Maximum session lifetime before automatic eviction (24 hours).
