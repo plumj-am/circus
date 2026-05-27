@@ -32,7 +32,7 @@ clap = { version = "4.6.1", features = [ "derive" ] }
 config = "0.15.23"
 dashmap = "6.2.1"
 futures = "0.3.32"
-git2 = { version = "0.21.0", features = ["https"] }
+git2 = { version = "0.21.0", features = [ "https" ] }
 hex = "0.4.3"
 hmac = "0.13.0"
 humantime-serde = "1.1.1"
@@ -45,7 +45,7 @@ lettre = { version = "0.11.22", default-features = false, features = [
 libc = "0.2.186"
 nix-nar = "0.4.0"
 oauth2 = "5.0.0"
-password-hash = { version = "0.6.1", features = ["getrandom"] }
+password-hash = { version = "0.6.1", features = [ "getrandom" ] }
 regex = "1.12.3"
 reqwest = { version = "0.13.4", default-features = false, features = [ "json", "rustls" ] }
 serde = { version = "1.0.228", features = [ "derive" ] }

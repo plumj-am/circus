@@ -1,5 +1,4 @@
 -- circus database schema - trigger functions and triggers
-
 -- Trigger function: auto-update updated_at on mutation
 CREATE OR REPLACE FUNCTION update_updated_at_column () RETURNS TRIGGER AS $$
 BEGIN

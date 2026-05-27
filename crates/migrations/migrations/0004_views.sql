@@ -1,5 +1,4 @@
 -- circus database schema - views
-
 CREATE VIEW active_jobsets AS
 SELECT
   j.id,

@@ -1,5 +1,4 @@
 -- circus database schema - indexes
-
 -- Indexes: projects
 CREATE INDEX idx_projects_name ON projects (name);
 
