@@ -65,6 +65,12 @@ pub fn calculate_delay(state: &RateLimitState, now: u64) -> u64 {
   delay.max(1)
 }
 
+fn unix_now_secs() -> u64 {
+  SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .map_or(0, |duration| duration.as_secs())
+}
+
 /// Dispatch all configured notifications for a completed build.
 /// If retry queue is enabled, enqueues tasks; otherwise sends immediately.
 pub async fn dispatch_build_finished(
@@ -536,10 +542,7 @@ async fn set_github_status(
 
       // Handle rate limiting based on extracted state
       if let Some(rate_limit) = rate_limit {
-        let now = SystemTime::now()
-          .duration_since(UNIX_EPOCH)
-          .unwrap()
-          .as_secs();
+        let now = unix_now_secs();
 
         // Log when approaching limit (Hydra threshold: 2000)
         if rate_limit.remaining <= 2000 {
