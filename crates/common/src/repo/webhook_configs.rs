@@ -167,18 +167,12 @@ pub async fn sync_for_project(
   // Upsert each webhook config
   for webhook in webhooks {
     let secret = resolve_secret(webhook);
-    let secret_hash = secret.as_ref().map(|s| {
-      use sha2::{Digest, Sha256};
-      let mut hasher = Sha256::new();
-      hasher.update(s.as_bytes());
-      hex::encode(hasher.finalize())
-    });
 
     upsert(
       pool,
       project_id,
       &webhook.forge_type,
-      secret_hash.as_deref(),
+      secret.as_deref(),
       webhook.enabled,
     )
     .await?;

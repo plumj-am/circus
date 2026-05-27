@@ -1,3 +1,8 @@
+use std::{
+  pin::Pin,
+  task::{Context, Poll},
+};
+
 use axum::{
   Router,
   body::Body,
@@ -6,7 +11,10 @@ use axum::{
   response::{IntoResponse, Response},
   routing::get,
 };
-use tokio::process::Command;
+use tokio::{
+  io::{AsyncRead, ReadBuf},
+  process::{Child, ChildStdout, Command},
+};
 
 use crate::{error::ApiError, state::AppState};
 
@@ -226,11 +234,50 @@ async fn sign_narinfo(narinfo: &str, key_file: &std::path::Path) -> String {
 /// Serve a compressed NAR file for a store path.
 /// Pipe `nix store dump-path` through an external compressor binary.
 /// Both processes are killed on drop so client disconnects are propagated.
+struct ChildOutput {
+  children: Vec<OwnedChild>,
+  stdout:   ChildStdout,
+}
+
+enum OwnedChild {
+  Std(std::process::Child),
+  Tokio(Child),
+}
+
+impl OwnedChild {
+  fn kill(&mut self) -> std::io::Result<()> {
+    match self {
+      Self::Std(child) => child.kill(),
+      Self::Tokio(child) => child.start_kill(),
+    }
+  }
+}
+
+impl AsyncRead for ChildOutput {
+  fn poll_read(
+    mut self: Pin<&mut Self>,
+    cx: &mut Context<'_>,
+    buf: &mut ReadBuf<'_>,
+  ) -> Poll<std::io::Result<()>> {
+    Pin::new(&mut self.stdout).poll_read(cx, buf)
+  }
+}
+
+impl Drop for ChildOutput {
+  fn drop(&mut self) {
+    for child in &mut self.children {
+      if let Err(e) = child.kill() {
+        tracing::debug!("Failed to kill cache stream child process: {e}");
+      }
+    }
+  }
+}
+
 fn pipe_through_compressor(
   store_path: &str,
   compressor: &str,
   args: &[&str],
-) -> Result<tokio::process::ChildStdout, ApiError> {
+) -> Result<ChildOutput, ApiError> {
   let mut nix_child = std::process::Command::new("nix")
     .args(["store", "dump-path", store_path])
     .stdout(std::process::Stdio::piped())
@@ -261,10 +308,15 @@ fn pipe_through_compressor(
       )))
     })?;
 
-  comp_child.stdout.take().ok_or_else(|| {
+  let stdout = comp_child.stdout.take().ok_or_else(|| {
     ApiError(circus_common::CiError::Build(format!(
       "{compressor} produced no stdout"
     )))
+  })?;
+
+  Ok(ChildOutput {
+    children: vec![OwnedChild::Std(nix_child), OwnedChild::Tokio(comp_child)],
+    stdout,
   })
 }
 
@@ -324,7 +376,10 @@ async fn serve_nar_combined(
         "nix store dump-path produced no stdout".to_string(),
       ))
     })?;
-    Body::from_stream(tokio_util::io::ReaderStream::new(stdout))
+    Body::from_stream(tokio_util::io::ReaderStream::new(ChildOutput {
+      children: vec![OwnedChild::Tokio(child)],
+      stdout,
+    }))
   };
 
   Ok((StatusCode::OK, [("content-type", content_type)], body).into_response())
