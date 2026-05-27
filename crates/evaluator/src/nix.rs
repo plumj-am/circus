@@ -89,7 +89,11 @@ pub fn parse_eval_output(stdout: &str) -> EvalResult {
             system: raw.system,
             outputs: raw.outputs,
             input_drvs: raw.input_drvs,
-            constituents: raw.constituents,
+            // nix-eval-jobs emits `"constituents": []` for ordinary jobs; only
+            // a non-empty list denotes an aggregate. Treat empty as None so
+            // ordinary builds are not misclassified as aggregates, which the
+            // queue runner never builds.
+            constituents: raw.constituents.filter(|c| !c.is_empty()),
           });
         }
       },
@@ -348,8 +352,16 @@ async fn evaluate_with_nix_eval(
         let drv_stdout = String::from_utf8_lossy(&drv_output.stdout);
         if let Ok(drv_json) =
           serde_json::from_str::<serde_json::Value>(&drv_stdout)
-          && let Some((drv_path, drv_val)) =
-            drv_json.as_object().and_then(|o| o.iter().next())
+          // Newer `nix derivation show` wraps output as
+          // `{"derivations": {<drv>: {...}}, "version": N}`; older nix keys the
+          // drv paths directly at the top level. Without unwrapping the
+          // "derivations" key, the first top-level key parsed as the drv_path
+          // becomes the literal string "derivations".
+          && let Some((drv_path, drv_val)) = drv_json
+            .get("derivations")
+            .and_then(serde_json::Value::as_object)
+            .or_else(|| drv_json.as_object())
+            .and_then(|o| o.iter().next())
         {
           let system = drv_val
             .get("system")
