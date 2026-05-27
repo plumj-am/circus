@@ -12,6 +12,7 @@ pub mod jobsets;
 pub mod ldap;
 pub mod logs;
 pub mod metrics;
+pub mod news;
 pub mod oauth;
 pub mod openapi;
 pub mod projects;
@@ -189,6 +190,7 @@ pub fn router(state: AppState, config: &ServerConfig) -> Router {
                 .merge(users::router())
                 .merge(search::router())
                 .merge(channels::router())
+                .merge(news::router())
                 .merge(admin::router())
                 .route_layer(middleware::from_fn_with_state(
                     state.clone(),

@@ -18,6 +18,7 @@ use circus_common::models::{
   Evaluation,
   EvaluationStatus,
   Jobset,
+  NewsItem,
   NotificationConfig,
   Project,
   SystemStatus,
@@ -379,6 +380,24 @@ struct QueueTemplate {
 #[template(path = "channels.html")]
 struct ChannelsTemplate {
   channels: Vec<Channel>,
+}
+
+#[derive(Template)]
+#[template(path = "channel.html")]
+struct ChannelTemplate {
+  channel:         Channel,
+  builds:          Vec<BuildView>,
+  succeeded_count: i64,
+  failed_count:    i64,
+  pending_count:   i64,
+}
+
+#[derive(Template)]
+#[template(path = "news.html")]
+struct NewsTemplate {
+  items:      Vec<NewsItem>,
+  is_admin:   bool,
+  csrf_token: String,
 }
 
 /// Builder info with load and activity metrics
@@ -1088,6 +1107,133 @@ async fn channels_page(State(state): State<AppState>) -> Html<String> {
   )
 }
 
+async fn channel_page(
+  State(state): State<AppState>,
+  Path(id): Path<Uuid>,
+) -> Html<String> {
+  let Ok(channel) = circus_common::repo::channels::get(&state.pool, id).await
+  else {
+    return Html("Channel not found".to_string());
+  };
+
+  let builds = if let Some(eval_id) = channel.current_evaluation_id {
+    circus_common::repo::builds::list_for_evaluation(&state.pool, eval_id)
+      .await
+      .unwrap_or_default()
+  } else {
+    Vec::new()
+  };
+
+  let succeeded_count = builds
+    .iter()
+    .filter(|b| b.status == BuildStatus::Succeeded)
+    .count() as i64;
+  let failed_count = builds
+    .iter()
+    .filter(|b| {
+      matches!(
+        b.status,
+        BuildStatus::Failed
+          | BuildStatus::FailedWithOutput
+          | BuildStatus::Timeout
+          | BuildStatus::DependencyFailed
+          | BuildStatus::Aborted
+      )
+    })
+    .count() as i64;
+  let pending_count = builds
+    .iter()
+    .filter(|b| matches!(b.status, BuildStatus::Pending | BuildStatus::Running))
+    .count() as i64;
+
+  let tmpl = ChannelTemplate {
+    channel,
+    builds: builds.iter().map(build_view).collect(),
+    succeeded_count,
+    failed_count,
+    pending_count,
+  };
+  Html(
+    tmpl
+      .render()
+      .unwrap_or_else(|e| format!("Template error: {e}")),
+  )
+}
+
+async fn news_page(
+  State(state): State<AppState>,
+  extensions: Extensions,
+) -> Html<String> {
+  let items = circus_common::repo::news::list(&state.pool, 50, 0)
+    .await
+    .unwrap_or_default();
+  let tmpl = NewsTemplate {
+    items,
+    is_admin: is_admin(&extensions),
+    csrf_token: csrf_from(&extensions),
+  };
+  Html(
+    tmpl
+      .render()
+      .unwrap_or_else(|e| format!("Template error: {e}")),
+  )
+}
+
+#[derive(serde::Deserialize)]
+struct NewsCreateForm {
+  title:      String,
+  content:    String,
+  csrf_token: String,
+}
+
+async fn news_create(
+  State(state): State<AppState>,
+  extensions: Extensions,
+  Form(form): Form<NewsCreateForm>,
+) -> Response {
+  if !is_admin(&extensions) {
+    return StatusCode::FORBIDDEN.into_response();
+  }
+  if let Err(e) = check_csrf(&extensions, &form.csrf_token) {
+    return e;
+  }
+  if form.title.trim().is_empty() {
+    return (StatusCode::BAD_REQUEST, "Title is required").into_response();
+  }
+  if let Err(e) = circus_common::repo::news::create(
+    &state.pool,
+    circus_common::models::CreateNewsItem {
+      title:      form.title.trim().to_string(),
+      content:    form.content,
+      created_by: None,
+    },
+  )
+  .await
+  {
+    tracing::warn!("Failed to create news item: {e}");
+    return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+  }
+  Redirect::to("/news").into_response()
+}
+
+async fn news_delete(
+  State(state): State<AppState>,
+  Path(id): Path<Uuid>,
+  extensions: Extensions,
+  Form(form): Form<CsrfOnlyForm>,
+) -> Response {
+  if !is_admin(&extensions) {
+    return StatusCode::FORBIDDEN.into_response();
+  }
+  if let Err(e) = check_csrf(&extensions, &form.csrf_token) {
+    return e;
+  }
+  if let Err(e) = circus_common::repo::news::delete(&state.pool, id).await {
+    tracing::warn!(id = %id, "Failed to delete news item: {e}");
+  }
+  Redirect::to("/news").into_response()
+}
+
 async fn admin_page(
   State(state): State<AppState>,
   extensions: Extensions,
@@ -1791,6 +1937,9 @@ pub fn router() -> Router<AppState> {
     .route("/build/{id}", get(build_page))
     .route("/queue", get(queue_page))
     .route("/channels", get(channels_page))
+    .route("/channel/{id}", get(channel_page))
+    .route("/news", get(news_page).post(news_create))
+    .route("/news/{id}/delete", axum::routing::post(news_delete))
     .route("/admin", get(admin_page))
     .route("/users", get(users_page))
     .route("/starred", get(starred_page))

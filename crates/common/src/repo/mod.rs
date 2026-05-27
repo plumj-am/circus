@@ -10,6 +10,7 @@ pub mod evaluations;
 pub mod failed_paths_cache;
 pub mod jobset_inputs;
 pub mod jobsets;
+pub mod news;
 pub mod notification_configs;
 pub mod notification_tasks;
 pub mod project_members;
