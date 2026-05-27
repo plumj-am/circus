@@ -134,6 +134,33 @@ async fn list_build_products(
   Ok(Json(products))
 }
 
+async fn list_build_dependencies(
+  State(state): State<AppState>,
+  Path(id): Path<Uuid>,
+) -> Result<Json<Vec<Build>>, ApiError> {
+  let deps = circus_common::repo::build_dependencies::list_dependency_builds(
+    &state.pool,
+    id,
+  )
+  .await
+  .map_err(ApiError)?;
+  Ok(Json(deps))
+}
+
+async fn list_build_dependents(
+  State(state): State<AppState>,
+  Path(id): Path<Uuid>,
+) -> Result<Json<Vec<Build>>, ApiError> {
+  let dependents =
+    circus_common::repo::build_dependencies::list_dependent_builds(
+      &state.pool,
+      id,
+    )
+    .await
+    .map_err(ApiError)?;
+  Ok(Json(dependents))
+}
+
 async fn build_stats(
   State(state): State<AppState>,
 ) -> Result<Json<circus_common::BuildStats>, ApiError> {
@@ -353,6 +380,8 @@ pub fn router() -> Router<AppState> {
     .route("/builds/{id}/keep/{value}", put(set_keep_flag))
     .route("/builds/{id}/steps", get(list_build_steps))
     .route("/builds/{id}/products", get(list_build_products))
+    .route("/builds/{id}/dependencies", get(list_build_dependencies))
+    .route("/builds/{id}/dependents", get(list_build_dependents))
     .route(
       "/builds/{build_id}/products/{product_id}/download",
       get(download_build_product),

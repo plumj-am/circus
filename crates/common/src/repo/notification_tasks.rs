@@ -58,6 +58,30 @@ pub async fn list_pending(
   Ok(tasks)
 }
 
+/// List recent notification tasks for operator visibility.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
+pub async fn list_recent(
+  pool: &PgPool,
+  limit: i32,
+) -> Result<Vec<NotificationTask>> {
+  let tasks = sqlx::query_as::<_, NotificationTask>(
+    r"
+    SELECT *
+    FROM notification_tasks
+    ORDER BY created_at DESC
+    LIMIT $1
+    ",
+  )
+  .bind(limit)
+  .fetch_all(pool)
+  .await?;
+
+  Ok(tasks)
+}
+
 /// Mark a task as running (claimed by worker)
 ///
 /// # Errors
@@ -136,6 +160,39 @@ pub async fn mark_failed_and_retry(
   .await?;
 
   Ok(())
+}
+
+/// Requeue a failed notification task for manual retry.
+///
+/// # Errors
+///
+/// Returns error if database update fails or the task is not failed.
+pub async fn requeue_failed(
+  pool: &PgPool,
+  task_id: Uuid,
+) -> Result<NotificationTask> {
+  let task = sqlx::query_as::<_, NotificationTask>(
+    r"
+    UPDATE notification_tasks
+    SET status = 'pending',
+        attempts = 0,
+        next_retry_at = NOW(),
+        last_error = NULL,
+        completed_at = NULL
+    WHERE id = $1 AND status = 'failed'
+    RETURNING *
+    ",
+  )
+  .bind(task_id)
+  .fetch_optional(pool)
+  .await?
+  .ok_or_else(|| {
+    crate::CiError::Validation(
+      "Notification task not found or not failed".to_string(),
+    )
+  })?;
+
+  Ok(task)
 }
 
 /// Get task by ID

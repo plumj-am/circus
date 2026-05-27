@@ -93,6 +93,58 @@
 </div>
 {% endif %}
 
+<h2>Dependencies</h2>
+{% if dependencies.is_empty() && dependents.is_empty() %}
+<div class="empty">No build dependency relationships recorded.</div>
+{% else %}
+<div class="split-grid">
+  <section>
+    <h3>Required Builds</h3>
+    {% if dependencies.is_empty() %}
+    <div class="empty">No dependencies.</div>
+    {% else %}
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Job</th><th>Status</th><th>System</th><th>Output</th></tr></thead>
+      <tbody>
+        {% for dep in dependencies %}
+        <tr>
+          <td><a href="/build/{{ dep.id }}">{{ dep.job_name }}</a></td>
+          <td><span class="badge badge-{{ dep.status_class }}">{{ dep.status_text }}</span></td>
+          <td>{{ dep.system }}</td>
+          <td>{% if !dep.output_path.is_empty() %}<code>{{ dep.output_path }}</code>{% else %}-{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% endif %}
+  </section>
+  <section>
+    <h3>Dependent Builds</h3>
+    {% if dependents.is_empty() %}
+    <div class="empty">No dependents.</div>
+    {% else %}
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Job</th><th>Status</th><th>System</th><th>Output</th></tr></thead>
+      <tbody>
+        {% for dep in dependents %}
+        <tr>
+          <td><a href="/build/{{ dep.id }}">{{ dep.job_name }}</a></td>
+          <td><span class="badge badge-{{ dep.status_class }}">{{ dep.status_text }}</span></td>
+          <td>{{ dep.system }}</td>
+          <td>{% if !dep.output_path.is_empty() %}<code>{{ dep.output_path }}</code>{% else %}-{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% endif %}
+  </section>
+</div>
+{% endif %}
+
 <h2>Build Products</h2>
 {% if products.is_empty() %}
 <div class="empty">No products recorded.</div>

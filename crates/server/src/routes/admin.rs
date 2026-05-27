@@ -2,20 +2,28 @@ use axum::{
   Json,
   Router,
   extract::{Path, State},
-  routing::get,
+  routing::{get, post},
 };
 use circus_common::{
   Validate,
   models::{
     CreateRemoteBuilder,
+    NotificationTask,
     RemoteBuilder,
     SystemStatus,
     UpdateRemoteBuilder,
   },
 };
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{auth_middleware::RequireAdmin, error::ApiError, state::AppState};
+
+fn config_file_path() -> std::path::PathBuf {
+  std::env::var_os("CIRCUS_CONFIG_FILE")
+    .map(std::path::PathBuf::from)
+    .unwrap_or_else(|| std::path::PathBuf::from("circus.toml"))
+}
 
 async fn list_builders(
   State(state): State<AppState>,
@@ -122,6 +130,95 @@ async fn system_status(
   }))
 }
 
+async fn list_notification_tasks(
+  _auth: RequireAdmin,
+  State(state): State<AppState>,
+) -> Result<Json<Vec<NotificationTask>>, ApiError> {
+  let tasks =
+    circus_common::repo::notification_tasks::list_recent(&state.pool, 100)
+      .await
+      .map_err(ApiError)?;
+  Ok(Json(tasks))
+}
+
+async fn retry_notification_task(
+  _auth: RequireAdmin,
+  State(state): State<AppState>,
+  Path(id): Path<Uuid>,
+) -> Result<Json<NotificationTask>, ApiError> {
+  let task =
+    circus_common::repo::notification_tasks::requeue_failed(&state.pool, id)
+      .await
+      .map_err(ApiError)?;
+  Ok(Json(task))
+}
+
+#[derive(Debug, Serialize)]
+struct ConfigFileResponse {
+  path:             String,
+  contents:         String,
+  requires_restart: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateConfigFile {
+  contents: String,
+}
+
+async fn get_config_file(
+  _auth: RequireAdmin,
+) -> Result<Json<ConfigFileResponse>, ApiError> {
+  let path = config_file_path();
+  let contents = match tokio::fs::read_to_string(&path).await {
+    Ok(contents) => contents,
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+      toml::to_string_pretty(&circus_common::config::Config::default())
+        .map_err(|e| {
+          ApiError(circus_common::CiError::Internal(format!(
+            "Failed to render default configuration: {e}"
+          )))
+        })?
+    },
+    Err(e) => return Err(ApiError(circus_common::CiError::Io(e))),
+  };
+
+  Ok(Json(ConfigFileResponse {
+    path: path.display().to_string(),
+    contents,
+    requires_restart: true,
+  }))
+}
+
+async fn update_config_file(
+  _auth: RequireAdmin,
+  Json(input): Json<UpdateConfigFile>,
+) -> Result<Json<ConfigFileResponse>, ApiError> {
+  let parsed: circus_common::config::Config = toml::from_str(&input.contents)
+    .map_err(|e| {
+    ApiError(circus_common::CiError::Validation(format!(
+      "Invalid TOML configuration: {e}"
+    )))
+  })?;
+  parsed
+    .validate()
+    .map_err(|e| ApiError(circus_common::CiError::Validation(e.to_string())))?;
+
+  let path = config_file_path();
+  let tmp_path = path.with_extension("toml.tmp");
+  tokio::fs::write(&tmp_path, &input.contents)
+    .await
+    .map_err(|e| ApiError(circus_common::CiError::Io(e)))?;
+  tokio::fs::rename(&tmp_path, &path)
+    .await
+    .map_err(|e| ApiError(circus_common::CiError::Io(e)))?;
+
+  Ok(Json(ConfigFileResponse {
+    path:             path.display().to_string(),
+    contents:         input.contents,
+    requires_restart: true,
+  }))
+}
+
 pub fn router() -> Router<AppState> {
   Router::new()
     .route("/admin/builders", get(list_builders).post(create_builder))
@@ -130,4 +227,13 @@ pub fn router() -> Router<AppState> {
       get(get_builder).put(update_builder).delete(delete_builder),
     )
     .route("/admin/system", get(system_status))
+    .route("/admin/notification-tasks", get(list_notification_tasks))
+    .route(
+      "/admin/notification-tasks/{id}/retry",
+      post(retry_notification_task),
+    )
+    .route(
+      "/admin/config",
+      get(get_config_file).put(update_config_file),
+    )
 }

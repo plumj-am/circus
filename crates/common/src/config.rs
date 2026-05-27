@@ -249,6 +249,7 @@ pub enum NarCompression {
   #[default]
   Zstd,
   Bzip2,
+  Brotli,
   Xz,
   None,
 }
@@ -259,6 +260,7 @@ impl NarCompression {
     match self {
       Self::Zstd => "zstd",
       Self::Bzip2 => "bzip2",
+      Self::Brotli => "br",
       Self::Xz => "xz",
       Self::None => "none",
     }
@@ -269,6 +271,7 @@ impl NarCompression {
     match self {
       Self::Zstd => ".nar.zst",
       Self::Bzip2 => ".nar.bz2",
+      Self::Brotli => ".nar.br",
       Self::Xz => ".nar.xz",
       Self::None => ".nar",
     }
@@ -782,7 +785,7 @@ impl Config {
       }
     } else if std::path::Path::new("circus.toml").exists() {
       settings = settings
-        .add_source(config_crate::File::with_name("fc").required(false));
+        .add_source(config_crate::File::with_name("circus").required(false));
     }
 
     // Load from environment variables with CIRCUS_ prefix (highest priority)

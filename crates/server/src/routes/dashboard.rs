@@ -359,6 +359,8 @@ struct BuildTemplate {
   build:             BuildView,
   steps:             Vec<BuildStep>,
   products:          Vec<BuildProduct>,
+  dependencies:      Vec<BuildView>,
+  dependents:        Vec<BuildView>,
   eval_id:           Uuid,
   eval_commit_short: String,
   jobset_id:         Uuid,
@@ -414,14 +416,28 @@ struct BuilderView {
   last_activity:  String,
 }
 
+struct NotificationTaskView {
+  id:                Uuid,
+  notification_type: String,
+  status:            String,
+  attempts:          i32,
+  max_attempts:      i32,
+  next_retry_at:     String,
+  last_error:        String,
+  created_at:        String,
+}
+
 #[derive(Template)]
 #[template(path = "admin.html")]
 struct AdminTemplate {
-  status:    SystemStatus,
-  builders:  Vec<BuilderView>,
-  api_keys:  Vec<ApiKeyView>,
-  is_admin:  bool,
-  auth_name: String,
+  status:             SystemStatus,
+  builders:           Vec<BuilderView>,
+  api_keys:           Vec<ApiKeyView>,
+  notification_tasks: Vec<NotificationTaskView>,
+  config_path:        String,
+  config_contents:    String,
+  is_admin:           bool,
+  auth_name:          String,
 }
 
 #[derive(Template)]
@@ -972,11 +988,33 @@ async fn build_page(
     circus_common::repo::build_products::list_for_build(&state.pool, id)
       .await
       .unwrap_or_default();
+  let dependencies =
+    circus_common::repo::build_dependencies::list_dependency_builds(
+      &state.pool,
+      id,
+    )
+    .await
+    .unwrap_or_default()
+    .iter()
+    .map(build_view)
+    .collect();
+  let dependents =
+    circus_common::repo::build_dependencies::list_dependent_builds(
+      &state.pool,
+      id,
+    )
+    .await
+    .unwrap_or_default()
+    .iter()
+    .map(build_view)
+    .collect();
 
   let tmpl = BuildTemplate {
     build: build_view(&build),
     steps,
     products,
+    dependencies,
+    dependents,
     eval_id: eval.id,
     eval_commit_short,
     jobset_id: jobset.id,
@@ -1343,11 +1381,43 @@ async fn admin_page(
       }
     })
     .collect();
+  let notification_tasks =
+    circus_common::repo::notification_tasks::list_recent(pool, 25)
+      .await
+      .unwrap_or_default()
+      .into_iter()
+      .map(|task| {
+        NotificationTaskView {
+          id:                task.id,
+          notification_type: task.notification_type,
+          status:            format!("{:?}", task.status).to_lowercase(),
+          attempts:          task.attempts,
+          max_attempts:      task.max_attempts,
+          next_retry_at:     task
+            .next_retry_at
+            .format("%Y-%m-%d %H:%M")
+            .to_string(),
+          last_error:        task.last_error.unwrap_or_default(),
+          created_at:        task
+            .created_at
+            .format("%Y-%m-%d %H:%M")
+            .to_string(),
+        }
+      })
+      .collect();
+  let config_path = std::env::var("CIRCUS_CONFIG_FILE")
+    .unwrap_or_else(|_| "circus.toml".to_string());
+  let config_contents = tokio::fs::read_to_string(&config_path)
+    .await
+    .unwrap_or_default();
 
   let tmpl = AdminTemplate {
     status,
     builders,
     api_keys,
+    notification_tasks,
+    config_path,
+    config_contents,
     is_admin: is_admin(&extensions),
     auth_name: auth_name(&extensions),
   };

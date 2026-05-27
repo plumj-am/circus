@@ -79,6 +79,60 @@
 {% endif %}
 {% endif %}
 
+{% if is_admin %}
+<h2>Configuration</h2>
+<details>
+  <summary>Edit {{ config_path }}</summary>
+  <div class="form-card">
+    <form id="config-form">
+      <div class="form-group">
+        <label for="config-contents">TOML</label>
+        <textarea id="config-contents" rows="18" spellcheck="false">{{ config_contents }}</textarea>
+      </div>
+      <button type="submit" class="btn">Save Configuration</button>
+    </form>
+    <div id="config-msg"></div>
+  </div>
+</details>
+{% endif %}
+
+<h2>Notification Retry Tasks</h2>
+{% if notification_tasks.is_empty() %}
+<div class="empty">
+  <div class="empty-title">No notification tasks</div>
+  <div class="empty-hint">Queued notification deliveries and retries will appear here.</div>
+</div>
+{% else %}
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Type</th><th>Status</th><th>Attempts</th><th>Next Retry</th><th>Created</th><th>Error</th>{% if is_admin %}<th>Actions</th>{% endif %}</tr>
+  </thead>
+  <tbody>
+    {% for task in notification_tasks %}
+    <tr>
+      <td>{{ task.notification_type }}</td>
+      <td><span class="badge badge-{{ task.status }}">{{ task.status }}</span></td>
+      <td>{{ task.attempts }}/{{ task.max_attempts }}</td>
+      <td>{{ task.next_retry_at }}</td>
+      <td>{{ task.created_at }}</td>
+      <td>{% if !task.last_error.is_empty() %}{{ task.last_error }}{% else %}-{% endif %}</td>
+      {% if is_admin %}
+      <td>
+        {% if task.status == "failed" %}
+        <button class="btn btn-small" onclick="retryNotificationTask('{{ task.id }}')">Retry</button>
+        {% else %}
+        -
+        {% endif %}
+      </td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
 <h2>Remote Builders</h2>
 {% if is_admin %}
 <details>
@@ -183,6 +237,36 @@ async function deleteKey(id) {
     alert(escapeHtml(err.message));
   }
 }
+async function retryNotificationTask(id) {
+  try {
+    const res = await fetch('/api/v1/admin/notification-tasks/' + id + '/retry', { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || err.message || 'Failed to retry notification task');
+    }
+    window.location.reload();
+  } catch(err) {
+    alert(escapeHtml(err.message));
+  }
+}
+document.getElementById('config-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const msg = document.getElementById('config-msg');
+  try {
+    const res = await fetch('/api/v1/admin/config', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ contents: document.getElementById('config-contents').value }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || data.message || 'Failed to save configuration');
+    }
+    msg.innerHTML = '<div class="flash-message flash-success">Configuration saved. Restart daemons to apply runtime changes.</div>';
+  } catch(err) {
+    showError(msg, err.message);
+  }
+});
 document.getElementById('create-builder-form')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const msg = document.getElementById('builder-msg');

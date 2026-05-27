@@ -34,6 +34,7 @@ fn build_app(pool: sqlx::PgPool) -> axum::Router {
     pool,
     config,
     sessions: std::sync::Arc::new(dashmap::DashMap::new()),
+    narinfo_cache: std::sync::Arc::new(dashmap::DashMap::new()),
     http_client: reqwest::Client::new(),
     csrf_secret: std::sync::Arc::new([0u8; 32]),
   };
@@ -52,6 +53,7 @@ async fn test_router_no_duplicate_routes() {
     pool,
     config,
     sessions: std::sync::Arc::new(dashmap::DashMap::new()),
+    narinfo_cache: std::sync::Arc::new(dashmap::DashMap::new()),
     http_client: reqwest::Client::new(),
     csrf_secret: std::sync::Arc::new([0u8; 32]),
   };
@@ -68,6 +70,7 @@ fn build_app_with_config(
     pool,
     config,
     sessions: std::sync::Arc::new(dashmap::DashMap::new()),
+    narinfo_cache: std::sync::Arc::new(dashmap::DashMap::new()),
     http_client: reqwest::Client::new(),
     csrf_secret: std::sync::Arc::new([0u8; 32]),
   };

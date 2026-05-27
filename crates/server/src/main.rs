@@ -67,11 +67,12 @@ async fn main() -> anyhow::Result<()> {
   csrf_secret[16..].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
 
   let state = AppState {
-    pool:        db.pool().clone(),
-    config:      config.clone(),
-    sessions:    std::sync::Arc::new(dashmap::DashMap::new()),
-    http_client: reqwest::Client::new(),
-    csrf_secret: std::sync::Arc::new(csrf_secret),
+    pool:          db.pool().clone(),
+    config:        config.clone(),
+    sessions:      std::sync::Arc::new(dashmap::DashMap::new()),
+    narinfo_cache: std::sync::Arc::new(dashmap::DashMap::new()),
+    http_client:   reqwest::Client::new(),
+    csrf_secret:   std::sync::Arc::new(csrf_secret),
   };
 
   // Start background session cleanup to prevent memory leaks

@@ -85,6 +85,17 @@ async fn narinfo(
     return Ok(StatusCode::NOT_FOUND.into_response());
   }
 
+  if let Some(cached) = state.narinfo_cache.get(hash) {
+    return Ok(
+      (
+        StatusCode::OK,
+        [("content-type", "text/x-nix-narinfo")],
+        cached.value().clone(),
+      )
+        .into_response(),
+    );
+  }
+
   let store_path = match find_store_path(&state.pool, hash).await? {
     Some(p) if circus_common::validate::is_valid_store_path(&p) => p,
     _ => return Ok(StatusCode::NOT_FOUND.into_response()),
@@ -170,6 +181,10 @@ async fn narinfo(
     } else {
       narinfo_text
     };
+
+  state
+    .narinfo_cache
+    .insert(hash.to_string(), narinfo_text.clone());
 
   Ok(
     (
@@ -339,6 +354,8 @@ async fn serve_nar_combined(
     (s, "application/zstd", Some(("zstd", &["-c"])))
   } else if let Some(s) = hash.strip_suffix(".nar.bz2") {
     (s, "application/x-bzip2", Some(("bzip2", &["-c"])))
+  } else if let Some(s) = hash.strip_suffix(".nar.br") {
+    (s, "application/brotli", Some(("brotli", &["-c"])))
   } else if let Some(s) = hash.strip_suffix(".nar.xz") {
     (s, "application/x-xz", Some(("xz", &["-c"])))
   } else if let Some(s) = hash.strip_suffix(".nar") {

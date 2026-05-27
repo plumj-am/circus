@@ -69,14 +69,15 @@ impl SessionData {
 
 #[derive(Clone)]
 pub struct AppState {
-  pub pool:        PgPool,
-  pub config:      Config,
-  pub sessions:    Arc<DashMap<String, SessionData>>,
-  pub http_client: reqwest::Client,
+  pub pool:          PgPool,
+  pub config:        Config,
+  pub sessions:      Arc<DashMap<String, SessionData>>,
+  pub narinfo_cache: Arc<DashMap<String, String>>,
+  pub http_client:   reqwest::Client,
   /// Per-process key used to derive CSRF tokens from session IDs via HMAC.
   /// Regenerated on every restart, which invalidates outstanding tokens; the
   /// dashboard re-issues them on the next page render so this is benign.
-  pub csrf_secret: Arc<[u8; 32]>,
+  pub csrf_secret:   Arc<[u8; 32]>,
 }
 
 impl AppState {
