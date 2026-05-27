@@ -100,14 +100,25 @@
 <div class="table-wrap">
 <table>
   <thead>
-    <tr><th>Name</th><th>Path</th><th>Size</th></tr>
+    <tr><th>Name</th><th>Path</th><th>Type</th><th>Size</th><th>SHA-256</th><th></th></tr>
   </thead>
   <tbody>
     {% for p in products %}
     <tr>
-      <td>{{ p.name }}</td>
+      <td>
+        {{ p.name }}
+        {% if p.is_directory %}<span class="badge badge-pending">dir</span>{% endif %}
+      </td>
       <td><code>{{ p.path }}</code></td>
-      <td>{% match p.file_size %}{% when Some with (sz) %}{{ sz }} bytes{% when None %}-{% endmatch %}</td>
+      <td>{% match p.content_type %}{% when Some with (ct) %}{{ ct }}{% when None %}-{% endmatch %}</td>
+      <td>{% match p.file_size %}{% when Some with (sz) %}{{ sz }} B{% when None %}-{% endmatch %}</td>
+      <td>
+        {% match p.sha256_hash %}
+          {% when Some with (h) %}<code class="hash-short">{{ h }}</code>
+          {% when None %}-
+        {% endmatch %}
+      </td>
+      <td><a href="/api/v1/builds/{{ build.id }}/products/{{ p.id }}/download" class="btn btn-sm">Download</a></td>
     </tr>
     {% endfor %}
   </tbody>
