@@ -8,6 +8,7 @@ use circus_common::{
   models::{
     CreateBuild,
     CreateEvaluation,
+    CreateJobset,
     EvaluationStatus,
     JobsetInput,
     JobsetState,
@@ -120,6 +121,11 @@ async fn run_cycle(
       }
     })
     .await;
+
+  // Clone projects with no active jobsets to discover their in-repo config.
+  // This handles the case where a project is declared in the server config
+  // without any jobsets and relies solely on .circus.toml to define them.
+  discover_projects_without_jobsets(pool, config, git_timeout).await;
 
   Ok(())
 }
@@ -319,8 +325,8 @@ async fn evaluate_jobset(
     tracing::warn!(eval_id = %eval.id, "Failed to set evaluation inputs hash: {e}");
   }
 
-  // Check for declarative config in repo
-  check_declarative_config(pool, &repo_path, jobset.project_id).await;
+  // Sync any jobsets declared in the repo's .circus.toml
+  sync_repo_declarative_config(pool, &repo_path, jobset.project_id).await;
 
   // Run nix evaluation
   match crate::nix::evaluate(
@@ -522,25 +528,20 @@ fn compute_inputs_hash(commit_hash: &str, inputs: &[JobsetInput]) -> String {
   hex::encode(hasher.finalize())
 }
 
-/// Check for declarative project config (.circus.toml or .circus/config.toml)
-/// in the repo.
-async fn check_declarative_config(
+/// Sync jobsets declared in a repo's `.circus.toml` (or `.circus/config.toml`)
+/// into the database for the given project.
+///
+/// This is called both after cloning during a normal evaluation and during the
+/// project-discovery pass for projects that have no active jobsets yet.
+async fn sync_repo_declarative_config(
   pool: &PgPool,
   repo_path: &std::path::Path,
   project_id: Uuid,
 ) {
   #[derive(serde::Deserialize)]
-  struct DeclarativeConfig {
-    jobsets: Option<Vec<DeclarativeJobset>>,
-  }
-
-  #[derive(serde::Deserialize)]
-  struct DeclarativeJobset {
-    name:           String,
-    nix_expression: String,
-    flake_mode:     Option<bool>,
-    check_interval: Option<i32>,
-    enabled:        Option<bool>,
+  struct RepoConfig {
+    #[serde(default)]
+    jobsets: Vec<circus_common::config::DeclarativeJobset>,
   }
 
   let config_path = repo_path.join(".circus.toml");
@@ -557,39 +558,120 @@ async fn check_declarative_config(
   let content = match std::fs::read_to_string(&path) {
     Ok(c) => c,
     Err(e) => {
-      tracing::warn!(
-        "Failed to read declarative config {}: {e}",
-        path.display()
-      );
+      tracing::warn!("Failed to read repo config {}: {e}", path.display());
       return;
     },
   };
 
-  let config: DeclarativeConfig = match toml::from_str(&content) {
+  let config: RepoConfig = match toml::from_str(&content) {
     Ok(c) => c,
     Err(e) => {
-      tracing::warn!("Failed to parse declarative config: {e}");
+      tracing::warn!("Failed to parse repo config {}: {e}", path.display());
       return;
     },
   };
 
-  if let Some(jobsets) = config.jobsets {
-    for js in jobsets {
-      let input = circus_common::models::CreateJobset {
-        project_id,
-        name: js.name,
-        nix_expression: js.nix_expression,
-        enabled: js.enabled,
-        flake_mode: js.flake_mode,
-        check_interval: js.check_interval,
-        branch: None,
-        scheduling_shares: None,
-        state: None,
-        keep_nr: None,
-      };
-      if let Err(e) = repo::jobsets::upsert(pool, input).await {
-        tracing::warn!("Failed to upsert declarative jobset: {e}");
-      }
+  for js in &config.jobsets {
+    let state = js.state.as_deref().map(JobsetState::from_config_str);
+
+    let input = CreateJobset {
+      project_id,
+      name: js.name.clone(),
+      nix_expression: js.nix_expression.clone(),
+      enabled: Some(js.enabled),
+      flake_mode: Some(js.flake_mode),
+      check_interval: Some(js.check_interval),
+      branch: js.branch.clone(),
+      scheduling_shares: Some(js.scheduling_shares),
+      state,
+      keep_nr: js.keep_nr,
+    };
+
+    match repo::jobsets::upsert(pool, input).await {
+      Ok(jobset) => {
+        if !js.inputs.is_empty() {
+          if let Err(e) =
+            repo::jobset_inputs::sync_for_jobset(pool, jobset.id, &js.inputs)
+              .await
+          {
+            tracing::warn!(
+              jobset = %jobset.name,
+              "Failed to sync inputs from repo config: {e}"
+            );
+          }
+        }
+        tracing::debug!(
+          jobset = %js.name,
+          "Synced jobset from repo config"
+        );
+      },
+      Err(e) => {
+        tracing::warn!(
+          jobset = %js.name,
+          "Failed to upsert jobset from repo config: {e}"
+        );
+      },
     }
+  }
+}
+
+/// Clone each project that has no active jobsets and look for a `.circus.toml`.
+///
+/// This handles the bootstrap case where a project is declared in the server
+/// config without any jobsets, relying entirely on the in-repo config to define
+/// them. Without this pass the repo would never be cloned and the in-repo
+/// config would never be discovered.
+async fn discover_projects_without_jobsets(
+  pool: &PgPool,
+  config: &EvaluatorConfig,
+  git_timeout: Duration,
+) {
+  let projects = match repo::projects::list_without_active_jobsets(pool).await {
+    Ok(p) => p,
+    Err(e) => {
+      tracing::warn!("Failed to list projects without active jobsets: {e}");
+      return;
+    },
+  };
+
+  for project in projects {
+    let url = project.repository_url.clone();
+    let work_dir = config.work_dir.clone();
+    let project_name = project.name.clone();
+
+    let clone_result = tokio::time::timeout(
+      git_timeout,
+      tokio::task::spawn_blocking(move || {
+        crate::git::clone_or_fetch(&url, &work_dir, &project_name, None)
+      }),
+    )
+    .await;
+
+    let repo_path = match clone_result {
+      Ok(Ok(Ok((path, _commit)))) => path,
+      Ok(Ok(Err(e))) => {
+        tracing::warn!(
+          project = %project.name,
+          "Failed to clone for discovery: {e}"
+        );
+        continue;
+      },
+      Ok(Err(e)) => {
+        tracing::warn!(
+          project = %project.name,
+          "Spawn error during discovery clone: {e}"
+        );
+        continue;
+      },
+      Err(_) => {
+        tracing::warn!(
+          project = %project.name,
+          "Git clone timed out during discovery"
+        );
+        continue;
+      },
+    };
+
+    sync_repo_declarative_config(pool, &repo_path, project.id).await;
   }
 }
