@@ -192,39 +192,39 @@ pub async fn run(
 
           // FOD store check: if the output already exists in the Nix store,
           // mark as succeeded without running the full build.
-          if build.is_fod {
-            if let Some(output_path) = query_drv_output(&build.drv_path).await {
-              let valid = tokio::process::Command::new("nix-store")
-                .args(["--check-validity", &output_path])
-                .status()
-                .await
-                .map(|s| s.success())
-                .unwrap_or(false);
+          if build.is_fod
+            && let Some(output_path) = query_drv_output(&build.drv_path).await
+          {
+            let valid = tokio::process::Command::new("nix-store")
+              .args(["--check-validity", &output_path])
+              .status()
+              .await
+              .map(|s| s.success())
+              .unwrap_or(false);
 
-              if valid {
-                tracing::info!(
-                    build_id = %build.id,
-                    drv = %build.drv_path,
-                    output = %output_path,
-                    "FOD output already valid in store, skipping build"
-                );
-                if let Err(e) = repo::builds::start(&pool, build.id).await {
-                  tracing::warn!(build_id = %build.id, "Failed to start FOD build: {e}");
-                }
-                if let Err(e) = repo::builds::complete(
-                  &pool,
-                  build.id,
-                  BuildStatus::Succeeded,
-                  None,
-                  Some(&output_path),
-                  None,
-                )
-                .await
-                {
-                  tracing::warn!(build_id = %build.id, "Failed to complete FOD build: {e}");
-                }
-                continue;
+            if valid {
+              tracing::info!(
+                  build_id = %build.id,
+                  drv = %build.drv_path,
+                  output = %output_path,
+                  "FOD output already valid in store, skipping build"
+              );
+              if let Err(e) = repo::builds::start(&pool, build.id).await {
+                tracing::warn!(build_id = %build.id, "Failed to start FOD build: {e}");
               }
+              if let Err(e) = repo::builds::complete(
+                &pool,
+                build.id,
+                BuildStatus::Succeeded,
+                None,
+                Some(&output_path),
+                None,
+              )
+              .await
+              {
+                tracing::warn!(build_id = %build.id, "Failed to complete FOD build: {e}");
+              }
+              continue;
             }
           }
 
