@@ -500,27 +500,33 @@ pkgs.testers.nixosTest {
         assert int(result.strip()) >= 1, f"Expected at least 1 API key, got {result.strip()}"
 
     # Badge endpoints
+    # Badge routes are public (no /api/v1 prefix) so they can be embedded in README files.
     with subtest("Badge endpoint returns SVG for unknown project"):
         code = machine.succeed(
             "curl -s -o /dev/null -w '%{http_code}' "
-            "http://127.0.0.1:3000/api/v1/job/nonexistent/main/hello/shield"
+            "http://127.0.0.1:3000/job/nonexistent/main/hello/shield"
         )
-        # Should return 404 or error since project doesn't exist
         assert code.strip() in ("404", "500"), f"Expected 404/500 for unknown badge, got {code.strip()}"
 
     with subtest("Badge endpoint returns SVG for existing project"):
-        # Create a badge-compatible project name lookup
         code = machine.succeed(
             "curl -s -o /dev/null -w '%{http_code}' "
-            "http://127.0.0.1:3000/api/v1/job/test-project/main/hello/shield"
+            "http://127.0.0.1:3000/job/test-project/main/hello/shield"
         )
-        # Should return 200 with SVG (even if no builds, shows "not found" badge)
+        # Project + jobset exist, even with no evaluations the endpoint returns 200 + SVG.
         assert code.strip() == "200", f"Expected 200 for badge, got {code.strip()}"
+
+    with subtest("Badge Hydra-compatible /badge alias also works"):
+        code = machine.succeed(
+            "curl -s -o /dev/null -w '%{http_code}' "
+            "http://127.0.0.1:3000/job/test-project/main/hello/badge"
+        )
+        assert code.strip() == "200", f"Expected 200 for /badge alias, got {code.strip()}"
 
     with subtest("Badge returns SVG content type"):
         ct = machine.succeed(
             "curl -s -D - -o /dev/null "
-            "http://127.0.0.1:3000/api/v1/job/test-project/main/hello/shield "
+            "http://127.0.0.1:3000/job/test-project/main/hello/shield "
             "| grep -i content-type"
         )
         assert "image/svg+xml" in ct.lower(), f"Expected SVG content type, got: {ct}"
@@ -528,7 +534,7 @@ pkgs.testers.nixosTest {
     with subtest("Latest build endpoint for unknown project returns 404"):
         code = machine.succeed(
             "curl -s -o /dev/null -w '%{http_code}' "
-            "http://127.0.0.1:3000/api/v1/job/nonexistent/main/hello/latest"
+            "http://127.0.0.1:3000/job/nonexistent/main/hello/latest"
         )
         assert code.strip() in ("404", "500"), f"Expected 404/500 for latest build, got {code.strip()}"
 
