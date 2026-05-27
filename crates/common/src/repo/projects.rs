@@ -146,6 +146,26 @@ pub async fn upsert(pool: &PgPool, input: CreateProject) -> Result<Project> {
   .map_err(CiError::Database)
 }
 
+/// List projects that have no active jobsets.
+///
+/// Used by the evaluator to discover in-repo declarative config for projects
+/// that have not yet bootstrapped any jobsets through the server config.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
+pub async fn list_without_active_jobsets(
+  pool: &PgPool,
+) -> Result<Vec<Project>> {
+  sqlx::query_as::<_, Project>(
+    "SELECT p.* FROM projects p WHERE NOT EXISTS (SELECT 1 FROM \
+     active_jobsets aj WHERE aj.project_id = p.id)",
+  )
+  .fetch_all(pool)
+  .await
+  .map_err(CiError::Database)
+}
+
 /// Delete a project by ID.
 ///
 /// # Errors
