@@ -213,11 +213,21 @@ async fn get_path_info(output_path: &str) -> Option<(String, i64)> {
   let stdout = String::from_utf8_lossy(&output.stdout);
   let parsed: serde_json::Value = serde_json::from_str(&stdout).ok()?;
 
-  let entry = parsed.as_array()?.first()?;
+  let entry = first_path_info_entry(&parsed)?;
   let nar_hash = entry.get("narHash")?.as_str()?.to_string();
   let nar_size = entry.get("narSize")?.as_i64()?;
 
   Some((nar_hash, nar_size))
+}
+
+fn first_path_info_entry(
+  parsed: &serde_json::Value,
+) -> Option<&serde_json::Value> {
+  if let Some(arr) = parsed.as_array() {
+    arr.first()
+  } else {
+    parsed.as_object()?.values().next()
+  }
 }
 
 /// Look up the project that owns a build (build -> evaluation -> jobset ->
@@ -909,8 +919,9 @@ async fn run_build(
           .bind(build.id)
           .execute(pool)
           .await?;
-          // Clean up live log
-          let _ = tokio::fs::remove_file(&live_log_path).await;
+          if let Err(e) = tokio::fs::remove_file(&live_log_path).await {
+            tracing::debug!(build_id = %build.id, "Failed to remove retry live log: {e}");
+          }
           return Ok(());
         }
 
@@ -950,8 +961,9 @@ async fn run_build(
       {
         tracing::warn!(build_id = %build.id, "Failed to write error log: {e}");
       }
-      // Clean up live log
-      let _ = tokio::fs::remove_file(&live_log_path).await;
+      if let Err(e) = tokio::fs::remove_file(&live_log_path).await {
+        tracing::debug!(build_id = %build.id, "Failed to remove failed live log: {e}");
+      }
 
       repo::build_steps::complete(pool, step.id, 1, None, Some(&msg)).await?;
       repo::builds::complete(

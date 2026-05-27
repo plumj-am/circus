@@ -616,16 +616,15 @@ async fn sync_repo_declarative_config(
 
     match repo::jobsets::upsert(pool, input).await {
       Ok(jobset) => {
-        if !js.inputs.is_empty() {
-          if let Err(e) =
+        if !js.inputs.is_empty()
+          && let Err(e) =
             repo::jobset_inputs::sync_for_jobset(pool, jobset.id, &js.inputs)
               .await
-          {
-            tracing::warn!(
-              jobset = %jobset.name,
-              "Failed to sync inputs from repo config: {e}"
-            );
-          }
+        {
+          tracing::warn!(
+            jobset = %jobset.name,
+            "Failed to sync inputs from repo config: {e}"
+          );
         }
         tracing::debug!(
           jobset = %js.name,

@@ -260,7 +260,11 @@ async fn evaluate_legacy(
         let stdout = String::from_utf8_lossy(&output.stdout);
         // nix-instantiate --json outputs the derivation path(s)
         let drv_paths: Vec<String> =
-          serde_json::from_str(&stdout).unwrap_or_default();
+          serde_json::from_str(&stdout).map_err(|e| {
+            CiError::NixEval(format!(
+              "Failed to parse nix-instantiate output: {e}"
+            ))
+          })?;
         let jobs: Vec<NixJob> = drv_paths
           .into_iter()
           .enumerate()
