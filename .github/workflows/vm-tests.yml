@@ -1,0 +1,69 @@
+name: NixOS VM Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  changes:
+    name: Detect Changed Files
+    runs-on: ubuntu-latest
+    outputs:
+      files_changed: ${{ steps.changed-files.outputs.files }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: changed-files
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            files:
+              - '.github/workflows/vm-tests.yml'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'crates/**'
+              - 'nix/packages/*'
+              - 'nix/module.nix'
+              - 'nix/tests/**'
+              - 'flake.nix'
+              - 'flake.lock'
+
+  vm-test:
+    name: ${{ matrix.name }}
+    needs: changes
+    if: ${{ needs.changes.outputs.files_changed == 'true' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Service Startup
+            check: service-startup
+          - name: Basic API
+            check: basic-api
+          - name: Auth RBAC
+            check: auth-rbac
+          - name: API CRUD
+            check: api-crud
+          - name: Features
+            check: features
+          - name: Webhooks
+            check: webhooks
+          - name: E2E
+            check: e2e
+          - name: Declarative
+            check: declarative
+          - name: GC Pinning
+            check: gc-pinning
+          - name: Machine Health
+            check: machine-health
+          - name: Channel Tarball
+            check: channel-tarball
+    steps:
+      - uses: actions/checkout@v6
+      - uses: cachix/install-nix-action@v31
+        # XXX: do we want to run those checks on any other arch? Maybe Darwin
+        # in the future once Circus can actually run on Darwin?
+      - run: nix build .#checks.x86_64-linux.${{ matrix.check }} -L --no-link
+

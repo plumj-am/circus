@@ -1,0 +1,47 @@
+name: Nix
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  changes:
+    name: Detect Changed Files
+    runs-on: ubuntu-latest
+    outputs:
+      files_changed: ${{ steps.changed-files.outputs.files }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: changed-files
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            files:
+              - '.github/workflows/nix.yml'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'crates/**'
+              - 'nix/**'
+              - 'flake.nix'
+              - 'flake.lock'
+
+  build:
+    name: Build ${{ matrix.package }}
+    needs: changes
+    if: ${{ needs.changes.outputs.files_changed == 'true' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - circus-server
+          - circus-evaluator
+          - circus-queue-runner
+          - circus-migrate-cli
+    steps:
+      - uses: actions/checkout@v6
+      - uses: cachix/install-nix-action@v31
+      - run: nix build .#${{ matrix.package }} -L --no-link
