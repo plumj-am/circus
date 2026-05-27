@@ -133,6 +133,8 @@ pub struct Build {
   pub builder_id:                 Option<Uuid>,
   pub signed:                     bool,
   pub keep:                       bool,
+  pub is_fod:                     bool,
+  pub fod_hash:                   Option<String>,
 }
 
 #[derive(
@@ -656,6 +658,8 @@ pub struct CreateBuild {
   pub outputs:       Option<serde_json::Value>,
   pub is_aggregate:  Option<bool>,
   pub constituents:  Option<serde_json::Value>,
+  pub is_fod:        Option<bool>,
+  pub fod_hash:      Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -787,4 +791,20 @@ pub struct CreateProjectMember {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateProjectMember {
   pub role: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct NewsItem {
+  pub id:         Uuid,
+  pub title:      String,
+  pub content:    String,
+  pub created_by: Option<Uuid>,
+  pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateNewsItem {
+  pub title:      String,
+  pub content:    String,
+  pub created_by: Option<Uuid>,
 }

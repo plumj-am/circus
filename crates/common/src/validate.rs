@@ -709,6 +709,8 @@ mod tests {
       outputs:       None,
       is_aggregate:  None,
       constituents:  None,
+      is_fod:        None,
+      fod_hash:      None,
     };
     assert!(b.validate().is_ok());
   }
@@ -723,6 +725,8 @@ mod tests {
       outputs:       None,
       is_aggregate:  None,
       constituents:  None,
+      is_fod:        None,
+      fod_hash:      None,
     };
     assert!(b.validate().is_err());
   }

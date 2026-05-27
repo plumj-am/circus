@@ -138,6 +138,8 @@ async fn test_build_search_with_filters() {
     outputs:       None,
     is_aggregate:  None,
     constituents:  None,
+    is_fod:        None,
+    fod_hash:      None,
   })
   .await
   .expect("create build 1");
@@ -165,6 +167,8 @@ async fn test_build_search_with_filters() {
     outputs:       None,
     is_aggregate:  None,
     constituents:  None,
+    is_fod:        None,
+    fod_hash:      None,
   })
   .await
   .expect("create build 2");
@@ -282,6 +286,8 @@ async fn test_multi_entity_search() {
     outputs:       None,
     is_aggregate:  None,
     constituents:  None,
+    is_fod:        None,
+    fod_hash:      None,
   })
   .await
   .expect("create build");
@@ -497,6 +503,8 @@ async fn test_quick_search() {
     outputs:       None,
     is_aggregate:  None,
     constituents:  None,
+    is_fod:        None,
+    fod_hash:      None,
   })
   .await
   .expect("create build");

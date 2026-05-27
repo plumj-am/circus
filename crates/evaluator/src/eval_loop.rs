@@ -432,6 +432,30 @@ async fn evaluate_jobset(
   Ok(())
 }
 
+/// Detect whether a derivation is a fixed-output derivation by reading the
+/// `.drv` file and checking for `outputHash` in its env vars.
+/// Returns `(is_fod, fod_hash)`.
+fn detect_fod(drv_path: &str) -> (bool, Option<String>) {
+  let Ok(content) = std::fs::read_to_string(drv_path) else {
+    return (false, None);
+  };
+  // ATerm format: ("outputHash","<hash>")
+  let marker = "\"outputHash\",\"";
+  let Some(start) = content.find(marker) else {
+    return (false, None);
+  };
+  let rest = &content[start + marker.len()..];
+  let Some(end) = rest.find('"') else {
+    return (false, None);
+  };
+  let hash = &rest[..end];
+  if hash.is_empty() {
+    (false, None)
+  } else {
+    (true, Some(hash.to_string()))
+  }
+}
+
 /// Create build records from evaluation results, resolving dependencies.
 async fn create_builds_from_eval(
   pool: &PgPool,
@@ -452,14 +476,17 @@ async fn create_builds_from_eval(
       .map(|c| serde_json::to_value(c).unwrap_or_default());
     let is_aggregate = job.constituents.is_some();
 
+    let (is_fod, fod_hash) = detect_fod(&job.drv_path);
     let build = repo::builds::create(pool, CreateBuild {
       evaluation_id: eval_id,
-      job_name:      job.name.clone(),
-      drv_path:      job.drv_path.clone(),
-      system:        job.system.clone(),
-      outputs:       outputs_json,
-      is_aggregate:  Some(is_aggregate),
-      constituents:  constituents_json,
+      job_name: job.name.clone(),
+      drv_path: job.drv_path.clone(),
+      system: job.system.clone(),
+      outputs: outputs_json,
+      is_aggregate: Some(is_aggregate),
+      constituents: constituents_json,
+      is_fod: Some(is_fod),
+      fod_hash,
     })
     .await?;
 

@@ -10,6 +10,25 @@ use tokio::sync::{Notify, RwLock};
 
 use crate::worker::WorkerPool;
 
+/// Query the expected output path for a derivation using `nix-store --query`.
+/// Returns the first output path, or `None` if the query fails.
+async fn query_drv_output(drv_path: &str) -> Option<String> {
+  let out = tokio::process::Command::new("nix-store")
+    .args(["--query", "--outputs", drv_path])
+    .output()
+    .await
+    .ok()?;
+  if !out.status.success() {
+    return None;
+  }
+  String::from_utf8(out.stdout)
+    .ok()?
+    .lines()
+    .next()
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty())
+}
+
 /// Fetch project and commit hash for a build by traversing:
 ///
 /// Build -> Evaluation -> Jobset -> Project.
@@ -169,6 +188,44 @@ pub async fn run(
               continue;
             },
             _ => {},
+          }
+
+          // FOD store check: if the output already exists in the Nix store,
+          // mark as succeeded without running the full build.
+          if build.is_fod {
+            if let Some(output_path) = query_drv_output(&build.drv_path).await {
+              let valid = tokio::process::Command::new("nix-store")
+                .args(["--check-validity", &output_path])
+                .status()
+                .await
+                .map(|s| s.success())
+                .unwrap_or(false);
+
+              if valid {
+                tracing::info!(
+                    build_id = %build.id,
+                    drv = %build.drv_path,
+                    output = %output_path,
+                    "FOD output already valid in store, skipping build"
+                );
+                if let Err(e) = repo::builds::start(&pool, build.id).await {
+                  tracing::warn!(build_id = %build.id, "Failed to start FOD build: {e}");
+                }
+                if let Err(e) = repo::builds::complete(
+                  &pool,
+                  build.id,
+                  BuildStatus::Succeeded,
+                  None,
+                  Some(&output_path),
+                  None,
+                )
+                .await
+                {
+                  tracing::warn!(build_id = %build.id, "Failed to complete FOD build: {e}");
+                }
+                continue;
+              }
+            }
           }
 
           // Failed paths cache: skip known-failing derivations

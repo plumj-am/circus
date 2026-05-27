@@ -112,6 +112,8 @@ async fn test_e2e_project_eval_build_flow() {
     outputs:       Some(serde_json::json!({"out": "/nix/store/e2e000-hello"})),
     is_aggregate:  Some(false),
     constituents:  None,
+    is_fod:        None,
+    fod_hash:      None,
   })
   .await
   .expect("create build 1");
@@ -124,6 +126,8 @@ async fn test_e2e_project_eval_build_flow() {
     outputs:       Some(serde_json::json!({"out": "/nix/store/e2e000-world"})),
     is_aggregate:  Some(false),
     constituents:  None,
+    is_fod:        None,
+    fod_hash:      None,
   })
   .await
   .expect("create build 2");

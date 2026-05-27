@@ -13,10 +13,11 @@ use crate::{
 /// Returns error if database insert fails or job already exists.
 pub async fn create(pool: &PgPool, input: CreateBuild) -> Result<Build> {
   let is_aggregate = input.is_aggregate.unwrap_or(false);
+  let is_fod = input.is_fod.unwrap_or(false);
   sqlx::query_as::<_, Build>(
     "INSERT INTO builds (evaluation_id, job_name, drv_path, status, system, \
-     outputs, is_aggregate, constituents) VALUES ($1, $2, $3, 'pending', $4, \
-     $5, $6, $7) RETURNING *",
+     outputs, is_aggregate, constituents, is_fod, fod_hash) VALUES ($1, $2, \
+     $3, 'pending', $4, $5, $6, $7, $8, $9) RETURNING *",
   )
   .bind(input.evaluation_id)
   .bind(&input.job_name)
@@ -25,6 +26,8 @@ pub async fn create(pool: &PgPool, input: CreateBuild) -> Result<Build> {
   .bind(&input.outputs)
   .bind(is_aggregate)
   .bind(&input.constituents)
+  .bind(is_fod)
+  .bind(&input.fod_hash)
   .fetch_one(pool)
   .await
   .map_err(|e| {

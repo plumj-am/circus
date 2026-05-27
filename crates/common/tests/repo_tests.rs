@@ -86,6 +86,8 @@ async fn create_test_build(
     outputs:       None,
     is_aggregate:  None,
     constituents:  None,
+    is_fod:        None,
+    fod_hash:      None,
   })
   .await
   .expect("create build")

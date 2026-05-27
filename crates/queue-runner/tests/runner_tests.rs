@@ -370,6 +370,8 @@ async fn test_fair_share_scheduling() {
       outputs:       None,
       is_aggregate:  None,
       constituents:  None,
+      is_fod:        None,
+      fod_hash:      None,
     },
   )
   .await
@@ -385,6 +387,8 @@ async fn test_fair_share_scheduling() {
       outputs:       None,
       is_aggregate:  None,
       constituents:  None,
+      is_fod:        None,
+      fod_hash:      None,
     },
   )
   .await
@@ -400,6 +404,8 @@ async fn test_fair_share_scheduling() {
       outputs:       None,
       is_aggregate:  None,
       constituents:  None,
+      is_fod:        None,
+      fod_hash:      None,
     },
   )
   .await
@@ -415,6 +421,8 @@ async fn test_fair_share_scheduling() {
       outputs:       None,
       is_aggregate:  None,
       constituents:  None,
+      is_fod:        None,
+      fod_hash:      None,
     },
   )
   .await
@@ -548,6 +556,8 @@ async fn test_atomic_build_claiming() {
       outputs:       None,
       is_aggregate:  None,
       constituents:  None,
+      is_fod:        None,
+      fod_hash:      None,
     },
   )
   .await
@@ -643,6 +653,8 @@ async fn test_orphan_build_reset() {
       outputs:       None,
       is_aggregate:  None,
       constituents:  None,
+      is_fod:        None,
+      fod_hash:      None,
     },
   )
   .await
@@ -753,6 +765,8 @@ async fn test_get_cancelled_among() {
       outputs:       None,
       is_aggregate:  None,
       constituents:  None,
+      is_fod:        None,
+      fod_hash:      None,
     },
   )
   .await
@@ -769,6 +783,8 @@ async fn test_get_cancelled_among() {
       outputs:       None,
       is_aggregate:  None,
       constituents:  None,
+      is_fod:        None,
+      fod_hash:      None,
     },
   )
   .await
@@ -791,6 +807,8 @@ async fn test_get_cancelled_among() {
       outputs:       None,
       is_aggregate:  None,
       constituents:  None,
+      is_fod:        None,
+      fod_hash:      None,
     },
   )
   .await
