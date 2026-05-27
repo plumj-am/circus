@@ -17,9 +17,24 @@ in
       imports = [self.nixosModules.circus];
       _module.args.self = self;
 
+      # The decl-e2e jobset is built for real, which needs more room than the
+      # default test VM provides (matches nix/vm-common.nix).
+      virtualisation = {
+        memorySize = 2048;
+        cores = 2;
+        diskSize = 10000;
+      };
+
       programs.git.enable = true;
       security.sudo.enable = true;
       environment.systemPackages = with pkgs; [nix nix-eval-jobs zstd curl jq openssl];
+
+      # The decl-e2e project below is evaluated for real, so the evaluator needs
+      # flakes and must not reach out to a binary cache (the VM has no network).
+      nix.settings = {
+        experimental-features = ["nix-command" "flakes"];
+        substituters = pkgs.lib.mkForce [];
+      };
 
       services.circus = {
         enable = true;
@@ -38,11 +53,15 @@ in
             host = "127.0.0.1";
             port = 3000;
             cors_permissive = false;
+            # Permit the file:// URL the decl-e2e project uses for its local repo.
+            allowed_url_schemes = ["https" "http" "git" "ssh" "file"];
           };
           gc.enabled = false;
           logs.log_dir = "/var/lib/circus/logs";
           cache.enabled = true;
           signing.enabled = false;
+          # Poll fast so the bootstrapped jobset is evaluated within the test.
+          evaluator.poll_interval = 5;
         };
 
         # Declarative users
@@ -129,6 +148,33 @@ in
                 name = "main";
                 nixExpression = ".";
                 flakeMode = true;
+              }
+            ];
+          }
+          # Unlike the projects above (fake URLs that can never resolve in a
+          # network-less VM), this one points at a local repo populated at
+          # runtime, so the declarative path drives a real evaluation + build.
+          {
+            name = "decl-e2e";
+            repositoryUrl = "file:///var/lib/circus/test-repos/decl-flake.git";
+            description = "Declarative project that actually evaluates";
+            jobsets = [
+              {
+                name = "packages";
+                nixExpression = "packages";
+                flakeMode = true;
+                branch = "master";
+                state = "enabled";
+                checkInterval = 5;
+              }
+              # Same repo, disabled: the evaluator must never touch it.
+              {
+                name = "off";
+                nixExpression = "packages";
+                flakeMode = true;
+                branch = "master";
+                state = "disabled";
+                checkInterval = 5;
               }
             ];
           }
@@ -467,5 +513,95 @@ in
       with subtest("Starred page shows login prompt when not logged in"):
           body = machine.succeed("curl -sf http://127.0.0.1:3000/starred")
           assert "Login required" in body or "login" in body.lower(), "Starred page should prompt for login"
+
+      # DECLARATIVE JOBSET END-TO-END
+      # Everything above proves rows land in the database. This section proves a
+      # bootstrapped jobset is actually fetched, evaluated, and built - the part
+      # fake-URL projects can never exercise.
+      with subtest("Local flake repo for the decl-e2e project is populated"):
+          machine.succeed("mkdir -p /var/lib/circus/test-repos")
+          machine.succeed("git init --bare /var/lib/circus/test-repos/decl-flake.git")
+          machine.succeed("git config --global --add safe.directory /var/lib/circus/test-repos/decl-flake.git")
+
+          machine.succeed("mkdir -p /tmp/decl-flake-work")
+          machine.succeed("cd /tmp/decl-flake-work && git init")
+          machine.succeed("cd /tmp/decl-flake-work && git config user.email 'test@circus' && git config user.name 'circus Test'")
+          machine.succeed(
+              "cat > /tmp/decl-flake-work/flake.nix << 'FLAKE'\n"
+              "{\n"
+              '  description = "circus declarative test flake";\n'
+              '  outputs = { self, ... }: {\n'
+              '    packages.x86_64-linux.decl-hello = derivation {\n'
+              '      name = "circus-decl-hello";\n'
+              '      system = "x86_64-linux";\n'
+              '      builder = "/bin/sh";\n'
+              '      args = [ "-c" "echo decl-hello > $out" ];\n'
+              "    };\n"
+              "  };\n"
+              "}\n"
+              "FLAKE\n"
+          )
+          machine.succeed("cd /tmp/decl-flake-work && git add -A && git commit -m 'initial declarative flake'")
+          machine.succeed("cd /tmp/decl-flake-work && git remote add origin /var/lib/circus/test-repos/decl-flake.git")
+          machine.succeed("cd /tmp/decl-flake-work && git push origin HEAD:refs/heads/master")
+          machine.succeed("chown -R circus:circus /var/lib/circus/test-repos")
+
+      with subtest("Resolve decl-e2e jobset IDs"):
+          decl_e2e_id = machine.succeed(
+              "curl -sf http://127.0.0.1:3000/api/v1/projects "
+              "| jq -r '.items[] | select(.name==\"decl-e2e\") | .id'"
+          ).strip()
+          assert len(decl_e2e_id) == 36, f"Expected decl-e2e UUID, got '{decl_e2e_id}'"
+
+          enabled_jobset = machine.succeed(
+              f"curl -sf http://127.0.0.1:3000/api/v1/projects/{decl_e2e_id}/jobsets "
+              "| jq -r '.items[] | select(.name==\"packages\") | .id'"
+          ).strip()
+          off_jobset = machine.succeed(
+              f"curl -sf http://127.0.0.1:3000/api/v1/projects/{decl_e2e_id}/jobsets "
+              "| jq -r '.items[] | select(.name==\"off\") | .id'"
+          ).strip()
+
+      with subtest("Evaluator completes an evaluation for the declarative jobset"):
+          machine.wait_until_succeeds(
+              f"curl -sf 'http://127.0.0.1:3000/api/v1/evaluations?jobset_id={enabled_jobset}' "
+              "| jq -e '.items[] | select(.status==\"completed\")'",
+              timeout=120
+          )
+
+      with subtest("Declarative evaluation produced a build with a real drv_path"):
+          eval_id = machine.succeed(
+              f"curl -sf 'http://127.0.0.1:3000/api/v1/evaluations?jobset_id={enabled_jobset}' "
+              "| jq -r '.items[] | select(.status==\"completed\") | .id' | head -1"
+          ).strip()
+          build_count = int(machine.succeed(
+              f"curl -sf 'http://127.0.0.1:3000/api/v1/builds?evaluation_id={eval_id}' | jq '.items | length'"
+          ).strip())
+          assert build_count >= 1, f"Expected >= 1 build, got {build_count}"
+
+          drv_path = machine.succeed(
+              f"curl -sf 'http://127.0.0.1:3000/api/v1/builds?evaluation_id={eval_id}' | jq -r '.items[0].drv_path'"
+          ).strip()
+          assert drv_path.startswith("/nix/store/"), f"Expected /nix/store drv_path, got '{drv_path}'"
+
+          decl_build_id = machine.succeed(
+              f"curl -sf 'http://127.0.0.1:3000/api/v1/builds?evaluation_id={eval_id}' | jq -r '.items[0].id'"
+          ).strip()
+
+      with subtest("Queue runner builds the declarative derivation to success"):
+          machine.wait_until_succeeds(
+              f"curl -sf http://127.0.0.1:3000/api/v1/builds/{decl_build_id} | jq -e 'select(.status==\"succeeded\")'",
+              timeout=120
+          )
+          output_path = machine.succeed(
+              f"curl -sf http://127.0.0.1:3000/api/v1/builds/{decl_build_id} | jq -r .build_output_path"
+          ).strip()
+          assert output_path.startswith("/nix/store/"), f"Expected /nix/store output, got '{output_path}'"
+
+      with subtest("Disabled declarative jobset produced no evaluations"):
+          off_evals = int(machine.succeed(
+              f"curl -sf 'http://127.0.0.1:3000/api/v1/evaluations?jobset_id={off_jobset}' | jq '.items | length'"
+          ).strip())
+          assert off_evals == 0, f"Disabled jobset should have 0 evaluations, got {off_evals}"
     '';
   }
