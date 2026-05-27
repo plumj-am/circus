@@ -58,29 +58,15 @@
       };
 
       cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+      callCratePackage = path: pkgs.callPackage path {inherit craneLib commonArgs cargoArtifacts;};
     in {
       demo-vm = pkgs.callPackage ./nix/demo-vm.nix {inherit self;};
 
       # circus Packages
-      circus-common = pkgs.callPackage ./nix/packages/circus-common.nix {
-        inherit craneLib commonArgs cargoArtifacts;
-      };
-
-      circus-evaluator = pkgs.callPackage ./nix/packages/circus-evaluator.nix {
-        inherit craneLib commonArgs cargoArtifacts;
-      };
-
-      circus-migrate-cli = pkgs.callPackage ./nix/packages/circus-migrate-cli.nix {
-        inherit craneLib commonArgs cargoArtifacts;
-      };
-
-      circus-queue-runner = pkgs.callPackage ./nix/packages/circus-queue-runner.nix {
-        inherit craneLib commonArgs cargoArtifacts;
-      };
-
-      circus-server = pkgs.callPackage ./nix/packages/circus-server.nix {
-        inherit craneLib commonArgs cargoArtifacts;
-      };
+      circus-evaluator = callCratePackage ./nix/packages/circus-evaluator.nix;
+      circus-migrate-cli = callCratePackage ./nix/packages/circus-migrate-cli.nix;
+      circus-queue-runner = callCratePackage ./nix/packages/circus-queue-runner.nix;
+      circus-server = callCratePackage ./nix/packages/circus-server.nix;
     });
 
     checks = forAllSystems (system: let
