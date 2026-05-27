@@ -81,17 +81,15 @@
         })
         cfg.declarative.apiKeys;
 
-      users = mapAttrsToList (username: u: let
-        hasInlinePassword = u.password != null;
-        _ =
-          if hasInlinePassword
-          then builtins.throw "User '${username}' has inline password set. Use passwordFile instead to avoid plaintext passwords in the Nix store."
-          else null;
-      in
+      users = mapAttrsToList (username: u:
         filterAttrs (_: v: v != null) {
           inherit username;
           email = u.email;
           full_name = u.fullName;
+          # Inline password is dev/testing only (lands in the Nix store);
+          # passwordFile is preferred for production. bootstrap prefers
+          # password over password_file when both are set.
+          password = u.password;
           password_file = u.passwordFile;
           role = u.role;
           enabled = u.enabled;
@@ -637,11 +635,18 @@ in {
     };
 
     users.groups.circus = {};
+    nix.settings = {
+      # NOTE: needed by nix-eval-jobs to access the Nix daemon.
+      # This is completely undocumented but used by other projects in a similar
+      # fashion to solve the same problem without clobbering `allowed-users`.
+      extra-allowed-users = ["circus"];
 
-    # NOTE: needed by nix-eval-jobs to access the Nix daemon.
-    # This is completely undocumented but used by other projects in a similar
-    # fashion to solve the same problem without clobbering `allowed-users`.
-    nix.settings.extra-allowed-users = [ "circus" ];
+      # The queue runner builds with `--option sandbox true` and
+      # `--max-build-log-size`; these are restricted settings that the daemon
+      # ignores unless the requesting user is trusted. Trust circus so its build
+      # settings actually take effect.
+      extra-trusted-users = ["circus"];
+    };
 
     services.postgresql = mkIf cfg.database.createLocally {
       enable = true;
