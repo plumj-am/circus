@@ -70,7 +70,7 @@ fn create_migration(name: &str) -> anyhow::Result<()> {
 
   let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
   let filename = format!("{timestamp}_{name}.sql");
-  let filepath = format!("crates/common/migrations/{filename}");
+  let filepath = format!("crates/migrations/migrations/{filename}");
 
   let content = format!(
     "-- Migration: {}\n-- Created: {}\n\n-- Add your migration SQL here\n\n-- \

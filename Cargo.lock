@@ -473,6 +473,7 @@ dependencies = [
  "anyhow",
  "argon2",
  "chrono",
+ "circus-migrations",
  "clap",
  "config",
  "git2",
@@ -530,6 +531,16 @@ dependencies = [
  "clap",
  "tokio",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "circus-migrations"
+version = "0.3.0-dev"
+dependencies = [
+ "anyhow",
+ "sqlx",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
