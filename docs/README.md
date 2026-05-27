@@ -3,14 +3,27 @@
 [design document]: ./DESIGN.md
 
 Circus is a Rust-based continuous integration system built from the ground up
-for Nix-based projects. It follows Hydra's three-daemon architecture while
-addressing its operational pain points: performance, maintainability, and
-declarative configuration.
+for Nix-based projects with quick, easy deployments and long-term reliability in
+mind with a special emphasis on declarative configuration and distributed builds
+for mortals. It follows Hydra's three-daemon architecture while addressing its
+operational pain points: performance, maintainability, and declarative
+configuration.
 
-Heavily work in progress. Documentation is still scattered, and may not reflect
-the latest state of the project until it is deemed complete. Please create an
-issue if you notice and obvious inaccuracy. While I not guarantee a quick
-response, I'd appreciate the heads-up. PRs are also very welcome.
+> [!NOTE]
+> Until 1.0.0 is tagged and released, Circus should be considered _heavily work
+> in progress_. As you'll appreciate it's not very simple to build a futureproof
+> CI system, and documentation is still lacking in some areas until we have the
+> time to sit down and apply the polish it deserves. So to the answer to your
+> burning question of _"should I deploy this in production"_ is a very big
+> _maybe_. _Yes_, this is going to be good. _No_, it's not quite there yet.
+>
+> Please create an issue if you notice an obvious inaccuracy or a critical error
+> that breaks your setup. While we cannot guarantee a quick response, we would
+> appreciate the heads-up. PRs are also very welcome for issues that you've
+> noticed, and would like to fix.
+
+The project is named "Circus" because it has "CI" in the name, and well, CI is
+for clowns. Hope this answers your other question.
 
 ## Architecture
 
