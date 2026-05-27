@@ -145,7 +145,11 @@ pub async fn update_status(
   .ok_or_else(|| CiError::NotFound(format!("Evaluation {id} not found")))
 }
 
-/// Get the latest evaluation for a jobset.
+/// Get the latest completed evaluation for a jobset.
+///
+/// Only completed evaluations are returned. Failed or running evaluations are
+/// excluded so that a previously-failed evaluation does not permanently block
+/// re-evaluation of the same commit via the inputs-hash cache check.
 ///
 /// # Errors
 ///
@@ -155,8 +159,8 @@ pub async fn get_latest(
   jobset_id: Uuid,
 ) -> Result<Option<Evaluation>> {
   sqlx::query_as::<_, Evaluation>(
-    "SELECT * FROM evaluations WHERE jobset_id = $1 ORDER BY evaluation_time \
-     DESC LIMIT 1",
+    "SELECT * FROM evaluations WHERE jobset_id = $1 AND status = 'completed' \
+     ORDER BY evaluation_time DESC LIMIT 1",
   )
   .bind(jobset_id)
   .fetch_optional(pool)
