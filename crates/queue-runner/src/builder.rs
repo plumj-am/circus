@@ -112,6 +112,11 @@ pub async fn run_nix_build(
 }
 
 fn common_nix_build_args(drv_path: &str) -> Vec<OsString> {
+  // Build every output of the derivation via the "^*" selector. A bare ".drv"
+  // path is treated by `nix build` as a store path to realise (a no-op that
+  // emits the .drv path rather than building it), so the outputs would never
+  // be produced and --print-out-paths would not emit real output paths.
+  let installable = format!("{drv_path}^*");
   [
     "build",
     "--no-link",
@@ -123,7 +128,7 @@ fn common_nix_build_args(drv_path: &str) -> Vec<OsString> {
     "true",
     "--max-build-log-size",
     "104857600",
-    drv_path,
+    installable.as_str(),
   ]
   .into_iter()
   .map(OsString::from)
