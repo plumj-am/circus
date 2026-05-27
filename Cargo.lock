@@ -91,7 +91,7 @@ dependencies = [
  "base64ct",
  "blake2",
  "cpufeatures 0.2.17",
- "password-hash",
+ "password-hash 0.5.0",
 ]
 
 [[package]]
@@ -468,7 +468,7 @@ dependencies = [
 
 [[package]]
 name = "circus-common"
-version = "0.3.0-dev"
+version = "0.4.0-dev"
 dependencies = [
  "anyhow",
  "argon2",
@@ -481,9 +481,9 @@ dependencies = [
  "humantime-serde",
  "lettre",
  "libc",
- "rand_core 0.6.4",
+ "password-hash 0.6.1",
  "regex",
- "reqwest 0.13.3",
+ "reqwest 0.13.4",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -500,7 +500,7 @@ dependencies = [
 
 [[package]]
 name = "circus-evaluator"
-version = "0.3.0-dev"
+version = "0.4.0-dev"
 dependencies = [
  "anyhow",
  "chrono",
@@ -525,7 +525,7 @@ dependencies = [
 
 [[package]]
 name = "circus-migrate-cli"
-version = "0.3.0-dev"
+version = "0.4.0-dev"
 dependencies = [
  "anyhow",
  "circus-common",
@@ -536,7 +536,7 @@ dependencies = [
 
 [[package]]
 name = "circus-migrations"
-version = "0.3.0-dev"
+version = "0.4.0-dev"
 dependencies = [
  "anyhow",
  "sqlx",
@@ -546,7 +546,7 @@ dependencies = [
 
 [[package]]
 name = "circus-queue-runner"
-version = "0.3.0-dev"
+version = "0.4.0-dev"
 dependencies = [
  "anyhow",
  "chrono",
@@ -569,7 +569,7 @@ dependencies = [
 
 [[package]]
 name = "circus-server"
-version = "0.3.0-dev"
+version = "0.4.0-dev"
 dependencies = [
  "anyhow",
  "askama",
@@ -586,7 +586,7 @@ dependencies = [
  "hmac",
  "ldap3",
  "oauth2",
- "reqwest 0.13.3",
+ "reqwest 0.13.4",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -2104,6 +2104,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "password-hash"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aab41826031698d6ffcd9cff78ef56ef998e39dc7e5067cdfebe373842d4723b"
+dependencies = [
+ "getrandom 0.4.2",
+ "phc",
+]
+
+[[package]]
 name = "pathdiff"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2156,6 +2166,17 @@ checksum = "89815c69d36021a140146f26659a81d6c2afa33d216d736dd4be5381a7362220"
 dependencies = [
  "pest",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "phc"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44dc769b75f93afdddd8c7fa12d685292ddeff1e66f7f0f3a234cf1818afe892"
+dependencies = [
+ "base64ct",
+ "ctutils",
+ "getrandom 0.4.2",
 ]
 
 [[package]]
@@ -2450,9 +2471,9 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.13.3"
+version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62e0021ea2c22aed41653bc7e1419abb2c97e038ff2c33d0e1309e49a97deec0"
+checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
 dependencies = [
  "base64",
  "bytes",
