@@ -1,0 +1,55 @@
+//! Server-rendered dashboard. Originally one ~2000 line file; broken into
+//! per-concern modules to keep maintenance focused:
+//!
+//! - [`shared`]: view models, formatters, badges, per-request auth helpers
+//! - [`templates`]: every askama `#[derive(Template)]` struct
+//! - [`csrf`]: token extraction and constant-time verification
+//! - [`auth`]: login / logout
+//! - [`pages`]: read-only viewing pages (home, projects, jobsets, ...)
+//! - [`admin`]: admin-only pages and the forms that mutate server state (news,
+//!   project notifications, users)
+//!
+//! The public surface is just [`router`].
+
+use axum::{Router, routing::get};
+
+use crate::state::AppState;
+
+mod admin;
+mod auth;
+mod csrf;
+mod pages;
+mod shared;
+mod templates;
+
+pub fn router() -> Router<AppState> {
+  Router::new()
+    .route("/login", get(auth::login_page).post(auth::login_action))
+    .route("/logout", axum::routing::post(auth::logout_action))
+    .route("/", get(pages::home))
+    .route("/projects", get(pages::projects_page))
+    .route("/projects/new", get(pages::project_setup_page))
+    .route("/project/{id}", get(pages::project_page))
+    .route(
+      "/project/{id}/notifications",
+      get(admin::notifications_page).post(admin::notifications_create),
+    )
+    .route(
+      "/project/{id}/notifications/{config_id}/delete",
+      axum::routing::post(admin::notifications_delete),
+    )
+    .route("/jobset/{id}", get(pages::jobset_page))
+    .route("/evaluations", get(pages::evaluations_page))
+    .route("/evaluation/{id}", get(pages::evaluation_page))
+    .route("/builds", get(pages::builds_page))
+    .route("/build/{id}", get(pages::build_page))
+    .route("/queue", get(pages::queue_page))
+    .route("/channels", get(pages::channels_page))
+    .route("/channel/{id}", get(pages::channel_page))
+    .route("/news", get(admin::news_page).post(admin::news_create))
+    .route("/news/{id}/delete", axum::routing::post(admin::news_delete))
+    .route("/admin", get(admin::admin_page))
+    .route("/users", get(admin::users_page))
+    .route("/starred", get(pages::starred_page))
+    .route("/metrics", get(pages::metrics_page))
+}
