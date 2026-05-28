@@ -1,11 +1,12 @@
 use axum::{
   Json,
   Router,
-  extract::{Path, State},
+  extract::{Path, Query, State},
   routing::{get, post},
 };
 use circus_common::{
   Validate,
+  audit::AuditEntry,
   models::{
     CreateRemoteBuilder,
     NotificationTask,
@@ -45,7 +46,7 @@ async fn get_builder(
 }
 
 async fn create_builder(
-  _auth: RequireAdmin,
+  auth: RequireAdmin,
   State(state): State<AppState>,
   Json(input): Json<CreateRemoteBuilder>,
 ) -> Result<Json<RemoteBuilder>, ApiError> {
@@ -56,11 +57,22 @@ async fn create_builder(
     circus_common::repo::remote_builders::create(&state.pool, input)
       .await
       .map_err(ApiError)?;
+
+  crate::audit::record_for_key(
+    &state.pool,
+    &auth.0,
+    "BUILDER_CREATE",
+    Some("builder"),
+    Some(&builder.id.to_string()),
+    serde_json::json!({ "name": builder.name, "ssh_uri": builder.ssh_uri }),
+  )
+  .await;
+
   Ok(Json(builder))
 }
 
 async fn update_builder(
-  _auth: RequireAdmin,
+  auth: RequireAdmin,
   State(state): State<AppState>,
   Path(id): Path<Uuid>,
   Json(input): Json<UpdateRemoteBuilder>,
@@ -72,17 +84,39 @@ async fn update_builder(
     circus_common::repo::remote_builders::update(&state.pool, id, input)
       .await
       .map_err(ApiError)?;
+
+  crate::audit::record_for_key(
+    &state.pool,
+    &auth.0,
+    "BUILDER_UPDATE",
+    Some("builder"),
+    Some(&builder.id.to_string()),
+    serde_json::json!({ "name": builder.name, "enabled": builder.enabled }),
+  )
+  .await;
+
   Ok(Json(builder))
 }
 
 async fn delete_builder(
-  _auth: RequireAdmin,
+  auth: RequireAdmin,
   State(state): State<AppState>,
   Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
   circus_common::repo::remote_builders::delete(&state.pool, id)
     .await
     .map_err(ApiError)?;
+
+  crate::audit::record_for_key(
+    &state.pool,
+    &auth.0,
+    "BUILDER_DELETE",
+    Some("builder"),
+    Some(&id.to_string()),
+    serde_json::Value::Null,
+  )
+  .await;
+
   Ok(Json(serde_json::json!({"deleted": true})))
 }
 
@@ -142,7 +176,7 @@ async fn list_notification_tasks(
 }
 
 async fn retry_notification_task(
-  _auth: RequireAdmin,
+  auth: RequireAdmin,
   State(state): State<AppState>,
   Path(id): Path<Uuid>,
 ) -> Result<Json<NotificationTask>, ApiError> {
@@ -150,6 +184,17 @@ async fn retry_notification_task(
     circus_common::repo::notification_tasks::requeue_failed(&state.pool, id)
       .await
       .map_err(ApiError)?;
+
+  crate::audit::record_for_key(
+    &state.pool,
+    &auth.0,
+    "NOTIFICATION_TASK_RETRY",
+    Some("notification_task"),
+    Some(&id.to_string()),
+    serde_json::Value::Null,
+  )
+  .await;
+
   Ok(Json(task))
 }
 
@@ -190,7 +235,8 @@ async fn get_config_file(
 }
 
 async fn update_config_file(
-  _auth: RequireAdmin,
+  auth: RequireAdmin,
+  State(state): State<AppState>,
   Json(input): Json<UpdateConfigFile>,
 ) -> Result<Json<ConfigFileResponse>, ApiError> {
   let parsed: circus_common::config::Config = toml::from_str(&input.contents)
@@ -212,10 +258,63 @@ async fn update_config_file(
     .await
     .map_err(|e| ApiError(circus_common::CiError::Io(e)))?;
 
+  crate::audit::record_for_key(
+    &state.pool,
+    &auth.0,
+    "CONFIG_UPDATE",
+    Some("config"),
+    Some(&path.display().to_string()),
+    // Body of the config can contain secrets; record only its size and
+    // checksum so the log stays useful without leaking credentials.
+    serde_json::json!({
+      "bytes":  input.contents.len(),
+    }),
+  )
+  .await;
+
   Ok(Json(ConfigFileResponse {
     path:             path.display().to_string(),
     contents:         input.contents,
     requires_restart: true,
+  }))
+}
+
+#[derive(Debug, Deserialize)]
+struct AuditLogQuery {
+  #[serde(default)]
+  limit:  Option<i64>,
+  #[serde(default)]
+  offset: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct AuditLogPage {
+  items:  Vec<AuditEntry>,
+  total:  i64,
+  limit:  i64,
+  offset: i64,
+}
+
+async fn list_audit_log(
+  _auth: RequireAdmin,
+  State(state): State<AppState>,
+  Query(q): Query<AuditLogQuery>,
+) -> Result<Json<AuditLogPage>, ApiError> {
+  let limit = q.limit.unwrap_or(50).clamp(1, 500);
+  let offset = q.offset.unwrap_or(0).max(0);
+
+  let items = circus_common::audit::list(&state.pool, limit, offset)
+    .await
+    .map_err(ApiError)?;
+  let total = circus_common::audit::count(&state.pool)
+    .await
+    .map_err(ApiError)?;
+
+  Ok(Json(AuditLogPage {
+    items,
+    total,
+    limit,
+    offset,
   }))
 }
 
@@ -236,4 +335,5 @@ pub fn router() -> Router<AppState> {
       "/admin/config",
       get(get_config_file).put(update_config_file),
     )
+    .route("/admin/audit-log", get(list_audit_log))
 }

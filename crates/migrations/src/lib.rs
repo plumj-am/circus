@@ -50,18 +50,10 @@ async fn create_connection_pool(database_url: &str) -> anyhow::Result<PgPool> {
 pub async fn validate_schema(pool: &PgPool) -> anyhow::Result<()> {
   info!("Validating database schema");
 
-  let required_tables = vec![
-    "projects",
-    "jobsets",
-    "evaluations",
-    "builds",
-    "build_products",
-    "build_steps",
-  ];
-
-  for table in required_tables {
+  for table in REQUIRED_TABLES {
     let result = sqlx::query_scalar::<_, i64>(
-      "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = $1",
+      "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = $1 \
+       AND table_schema = 'public'",
     )
     .bind(table)
     .fetch_one(pool)
@@ -72,6 +64,63 @@ pub async fn validate_schema(pool: &PgPool) -> anyhow::Result<()> {
     }
   }
 
+  for view in REQUIRED_VIEWS {
+    let result = sqlx::query_scalar::<_, i64>(
+      "SELECT COUNT(*) FROM information_schema.views WHERE table_name = $1 \
+       AND table_schema = 'public'",
+    )
+    .bind(view)
+    .fetch_one(pool)
+    .await?;
+
+    if result == 0 {
+      return Err(anyhow::anyhow!("Required view '{view}' does not exist"));
+    }
+  }
+
   info!("Database schema validation passed");
   Ok(())
+}
+
+/// Tables every migrated database must contain. Kept in sync with the SQL in
+/// `migrations/`.
+pub const REQUIRED_TABLES: &[&str] = &[
+  "api_keys",
+  "audit_log",
+  "build_dependencies",
+  "build_metrics",
+  "build_outputs",
+  "build_products",
+  "build_steps",
+  "builds",
+  "channels",
+  "evaluations",
+  "failed_paths_cache",
+  "jobset_inputs",
+  "jobsets",
+  "news",
+  "notification_configs",
+  "notification_tasks",
+  "project_members",
+  "projects",
+  "remote_builders",
+  "service_heartbeats",
+  "starred_jobs",
+  "user_sessions",
+  "users",
+  "webhook_configs",
+];
+
+/// Views every migrated database must contain.
+pub const REQUIRED_VIEWS: &[&str] =
+  &["active_jobsets", "build_metrics_summary", "build_stats"];
+
+/// Static migration descriptors exposed for inspection by tests and tooling.
+/// Returns `(version, name)` pairs in the order sqlx will apply them.
+#[must_use]
+pub fn migration_set() -> Vec<(i64, String)> {
+  sqlx::migrate!("./migrations")
+    .iter()
+    .map(|m| (m.version, m.description.to_string()))
+    .collect()
 }

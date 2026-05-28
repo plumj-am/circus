@@ -106,7 +106,7 @@ async fn list_users(
 }
 
 async fn create_user(
-  _auth: RequireAdmin,
+  auth: RequireAdmin,
   State(state): State<AppState>,
   Json(req): Json<CreateUserRequest>,
 ) -> Result<Json<UserResponse>, ApiError> {
@@ -121,6 +121,17 @@ async fn create_user(
   let user = repo::users::create(&state.pool, &data)
     .await
     .map_err(ApiError)?;
+
+  crate::audit::record_for_key(
+    &state.pool,
+    &auth.0,
+    "USER_CREATE",
+    Some("user"),
+    Some(&user.id.to_string()),
+    serde_json::json!({ "username": user.username, "role": user.role }),
+  )
+  .await;
+
   Ok(Json(UserResponse::from(user)))
 }
 
@@ -134,16 +145,38 @@ async fn get_user(
 }
 
 async fn update_user(
-  _auth: RequireAdmin,
+  auth: RequireAdmin,
   State(state): State<AppState>,
   Path(id): Path<Uuid>,
   Json(req): Json<UpdateUserRequest>,
 ) -> Result<Json<UserResponse>, ApiError> {
+  // Snapshot what is being changed (without leaking the password itself)
+  // so the audit row tells a reviewer which fields were touched.
+  let mut changed: Vec<&'static str> = Vec::new();
+  if req.email.is_some() {
+    changed.push("email");
+  }
+  if req.full_name.is_some() {
+    changed.push("full_name");
+  }
+  if req.password.is_some() {
+    changed.push("password");
+  }
+  if req.role.is_some() {
+    changed.push("role");
+  }
+  if req.enabled.is_some() {
+    changed.push("enabled");
+  }
+  if req.public_dashboard.is_some() {
+    changed.push("public_dashboard");
+  }
+
   let data = UpdateUser {
     email:            req.email,
     full_name:        req.full_name,
     password:         req.password,
-    role:             req.role,
+    role:             req.role.clone(),
     enabled:          req.enabled,
     public_dashboard: req.public_dashboard,
   };
@@ -151,17 +184,42 @@ async fn update_user(
   let user = repo::users::update(&state.pool, id, &data)
     .await
     .map_err(ApiError)?;
+
+  crate::audit::record_for_key(
+    &state.pool,
+    &auth.0,
+    "USER_UPDATE",
+    Some("user"),
+    Some(&user.id.to_string()),
+    serde_json::json!({
+      "fields_changed": changed,
+      "new_role":       req.role,
+    }),
+  )
+  .await;
+
   Ok(Json(UserResponse::from(user)))
 }
 
 async fn delete_user(
-  _auth: RequireAdmin,
+  auth: RequireAdmin,
   State(state): State<AppState>,
   Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
   repo::users::delete(&state.pool, id)
     .await
     .map_err(ApiError)?;
+
+  crate::audit::record_for_key(
+    &state.pool,
+    &auth.0,
+    "USER_DELETE",
+    Some("user"),
+    Some(&id.to_string()),
+    serde_json::Value::Null,
+  )
+  .await;
+
   Ok(StatusCode::NO_CONTENT)
 }
 
@@ -273,6 +331,16 @@ async fn change_password(
   repo::users::update_password(&state.pool, user.id, &req.new_password)
     .await
     .map_err(ApiError)?;
+
+  crate::audit::record_action(
+    &state.pool,
+    &extensions,
+    "USER_PASSWORD_CHANGE",
+    Some("user"),
+    Some(&user.id.to_string()),
+    serde_json::json!({ "self_service": true }),
+  )
+  .await;
 
   Ok(StatusCode::NO_CONTENT)
 }

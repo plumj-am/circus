@@ -1,6 +1,7 @@
 //! Common types and utilities for CI
 
 pub mod alerts;
+pub mod audit;
 pub mod config;
 pub mod database;
 pub mod error;
@@ -16,6 +17,7 @@ pub mod repo;
 pub mod bootstrap;
 pub mod nix_probe;
 pub mod roles;
+pub mod service_heartbeat;
 pub mod tracing_init;
 pub mod validate;
 pub mod validation;

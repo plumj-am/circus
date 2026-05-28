@@ -15,6 +15,7 @@ pkgs.testers.nixosTest {
 
   testScript = ''
     import hashlib
+    import json
 
     machine.start()
     machine.wait_for_unit("postgresql.service")
@@ -44,6 +45,30 @@ pkgs.testers.nixosTest {
     with subtest("Health endpoint reports database healthy"):
         result = machine.succeed("curl -sf http://127.0.0.1:3000/health | jq -r .database")
         assert result.strip() == "true", f"Expected 'true', got '{result.strip()}'"
+
+    with subtest("Health endpoint includes per-service liveness"):
+        body = machine.succeed("curl -sf http://127.0.0.1:3000/health")
+        data = json.loads(body)
+        names = sorted(s["service"] for s in data["services"])
+        assert names == ["evaluator", "queue-runner"], \
+            f"Expected evaluator + queue-runner in services, got {names}"
+        for s in data["services"]:
+            assert s["healthy"], \
+                f"Service {s['service']} should be healthy: {s.get('detail')}"
+
+    with subtest("Health endpoint returns 503 when a service is stopped"):
+        machine.succeed("systemctl stop circus-evaluator")
+        # Wait long enough that the last evaluator heartbeat is stale
+        # (poll_interval=5s, threshold multiplier=3, so >15s).
+        import time
+        time.sleep(20)
+        code = machine.succeed(
+            "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/health"
+        )
+        assert code.strip() == "503", f"Expected 503 with evaluator down, got {code.strip()}"
+        # Restart so subsequent tests see a healthy server.
+        machine.succeed("systemctl start circus-evaluator")
+        machine.wait_until_succeeds("curl -sf http://127.0.0.1:3000/health", timeout=30)
 
     # Cache endpoint: nix-cache-info
     with subtest("Cache info endpoint returns correct data"):

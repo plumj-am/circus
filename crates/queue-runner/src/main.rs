@@ -51,6 +51,9 @@ async fn main() -> anyhow::Result<()> {
 
   let db = Database::new(config.database).await?;
 
+  let signing_enabled = signing_config.enabled;
+  let signing_key_file = signing_config.key_file.clone();
+
   let worker_pool = Arc::new(WorkerPool::new(
     db.pool().clone(),
     workers,
@@ -65,11 +68,20 @@ async fn main() -> anyhow::Result<()> {
 
   {
     let hot = hot_config.read().await;
+    let nc = &hot.notifications_config;
     tracing::info!(
         workers = workers,
         poll_interval = ?hot.poll_interval,
         build_timeout = ?hot.build_timeout,
         work_dir = %work_dir.display(),
+        enable_retry_queue = nc.enable_retry_queue,
+        webhook_url_set = nc.webhook_url.is_some(),
+        github_token_set = nc.github_token.is_some(),
+        slack_set = nc.slack.is_some(),
+        email_set = nc.email.is_some(),
+        signing_enabled = signing_enabled,
+        signing_key_file = ?signing_key_file,
+        signing_key_file_exists = signing_key_file.as_ref().is_some_and(|p| p.exists()),
         "Queue runner configured"
     );
   }
@@ -96,6 +108,7 @@ async fn main() -> anyhow::Result<()> {
       () = cancel_checker_loop(db.pool().clone(), active_builds) => {}
       () = notification_retry_loop(db.pool().clone(), hot_config.clone()) => {}
       () = sighup_loop(hot_config.clone()) => {}
+      () = heartbeat_loop(db.pool().clone(), qr_config.poll_interval) => {}
       () = shutdown_signal() => {
           tracing::info!("Shutdown signal received, draining in-flight builds...");
           worker_pool_for_drain.drain();
@@ -222,6 +235,40 @@ async fn cancel_checker_loop(pool: sqlx::PgPool, active_builds: ActiveBuilds) {
       Err(e) => {
         tracing::warn!("Failed to check for cancelled builds: {e}");
       },
+    }
+  }
+}
+
+/// Write a service heartbeat on every poll tick so the server's /health
+/// endpoint can report queue-runner liveness.
+async fn heartbeat_loop(pool: sqlx::PgPool, poll_interval_seconds: u64) {
+  let interval = std::time::Duration::from_secs(poll_interval_seconds.max(1));
+  // Emit one immediately so /health doesn't return "never reported" during
+  // the first poll interval after startup.
+  if let Err(e) = circus_common::service_heartbeat::record(
+    &pool,
+    circus_common::service_heartbeat::SERVICE_QUEUE_RUNNER,
+    u32::try_from(poll_interval_seconds.min(u64::from(u32::MAX)))
+      .unwrap_or(u32::MAX),
+    Some(env!("CARGO_PKG_VERSION")),
+  )
+  .await
+  {
+    tracing::warn!("initial queue-runner heartbeat failed: {e}");
+  }
+
+  loop {
+    tokio::time::sleep(interval).await;
+    if let Err(e) = circus_common::service_heartbeat::record(
+      &pool,
+      circus_common::service_heartbeat::SERVICE_QUEUE_RUNNER,
+      u32::try_from(poll_interval_seconds.min(u64::from(u32::MAX)))
+        .unwrap_or(u32::MAX),
+      Some(env!("CARGO_PKG_VERSION")),
+    )
+    .await
+    {
+      tracing::warn!("queue-runner heartbeat failed: {e}");
     }
   }
 }

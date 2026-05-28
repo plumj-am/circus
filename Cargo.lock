@@ -531,6 +531,7 @@ dependencies = [
  "anyhow",
  "circus-common",
  "clap",
+ "tempfile",
  "tokio",
  "tracing-subscriber",
 ]
@@ -587,6 +588,7 @@ dependencies = [
  "hmac",
  "ldap3",
  "oauth2",
+ "regex",
  "reqwest 0.13.4",
  "serde",
  "serde_json",
@@ -604,6 +606,15 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "xz2",
+]
+
+[[package]]
+name = "circus-xtask"
+version = "0.5.0-dev"
+dependencies = [
+ "anyhow",
+ "clap",
+ "regex",
 ]
 
 [[package]]

@@ -29,6 +29,7 @@ async fn main() -> anyhow::Result<()> {
   tracing::info!("Database connection established");
 
   let pool = db.pool().clone();
+  let poll_interval = config.evaluator.poll_interval;
   let eval_config = config.evaluator;
   let notifications_config = config.notifications;
 
@@ -45,6 +46,7 @@ async fn main() -> anyhow::Result<()> {
               tracing::error!("Evaluator loop failed: {e}");
           }
       }
+      () = heartbeat_loop(db.pool().clone(), poll_interval) => {}
       () = shutdown_signal() => {
           tracing::info!("Shutdown signal received");
       }
@@ -57,6 +59,39 @@ async fn main() -> anyhow::Result<()> {
   db.close().await;
 
   Ok(())
+}
+
+/// Write a service heartbeat on every poll tick so the server's /health
+/// endpoint can report evaluator liveness.
+async fn heartbeat_loop(pool: sqlx::PgPool, poll_interval_seconds: u64) {
+  let interval = std::time::Duration::from_secs(poll_interval_seconds.max(1));
+  let poll_u32 = u32::try_from(poll_interval_seconds.min(u64::from(u32::MAX)))
+    .unwrap_or(u32::MAX);
+
+  if let Err(e) = circus_common::service_heartbeat::record(
+    &pool,
+    circus_common::service_heartbeat::SERVICE_EVALUATOR,
+    poll_u32,
+    Some(env!("CARGO_PKG_VERSION")),
+  )
+  .await
+  {
+    tracing::warn!("initial evaluator heartbeat failed: {e}");
+  }
+
+  loop {
+    tokio::time::sleep(interval).await;
+    if let Err(e) = circus_common::service_heartbeat::record(
+      &pool,
+      circus_common::service_heartbeat::SERVICE_EVALUATOR,
+      poll_u32,
+      Some(env!("CARGO_PKG_VERSION")),
+    )
+    .await
+    {
+      tracing::warn!("evaluator heartbeat failed: {e}");
+    }
+  }
 }
 
 async fn shutdown_signal() {

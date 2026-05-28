@@ -37,7 +37,7 @@ pub fn hash_api_key(key: &str) -> String {
 }
 
 async fn create_api_key(
-  _auth: RequireAdmin,
+  auth: RequireAdmin,
   State(state): State<AppState>,
   Json(input): Json<CreateApiKeyRequest>,
 ) -> Result<Json<CreateApiKeyResponse>, ApiError> {
@@ -51,6 +51,16 @@ async fn create_api_key(
     repo::api_keys::create(&state.pool, &input.name, &key_hash, &role)
       .await
       .map_err(ApiError)?;
+
+  crate::audit::record_for_key(
+    &state.pool,
+    &auth.0,
+    "API_KEY_CREATE",
+    Some("api_key"),
+    Some(&api_key.id.to_string()),
+    serde_json::json!({ "name": api_key.name, "role": api_key.role }),
+  )
+  .await;
 
   Ok(Json(CreateApiKeyResponse {
     id: api_key.id,
@@ -83,13 +93,24 @@ async fn list_api_keys(
 }
 
 async fn delete_api_key(
-  _auth: RequireAdmin,
+  auth: RequireAdmin,
   State(state): State<AppState>,
   axum::extract::Path(id): axum::extract::Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
   repo::api_keys::delete(&state.pool, id)
     .await
     .map_err(ApiError)?;
+
+  crate::audit::record_for_key(
+    &state.pool,
+    &auth.0,
+    "API_KEY_DELETE",
+    Some("api_key"),
+    Some(&id.to_string()),
+    serde_json::Value::Null,
+  )
+  .await;
+
   Ok(Json(serde_json::json!({ "deleted": true })))
 }
 
