@@ -58,12 +58,15 @@ async fn list_builds(
   };
   let limit = pagination.limit();
   let offset = pagination.offset();
+  let status = params.status.as_deref().filter(|s| !s.is_empty());
+  let system = params.system.as_deref().filter(|s| !s.is_empty());
+  let job_name = params.job_name.as_deref().filter(|s| !s.is_empty());
   let items = circus_common::repo::builds::list_filtered(
     &state.pool,
     params.evaluation_id,
-    params.status.as_deref(),
-    params.system.as_deref(),
-    params.job_name.as_deref(),
+    status,
+    system,
+    job_name,
     limit,
     offset,
   )
@@ -72,9 +75,9 @@ async fn list_builds(
   let total = circus_common::repo::builds::count_filtered(
     &state.pool,
     params.evaluation_id,
-    params.status.as_deref(),
-    params.system.as_deref(),
-    params.job_name.as_deref(),
+    status,
+    system,
+    job_name,
   )
   .await
   .map_err(ApiError)?;
