@@ -41,8 +41,10 @@ fn first_path_info_entry(
 async fn find_store_path(
   pool: &sqlx::PgPool,
   hash: &str,
+  store_dir: &str,
 ) -> std::result::Result<Option<String>, ApiError> {
-  let like_pattern = format!("/nix/store/{hash}-%");
+  let store_dir = store_dir.trim_end_matches('/');
+  let like_pattern = format!("{store_dir}/{hash}-%");
 
   let path: Option<String> = sqlx::query_scalar(
     "SELECT path FROM build_products WHERE path LIKE $1 LIMIT 1",
@@ -96,8 +98,10 @@ async fn narinfo(
     );
   }
 
-  let store_path = match find_store_path(&state.pool, hash).await? {
-    Some(p) if circus_common::validate::is_valid_store_path(&p) => p,
+  let store_dir = state.config.nix.store_dir.to_string_lossy();
+  let store_dir = store_dir.trim_end_matches('/');
+  let store_path = match find_store_path(&state.pool, hash, store_dir).await? {
+    Some(p) if circus_common::validate::is_valid_store_path(&p, store_dir) => p,
     _ => return Ok(StatusCode::NOT_FOUND.into_response()),
   };
 
@@ -129,6 +133,7 @@ async fn narinfo(
     .unwrap_or(0);
   let store_path = path_from_info.unwrap_or(&store_path);
 
+  let store_prefix = format!("{store_dir}/");
   let refs: Vec<&str> = entry
     .get("references")
     .and_then(|v| v.as_array())
@@ -136,7 +141,7 @@ async fn narinfo(
       arr
         .iter()
         .filter_map(|r| r.as_str())
-        .map(|s| s.strip_prefix("/nix/store/").unwrap_or(s))
+        .map(|s| s.strip_prefix(store_prefix.as_str()).unwrap_or(s))
         .collect()
     })
     .unwrap_or_default();
@@ -145,7 +150,7 @@ async fn narinfo(
   let deriver = entry
     .get("deriver")
     .and_then(|v| v.as_str())
-    .map(|d| d.strip_prefix("/nix/store/").unwrap_or(d));
+    .map(|d| d.strip_prefix(store_prefix.as_str()).unwrap_or(d));
 
   // Extract content-addressable hash
   let ca = entry.get("ca").and_then(|v| v.as_str());
@@ -368,8 +373,12 @@ async fn serve_nar_combined(
     return Ok(StatusCode::NOT_FOUND.into_response());
   }
 
-  let store_path = match find_store_path(&state.pool, stripped).await? {
-    Some(p) if circus_common::validate::is_valid_store_path(&p) => p,
+  let store_dir = state.config.nix.store_dir.to_string_lossy();
+  let store_dir = store_dir.trim_end_matches('/');
+  let store_path = match find_store_path(&state.pool, stripped, store_dir)
+    .await?
+  {
+    Some(p) if circus_common::validate::is_valid_store_path(&p, store_dir) => p,
     _ => return Ok(StatusCode::NOT_FOUND.into_response()),
   };
 
@@ -409,7 +418,8 @@ async fn cache_info(State(state): State<AppState>) -> Response {
     return StatusCode::NOT_FOUND.into_response();
   }
 
-  let info = "StoreDir: /nix/store\nWantMassQuery: 1\nPriority: 30\n";
+  let store_dir = state.config.nix.store_dir.display();
+  let info = format!("StoreDir: {store_dir}\nWantMassQuery: 1\nPriority: 30\n");
 
   (StatusCode::OK, [("content-type", "text/plain")], info).into_response()
 }

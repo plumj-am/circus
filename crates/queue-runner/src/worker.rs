@@ -37,6 +37,7 @@ pub struct WorkerPool {
   worker_count:        usize,
   pool:                PgPool,
   work_dir:            Arc<PathBuf>,
+  nix_store_dir:       Arc<PathBuf>,
   hot_config:          Arc<RwLock<HotConfig>>,
   log_config:          Arc<LogConfig>,
   gc_config:           Arc<GcConfig>,
@@ -55,6 +56,7 @@ impl WorkerPool {
     db_pool: PgPool,
     workers: usize,
     work_dir: PathBuf,
+    nix_store_dir: PathBuf,
     hot_config: Arc<RwLock<HotConfig>>,
     log_config: LogConfig,
     gc_config: GcConfig,
@@ -70,6 +72,7 @@ impl WorkerPool {
       worker_count: workers,
       pool: db_pool,
       work_dir: Arc::new(work_dir),
+      nix_store_dir: Arc::new(nix_store_dir),
       hot_config,
       log_config: Arc::new(log_config),
       gc_config: Arc::new(gc_config),
@@ -127,6 +130,7 @@ impl WorkerPool {
     let upload_semaphore = self.upload_semaphore.clone();
     let pool = self.pool.clone();
     let work_dir = self.work_dir.clone();
+    let nix_store_dir = self.nix_store_dir.clone();
     let hot_config = self.hot_config.clone();
     let log_config = self.log_config.clone();
     let gc_config = self.gc_config.clone();
@@ -167,6 +171,7 @@ impl WorkerPool {
           &pool,
           &build,
           &work_dir,
+          &nix_store_dir,
           timeout,
           &log_config,
           &gc_config,
@@ -318,9 +323,9 @@ async fn sign_outputs(
       },
     }
   }
-  // Returning true even on partial failures matches the old behavior — the
-  // build is "marked signed" if we attempted signing. If you want strict
-  // semantics (all paths must sign), change this to `!any_failed`.
+  // The  build is "marked signed" if we attempted signing.
+  // If we wanted more strict semantics (i.e., "all paths must sign") we can
+  // change this to `!any_failed`
   let _ = any_failed;
   true
 }
@@ -445,6 +450,7 @@ fn build_s3_store_uri(
 async fn try_remote_build(
   pool: &PgPool,
   build: &Build,
+  drv_path: &str,
   work_dir: &std::path::Path,
   timeout: Duration,
   live_log_path: Option<&std::path::Path>,
@@ -493,7 +499,7 @@ async fn try_remote_build(
     // Build remotely via --store
     let store_uri = format!("ssh://{}", builder.ssh_uri);
     let result = crate::builder::run_nix_build_remote(
-      &build.drv_path,
+      drv_path,
       work_dir,
       timeout,
       &store_uri,
@@ -588,12 +594,13 @@ async fn collect_metrics_and_alert(
   }
 }
 
-#[tracing::instrument(skip(pool, build, work_dir, log_config, gc_config, notifications_config, signing_config, cache_upload_config, upload_semaphore, scheduling_strategy), fields(build_id = %build.id, job = %build.job_name))]
+#[tracing::instrument(skip(pool, build, work_dir, nix_store_dir, log_config, gc_config, notifications_config, signing_config, cache_upload_config, upload_semaphore, scheduling_strategy), fields(build_id = %build.id, job = %build.job_name))]
 #[allow(clippy::too_many_arguments)]
 async fn run_build(
   pool: &PgPool,
   build: &Build,
   work_dir: &std::path::Path,
+  nix_store_dir: &std::path::Path,
   timeout: Duration,
   log_config: &LogConfig,
   gc_config: &GcConfig,
@@ -616,6 +623,22 @@ async fn run_build(
 
   let claimed_build = claimed.unwrap(); // Safe: we checked is_some()
 
+  // Normalize drv_path: nix-eval-jobs always emits absolute store paths,
+  // but manually-inserted or migrated rows may have bare filenames. Without
+  // the leading slash nix resolves the path relative to work_dir and fails.
+  let normalized_drv_path;
+  let drv_path: &str = if build.drv_path.starts_with('/') {
+    &build.drv_path
+  } else {
+    tracing::warn!(
+      drv_path = %build.drv_path,
+      "drv_path missing store prefix, normalizing"
+    );
+    normalized_drv_path =
+      format!("{}/{}", nix_store_dir.display(), build.drv_path);
+    &normalized_drv_path
+  };
+
   // Dispatch build started notification
   if let Some((project, commit_hash)) =
     get_project_for_build(pool, &claimed_build).await
@@ -636,10 +659,7 @@ async fn run_build(
   let step = repo::build_steps::create(pool, CreateBuildStep {
     build_id:    build.id,
     step_number: 1,
-    command:     format!(
-      "nix build --no-link --print-out-paths {}",
-      build.drv_path
-    ),
+    command:     format!("nix build --no-link --print-out-paths {drv_path}"),
   })
   .await?;
 
@@ -653,6 +673,7 @@ async fn run_build(
     match try_remote_build(
       pool,
       build,
+      drv_path,
       work_dir,
       timeout,
       Some(&live_log_path),
@@ -667,7 +688,7 @@ async fn run_build(
       None => {
         // No remote builder available or all failed, build locally
         crate::builder::run_nix_build(
-          &build.drv_path,
+          drv_path,
           work_dir,
           timeout,
           Some(&live_log_path),
@@ -677,7 +698,7 @@ async fn run_build(
     }
   } else {
     crate::builder::run_nix_build(
-      &build.drv_path,
+      drv_path,
       work_dir,
       timeout,
       Some(&live_log_path),
@@ -796,9 +817,11 @@ async fn run_build(
 
           // Register GC root
           let mut gc_root_path = None;
-          if let Ok(gc_roots) =
-            GcRoots::new(gc_config.gc_roots_dir.clone(), gc_config.enabled)
-          {
+          if let Ok(gc_roots) = GcRoots::new(
+            gc_config.gc_roots_dir.clone(),
+            nix_store_dir.to_path_buf(),
+            gc_config.enabled,
+          ) {
             let gc_id = if i == 0 {
               build.id
             } else {

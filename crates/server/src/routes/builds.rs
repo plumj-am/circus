@@ -251,7 +251,11 @@ async fn download_build_product(
     )));
   }
 
-  if !circus_common::validate::is_valid_store_path(&product.path) {
+  let store_dir = state.config.nix.store_dir.to_string_lossy();
+  if !circus_common::validate::is_valid_store_path(
+    &product.path,
+    store_dir.trim_end_matches('/'),
+  ) {
     return Err(ApiError(circus_common::CiError::Validation(
       "Invalid store path".to_string(),
     )));

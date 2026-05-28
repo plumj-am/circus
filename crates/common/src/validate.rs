@@ -4,11 +4,14 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-/// Validate that a path is a valid nix store path.
-/// Rejects path traversal, overly long paths, and non-store paths.
+/// Validate that a path is a valid nix store path for the given store
+/// directory. Rejects path traversal, overly long paths, and paths outside the
+/// store.
 #[must_use]
-pub fn is_valid_store_path(path: &str) -> bool {
-  path.starts_with("/nix/store/") && !path.contains("..") && path.len() < 512
+pub fn is_valid_store_path(path: &str, store_dir: &str) -> bool {
+  let store_dir = store_dir.trim_end_matches('/');
+  let prefix = format!("{store_dir}/");
+  path.starts_with(prefix.as_str()) && !path.contains("..") && path.len() < 512
 }
 
 /// Validate that a string is a valid nix store hash (32 lowercase alphanumeric
@@ -269,8 +272,14 @@ fn validate_commit_hash(hash: &str) -> Result<(), String> {
 }
 
 fn validate_drv_path(path: &str) -> Result<(), String> {
-  if !is_valid_store_path(path) {
-    return Err("drv_path must be a valid nix store path".to_string());
+  if !path.starts_with('/') {
+    return Err("drv_path must be an absolute path".to_string());
+  }
+  if !path.ends_with(".drv") {
+    return Err("drv_path must end with .drv".to_string());
+  }
+  if path.contains("..") {
+    return Err("drv_path must not contain ..".to_string());
   }
   Ok(())
 }
@@ -470,58 +479,76 @@ mod tests {
   #[test]
   fn valid_store_path() {
     assert!(is_valid_store_path(
-      "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-hello-2.12"
+      "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-hello-2.12",
+      "/nix/store",
     ));
   }
 
   #[test]
   fn valid_store_path_nested() {
     assert!(is_valid_store_path(
-      "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-hello-2.12/bin/hello"
+      "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-hello-2.12/bin/hello",
+      "/nix/store",
     ));
   }
 
   #[test]
   fn store_path_rejects_path_traversal() {
     assert!(!is_valid_store_path(
-      "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-hello/../../../etc/passwd"
+      "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-hello/../../../etc/passwd",
+      "/nix/store",
     ));
   }
 
   #[test]
   fn store_path_rejects_relative_path() {
-    assert!(!is_valid_store_path("nix/store/something"));
+    assert!(!is_valid_store_path("nix/store/something", "/nix/store"));
   }
 
   #[test]
   fn store_path_rejects_wrong_prefix() {
-    assert!(!is_valid_store_path("/tmp/nix/store/something"));
-    assert!(!is_valid_store_path("/etc/passwd"));
-    assert!(!is_valid_store_path("/nix/var/something"));
+    assert!(!is_valid_store_path(
+      "/tmp/nix/store/something",
+      "/nix/store"
+    ));
+    assert!(!is_valid_store_path("/etc/passwd", "/nix/store"));
+    assert!(!is_valid_store_path("/nix/var/something", "/nix/store"));
   }
 
   #[test]
   fn store_path_rejects_empty() {
-    assert!(!is_valid_store_path(""));
+    assert!(!is_valid_store_path("", "/nix/store"));
   }
 
   #[test]
   fn store_path_rejects_just_prefix() {
     // "/nix/store/" alone has no hash, but structurally starts_with and has no
-    // .., so it passes. This is fine - the DB lookup won't find anything
-    // for it.
-    assert!(is_valid_store_path("/nix/store/"));
+    // .., so it passes. This is fine - the DB lookup won't find anything for
+    // it.
+    assert!(is_valid_store_path("/nix/store/", "/nix/store"));
   }
 
   #[test]
   fn store_path_rejects_overly_long() {
     let long_path = format!("/nix/store/{}", "a".repeat(512));
-    assert!(!is_valid_store_path(&long_path));
+    assert!(!is_valid_store_path(&long_path, "/nix/store"));
   }
 
   #[test]
   fn store_path_rejects_double_dot_embedded() {
-    assert!(!is_valid_store_path("/nix/store/abc..def"));
+    assert!(!is_valid_store_path("/nix/store/abc..def", "/nix/store"));
+  }
+
+  #[test]
+  fn valid_store_path_custom_store_dir() {
+    assert!(is_valid_store_path(
+      "/opt/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-hello-2.12",
+      "/opt/nix/store",
+    ));
+    assert!(!is_valid_store_path(
+      "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-hello-2.12",
+      "/opt/nix/store",
+    ));
   }
 
   #[test]

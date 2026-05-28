@@ -35,6 +35,7 @@ async fn main() -> anyhow::Result<()> {
   let signing_config = config.signing;
   let cache_upload_config = config.cache_upload;
   let qr_config = config.queue_runner;
+  let nix_store_dir = config.nix.store_dir;
 
   let workers = cli.workers.unwrap_or(qr_config.workers);
   let strict_errors = qr_config.strict_errors;
@@ -58,6 +59,7 @@ async fn main() -> anyhow::Result<()> {
     db.pool().clone(),
     workers,
     work_dir.clone(),
+    nix_store_dir,
     hot_config.clone(),
     log_config,
     gc_config,

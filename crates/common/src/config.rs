@@ -23,6 +23,27 @@ pub struct Config {
   pub declarative:   DeclarativeConfig,
   #[serde(default)]
   pub oauth:         OAuthConfig,
+  #[serde(default)]
+  pub nix:           NixConfig,
+}
+
+/// Nix-specific settings, primarily for non-standard Nix installations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NixConfig {
+  /// Path to the Nix store directory. Defaults to `/nix/store`.
+  /// Override when Nix is installed with a relocated store (e.g. on macOS
+  /// with a non-standard APFS volume or a multi-user install under a
+  /// different prefix).
+  pub store_dir: PathBuf,
+}
+
+impl Default for NixConfig {
+  fn default() -> Self {
+    Self {
+      store_dir: PathBuf::from("/nix/store"),
+    }
+  }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

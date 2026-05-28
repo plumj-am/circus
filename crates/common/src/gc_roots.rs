@@ -68,6 +68,7 @@ pub fn cleanup_old_roots(
 
 pub struct GcRoots {
   roots_dir: PathBuf,
+  store_dir: PathBuf,
   enabled:   bool,
 }
 
@@ -77,7 +78,11 @@ impl GcRoots {
   /// # Errors
   ///
   /// Returns error if directory creation or permission setting fails.
-  pub fn new(roots_dir: PathBuf, enabled: bool) -> std::io::Result<Self> {
+  pub fn new(
+    roots_dir: PathBuf,
+    store_dir: PathBuf,
+    enabled: bool,
+  ) -> std::io::Result<Self> {
     if enabled {
       std::fs::create_dir_all(&roots_dir)?;
       #[cfg(unix)]
@@ -89,7 +94,11 @@ impl GcRoots {
         )?;
       }
     }
-    Ok(Self { roots_dir, enabled })
+    Ok(Self {
+      roots_dir,
+      store_dir,
+      enabled,
+    })
   }
 
   /// Register a GC root for a build output. Returns the symlink path.
@@ -105,7 +114,10 @@ impl GcRoots {
     if !self.enabled {
       return Ok(None);
     }
-    if !crate::validate::is_valid_store_path(output_path) {
+    if !crate::validate::is_valid_store_path(
+      output_path,
+      &self.store_dir.to_string_lossy(),
+    ) {
       return Err(std::io::Error::new(
         std::io::ErrorKind::InvalidInput,
         format!("Invalid store path: {output_path}"),
