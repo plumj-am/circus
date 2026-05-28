@@ -152,7 +152,9 @@ impl std::fmt::Debug for GitHubOAuthConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-#[derive(Default)]
+// Manual Default impl below so the default tree fed into `config-rs` matches
+// the per-field `#[serde(default = ...)]` annotations. `#[derive(Default)]`
+// would silently set `enable_retry_queue = false`, which is wrong.
 pub struct NotificationsConfig {
   pub webhook_url:         Option<String>,
   pub github_token:        Option<String>,
@@ -176,6 +178,26 @@ pub struct NotificationsConfig {
   /// Polling interval for retry worker in seconds (default 5)
   #[serde(default = "default_notification_poll_interval")]
   pub retry_poll_interval: u64,
+}
+
+impl Default for NotificationsConfig {
+  fn default() -> Self {
+    Self {
+      webhook_url:         None,
+      github_token:        None,
+      gitea_url:           None,
+      gitea_token:         None,
+      gitlab_url:          None,
+      gitlab_token:        None,
+      email:               None,
+      alerts:              None,
+      slack:               None,
+      enable_retry_queue:  default_true(),
+      max_retry_attempts:  default_notification_max_attempts(),
+      retention_days:      default_notification_retention_days(),
+      retry_poll_interval: default_notification_poll_interval(),
+    }
+  }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -795,7 +817,14 @@ impl Config {
         .try_parsing(true),
     );
 
-    let config = settings.build()?.try_deserialize::<Self>()?;
+    let mut config = settings.build()?.try_deserialize::<Self>()?;
+
+    // The `config-rs` Environment source does not reliably override
+    // `Option<String>` fields nested under a struct that was already seeded
+    // with `Self::default()` (None serializes to a Nil value that the env
+    // source then fails to overwrite during merge). Apply these manually
+    // here so operator-set env vars actually take effect.
+    apply_env_overrides_for_option_fields(&mut config);
 
     // Validate configuration
     config.validate()?;
@@ -900,6 +929,83 @@ impl Config {
     }
 
     Ok(())
+  }
+}
+
+/// Apply environment variables to nested config fields that `config-rs`'s
+/// `Environment` source does not reliably override.
+///
+/// `config-rs` has two distinct merge bugs we hit in production:
+/// 1. For `Option<T>` fields seeded from `Self::default()`, the typed `Nil` in
+///    the default tree is never overwritten by the env source's typed
+///    `String`/`Path` value.
+/// 2. For nested scalar fields (e.g. `signing.enabled`) where the on-disk
+///    config file has explicitly set a value, the env source fails to override
+///    the file source despite being added later. (Observed for `bool` under
+///    nested structs; top-level scalars work.)
+///
+/// Rather than continuing to fight `config-rs`, we explicitly apply env
+/// vars after deserialization for every field we want operator-overridable.
+/// Add new entries here when introducing config options that VM tests or
+/// operators need to set via systemd drop-ins.
+fn apply_env_overrides_for_option_fields(config: &mut Config) {
+  fn opt_str(var: &str) -> Option<String> {
+    std::env::var(var).ok().filter(|s| !s.is_empty())
+  }
+  fn opt_bool(var: &str) -> Option<bool> {
+    opt_str(var).and_then(|s| {
+      match s.to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+      }
+    })
+  }
+
+  // Notifications: Option<String> fields
+  if let Some(v) = opt_str("CIRCUS_NOTIFICATIONS__WEBHOOK_URL") {
+    config.notifications.webhook_url = Some(v);
+  }
+  if let Some(v) = opt_str("CIRCUS_NOTIFICATIONS__GITHUB_TOKEN") {
+    config.notifications.github_token = Some(v);
+  }
+  if let Some(v) = opt_str("CIRCUS_NOTIFICATIONS__GITEA_URL") {
+    config.notifications.gitea_url = Some(v);
+  }
+  if let Some(v) = opt_str("CIRCUS_NOTIFICATIONS__GITEA_TOKEN") {
+    config.notifications.gitea_token = Some(v);
+  }
+  if let Some(v) = opt_str("CIRCUS_NOTIFICATIONS__GITLAB_URL") {
+    config.notifications.gitlab_url = Some(v);
+  }
+  if let Some(v) = opt_str("CIRCUS_NOTIFICATIONS__GITLAB_TOKEN") {
+    config.notifications.gitlab_token = Some(v);
+  }
+
+  // Signing: bool + Option<PathBuf>
+  if let Some(v) = opt_bool("CIRCUS_SIGNING__ENABLED") {
+    config.signing.enabled = v;
+  }
+  if let Some(v) = opt_str("CIRCUS_SIGNING__KEY_FILE") {
+    config.signing.key_file = Some(std::path::PathBuf::from(v));
+  }
+
+  // GC: bool + scalar fields that VM tests toggle via systemd drop-ins.
+  if let Some(v) = opt_bool("CIRCUS_GC__ENABLED") {
+    config.gc.enabled = v;
+  }
+  if let Some(v) = opt_str("CIRCUS_GC__GC_ROOTS_DIR") {
+    config.gc.gc_roots_dir = std::path::PathBuf::from(v);
+  }
+  if let Ok(v) = std::env::var("CIRCUS_GC__MAX_AGE_DAYS")
+    && let Ok(parsed) = v.parse()
+  {
+    config.gc.max_age_days = parsed;
+  }
+  if let Ok(v) = std::env::var("CIRCUS_GC__CLEANUP_INTERVAL")
+    && let Ok(parsed) = v.parse()
+  {
+    config.gc.cleanup_interval = parsed;
   }
 }
 

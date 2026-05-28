@@ -80,6 +80,17 @@ pub async fn dispatch_build_finished(
   commit_hash: &str,
   config: &NotificationsConfig,
 ) {
+  tracing::info!(
+      build_id = %build.id,
+      enable_retry_queue = config.enable_retry_queue,
+      pool_present = pool.is_some(),
+      webhook_url_set = config.webhook_url.is_some(),
+      github_token_set = config.github_token.is_some(),
+      slack_set = config.slack.is_some(),
+      email_set = config.email.is_some(),
+      "Dispatching build finished notifications"
+  );
+
   // If retry queue is enabled and pool is available, enqueue tasks
   if config.enable_retry_queue
     && let Some(pool) = pool
@@ -117,12 +128,30 @@ async fn enqueue_notifications(
       "commit_hash": commit_hash,
     });
 
-    if let Err(e) =
-      repo::notification_tasks::create(pool, "webhook", payload, max_attempts)
-        .await
+    match repo::notification_tasks::create(
+      pool,
+      "webhook",
+      payload,
+      max_attempts,
+    )
+    .await
     {
-      error!(build_id = %build.id, "Failed to enqueue webhook notification: {e}");
+      Ok(_) => {
+        tracing::info!(
+            build_id = %build.id,
+            url = %url,
+            "Enqueued webhook notification task"
+        )
+      },
+      Err(e) => {
+        error!(build_id = %build.id, "Failed to enqueue webhook notification: {e}")
+      },
     }
+  } else {
+    tracing::debug!(
+        build_id = %build.id,
+        "No global webhook_url configured; skipping generic webhook notification"
+    );
   }
 
   // 2. GitHub commit status
