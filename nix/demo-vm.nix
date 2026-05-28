@@ -51,12 +51,12 @@
 
       declarative.users = {
         admin = {
-          email = "admin@localhost";
+          email = "admin@circus.local";
           password = "AdminPassword123!";
           role = "admin";
         };
         demo = {
-          email = "demo@localhost";
+          email = "demo@circus.local";
           role = "read-only";
           passwordFile = toString demoPasswordFile;
         };
