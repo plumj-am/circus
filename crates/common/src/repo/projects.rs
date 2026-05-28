@@ -151,6 +151,12 @@ pub async fn upsert(pool: &PgPool, input: CreateProject) -> Result<Project> {
 /// Used by the evaluator to discover in-repo declarative config for projects
 /// that have not yet bootstrapped any jobsets through the server config.
 ///
+/// # Returns
+///
+/// Projects that have NO jobsets at all. A project with only disabled
+/// jobsets is considered intentionally configured and is not re-discovered,
+/// honoring the user's choice to disable evaluation without re-cloning.
+///
 /// # Errors
 ///
 /// Returns error if database query fails.
@@ -158,8 +164,8 @@ pub async fn list_without_active_jobsets(
   pool: &PgPool,
 ) -> Result<Vec<Project>> {
   sqlx::query_as::<_, Project>(
-    "SELECT p.* FROM projects p WHERE NOT EXISTS (SELECT 1 FROM \
-     active_jobsets aj WHERE aj.project_id = p.id)",
+    "SELECT p.* FROM projects p WHERE NOT EXISTS (SELECT 1 FROM jobsets j \
+     WHERE j.project_id = p.id)",
   )
   .fetch_all(pool)
   .await
