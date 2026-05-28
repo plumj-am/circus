@@ -1,14 +1,14 @@
 {
-  pkgs,
+  testers,
   self,
 }:
-pkgs.testers.nixosTest {
+testers.runNixOSTest {
   name = "circus-basic-api";
 
-  nodes.machine = {
+  containers.machine = {
     imports = [
       self.nixosModules.circus
-      ../vm-common.nix
+      ../container-common.nix
     ];
     _module.args.self = self;
   };

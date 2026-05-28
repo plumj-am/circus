@@ -1,5 +1,6 @@
 {
   pkgs,
+  testers,
   self,
 }: let
   circus-packages = self.packages.${pkgs.stdenv.hostPlatform.system};
@@ -10,7 +11,7 @@
   userPasswordFile = pkgs.writeText "user-password" "SecretUser123!";
   disabledPasswordFile = pkgs.writeText "disabled-password" "DisabledPass123!";
 in
-  pkgs.testers.nixosTest {
+  testers.runNixOSTest {
     name = "circus-declarative";
 
     nodes.machine = {

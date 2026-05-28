@@ -1,17 +1,17 @@
 {
   self,
-  pkgs,
+  testers,
   lib,
 }: let
   inherit (lib.modules) mkForce;
 in
-  pkgs.testers.nixosTest {
+  testers.runNixOSTest {
     name = "circus-gc-pinning";
 
-    nodes.machine = {
+    containers.machine = {
       imports = [
         self.nixosModules.circus
-        ../vm-common.nix
+        ../container-common.nix
       ];
       _module.args.self = self;
 

@@ -1,8 +1,8 @@
 {
-  pkgs,
+  testers,
   self,
 }:
-pkgs.testers.nixosTest {
+testers.runNixOSTest {
   name = "circus-e2e";
 
   nodes.machine = {
