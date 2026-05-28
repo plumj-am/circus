@@ -8,6 +8,21 @@ use axum::{
 
 use crate::{error::ApiError, state::AppState};
 
+/// Wrap a generated SVG in a 200 response with the correct content-type
+/// and cache headers. Used for every successful badge return so callers
+/// never need to remember the headers.
+fn svg_response(svg: String) -> Response {
+  (
+    StatusCode::OK,
+    [
+      ("content-type", "image/svg+xml"),
+      ("cache-control", "no-cache, no-store, must-revalidate"),
+    ],
+    svg,
+  )
+    .into_response()
+}
+
 async fn build_badge(
   State(state): State<AppState>,
   Path((project_name, jobset_name, job_name)): Path<(String, String, String)>,
@@ -30,7 +45,7 @@ async fn build_badge(
 
   let jobset = jobsets.iter().find(|j| j.name == jobset_name);
   let Some(jobset) = jobset else {
-    return Ok(shield_svg("build", "not found", "#9f9f9f").into_response());
+    return Ok(svg_response(shield_svg("build", "not found", "#9f9f9f")));
   };
 
   // Get latest evaluation
@@ -40,9 +55,11 @@ async fn build_badge(
       .map_err(ApiError)?;
 
   let Some(eval) = eval else {
-    return Ok(
-      shield_svg("build", "no evaluations", "#9f9f9f").into_response(),
-    );
+    return Ok(svg_response(shield_svg(
+      "build",
+      "no evaluations",
+      "#9f9f9f",
+    )));
   };
 
   // Find the build for this job
@@ -78,17 +95,7 @@ async fn build_badge(
     }
   });
 
-  Ok(
-    (
-      StatusCode::OK,
-      [
-        ("content-type", "image/svg+xml"),
-        ("cache-control", "no-cache, no-store, must-revalidate"),
-      ],
-      shield_svg("build", label, color),
-    )
-      .into_response(),
-  )
+  Ok(svg_response(shield_svg("build", label, color)))
 }
 
 /// Latest successful build redirect

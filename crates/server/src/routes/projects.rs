@@ -108,13 +108,30 @@ async fn update_project(
 }
 
 async fn delete_project(
-  _auth: RequireAdmin,
+  auth: RequireAdmin,
   State(state): State<AppState>,
   Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+  // Capture the name before deletion so the audit row remains readable.
+  let project_name = circus_common::repo::projects::get(&state.pool, id)
+    .await
+    .ok()
+    .map(|p| p.name);
+
   circus_common::repo::projects::delete(&state.pool, id)
     .await
     .map_err(ApiError)?;
+
+  crate::audit::record_for_key(
+    &state.pool,
+    &auth.0,
+    "PROJECT_DELETE",
+    Some("project"),
+    Some(&id.to_string()),
+    serde_json::json!({ "name": project_name }),
+  )
+  .await;
+
   Ok(Json(serde_json::json!({ "deleted": true })))
 }
 

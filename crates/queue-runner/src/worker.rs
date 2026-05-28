@@ -269,9 +269,25 @@ async fn sign_outputs(
 ) -> bool {
   let key_file = match &signing_config.key_file {
     Some(kf) if signing_config.enabled && kf.exists() => kf,
-    _ => return false,
+    Some(kf) => {
+      tracing::info!(
+        enabled = signing_config.enabled,
+        key_file = %kf.display(),
+        key_exists = kf.exists(),
+        "Signing skipped: enabled=false or key_file missing"
+      );
+      return false;
+    },
+    None => {
+      tracing::info!(
+        enabled = signing_config.enabled,
+        "Signing skipped: no key_file configured"
+      );
+      return false;
+    },
   };
 
+  let mut any_failed = false;
   for output_path in output_paths {
     let result = tokio::process::Command::new("nix")
       .args([
@@ -286,20 +302,26 @@ async fn sign_outputs(
 
     match result {
       Ok(o) if o.status.success() => {
-        tracing::debug!(output = output_path, "Signed store path");
+        tracing::info!(output = output_path, "Signed store path");
       },
       Ok(o) => {
         let stderr = String::from_utf8_lossy(&o.stderr);
         tracing::warn!(output = output_path, "Failed to sign: {stderr}");
+        any_failed = true;
       },
       Err(e) => {
         tracing::warn!(
           output = output_path,
           "Failed to run nix store sign: {e}"
         );
+        any_failed = true;
       },
     }
   }
+  // Returning true even on partial failures matches the old behavior — the
+  // build is "marked signed" if we attempted signing. If you want strict
+  // semantics (all paths must sign), change this to `!any_failed`.
+  let _ = any_failed;
   true
 }
 

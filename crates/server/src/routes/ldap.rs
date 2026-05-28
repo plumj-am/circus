@@ -80,10 +80,30 @@ async fn ldap_login(
     Ok(res) if res.rc == 0 => {},
     Ok(res) => {
       tracing::debug!(rc = res.rc, "LDAP bind rejected");
+      crate::audit::record_with_actor(
+        &state.pool,
+        &circus_common::audit::Actor::anonymous(),
+        None,
+        "LOGIN_FAILURE",
+        Some("ldap"),
+        Some(&body.username),
+        serde_json::json!({ "reason": "bind_rejected", "rc": res.rc }),
+      )
+      .await;
       return Ok(StatusCode::UNAUTHORIZED.into_response());
     },
     Err(e) => {
       tracing::debug!("LDAP bind error: {e}");
+      crate::audit::record_with_actor(
+        &state.pool,
+        &circus_common::audit::Actor::anonymous(),
+        None,
+        "LOGIN_FAILURE",
+        Some("ldap"),
+        Some(&body.username),
+        serde_json::json!({ "reason": "bind_error" }),
+      )
+      .await;
       return Ok(StatusCode::UNAUTHORIZED.into_response());
     },
   }
@@ -103,6 +123,17 @@ async fn ldap_login(
   let session = repo::users::create_session(&state.pool, user.id)
     .await
     .map_err(ApiError)?;
+
+  crate::audit::record_with_actor(
+    &state.pool,
+    &circus_common::audit::Actor::user(user.id, user.username.clone()),
+    None,
+    "LOGIN_SUCCESS",
+    Some("ldap"),
+    Some(&user.id.to_string()),
+    serde_json::json!({ "method": "ldap" }),
+  )
+  .await;
 
   let cookie = format!(
     "circus_user_session={}; {}; Path=/; Max-Age={}",

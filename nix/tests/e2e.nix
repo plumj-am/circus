@@ -407,7 +407,14 @@ pkgs.testers.nixosTest {
             "http.server.HTTPServer(('127.0.0.1', 9998), H).serve_forever()\n"
             "PYEOF\n"
         )
-        machine.succeed("python3 /tmp/webhook-server.py &")
+        # Background the webhook server with stdio fully detached from the
+        # test driver. Without redirecting fds, `serve_forever()` keeps the
+        # driver's pipe open and machine.succeed() never returns even
+        # though `&` makes bash itself release the job.
+        machine.succeed(
+            "python3 /tmp/webhook-server.py "
+            "</dev/null >/tmp/webhook-server.log 2>&1 & disown"
+        )
         machine.wait_until_succeeds(
             "curl -sf -X POST -H 'Content-Length: 2' -d '{}' http://127.0.0.1:9998/",
             timeout=10
@@ -519,12 +526,20 @@ pkgs.testers.nixosTest {
             f"curl -sf http://127.0.0.1:3000/api/v1/builds/{sign_build_id} | jq -r .build_output_path"
         ).strip()
 
-        # Verify the path is signed with our key
-        # The verify command should succeed (exit 0) if signatures are valid
-        machine.succeed(f"nix store verify --sigs-needed 1 {output_path}")
+        # Verify the path is signed with our key. The verifying nix instance
+        # has no a-priori reason to trust circus-test's pubkey, so we pass
+        # it explicitly via --option. Without this, verify would correctly
+        # report the path as untrusted even though the signature is valid.
+        pubkey = machine.succeed(
+            "cat /var/lib/circus/keys/signing-key.pub"
+        ).strip()
+        machine.succeed(
+            f"nix store verify --sigs-needed 1 "
+            f"--option extra-trusted-public-keys '{pubkey}' {output_path}"
+        )
 
     with subtest("GC roots are created for build products"):
-        # Enable GC via systemd drop-in override
+        # Enable GC via systemd drop-in override.
         machine.succeed("mkdir -p /run/systemd/system/circus-queue-runner.service.d")
         machine.succeed(
             "cat > /run/systemd/system/circus-queue-runner.service.d/gc.conf << 'EOF'\n"
