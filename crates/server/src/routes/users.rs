@@ -118,9 +118,10 @@ async fn create_user(
     role:      req.role,
   };
 
-  let user = repo::users::create(&state.pool, &data)
-    .await
-    .map_err(ApiError)?;
+  let user =
+    repo::users::create(&state.pool, &data, state.email_regex.as_deref())
+      .await
+      .map_err(ApiError)?;
 
   crate::audit::record_for_key(
     &state.pool,
@@ -181,9 +182,10 @@ async fn update_user(
     public_dashboard: req.public_dashboard,
   };
 
-  let user = repo::users::update(&state.pool, id, &data)
-    .await
-    .map_err(ApiError)?;
+  let user =
+    repo::users::update(&state.pool, id, &data, state.email_regex.as_deref())
+      .await
+      .map_err(ApiError)?;
 
   crate::audit::record_for_key(
     &state.pool,
@@ -285,9 +287,14 @@ async fn update_current_user(
   }
 
   if let Some(ref email) = req.email {
-    repo::users::update_email(&state.pool, user.id, email)
-      .await
-      .map_err(ApiError)?;
+    repo::users::update_email(
+      &state.pool,
+      user.id,
+      email,
+      state.email_regex.as_deref(),
+    )
+    .await
+    .map_err(ApiError)?;
   }
 
   if let Some(public) = req.public_dashboard {

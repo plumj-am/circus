@@ -289,6 +289,7 @@ async fn test_e2e_project_eval_build_flow() {
     narinfo_cache: std::sync::Arc::new(dashmap::DashMap::new()),
     http_client: reqwest::Client::new(),
     csrf_secret: std::sync::Arc::new([0u8; 32]),
+    email_regex: None,
   };
   let app = circus_server::routes::router(state, &server_config);
 

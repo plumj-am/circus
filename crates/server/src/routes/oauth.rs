@@ -257,6 +257,7 @@ async fn github_callback(
     primary_email.as_deref(),
     UserType::Github,
     &user_info.id.to_string(),
+    state.email_regex.as_deref(),
   )
   .await
   .map_err(ApiError)?;

@@ -9,12 +9,6 @@ static USERNAME_REGEX: LazyLock<Regex> = LazyLock::new(|| {
   Regex::new(r"^[a-zA-Z0-9_-]{3,32}$").expect("Invalid username regex pattern")
 });
 
-/// Email validation (basic RFC 5322 compliant)
-static EMAIL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-  Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
-    .expect("Invalid email regex pattern")
-});
-
 /// Validation errors
 #[derive(Debug, Clone)]
 pub struct ValidationError {
@@ -58,12 +52,20 @@ pub fn validate_username(username: &str) -> Result<(), ValidationError> {
   Ok(())
 }
 
-/// Validate email format
+/// Validate email address.
+///
+/// When `regex` is `None`, only structural checks are applied: non-empty,
+/// max 255 characters, and must contain `@`. When a `Regex` is provided it
+/// is used instead of the structural check, allowing operators to enforce a
+/// stricter or organisation-specific pattern (e.g. requiring a real TLD).
 ///
 /// # Errors
 ///
-/// Returns error if email format is invalid.
-pub fn validate_email(email: &str) -> Result<(), ValidationError> {
+/// Returns error if the email fails validation.
+pub fn validate_email(
+  email: &str,
+  regex: Option<&Regex>,
+) -> Result<(), ValidationError> {
   if email.is_empty() {
     return Err(ValidationError {
       field:   "email".to_string(),
@@ -71,11 +73,30 @@ pub fn validate_email(email: &str) -> Result<(), ValidationError> {
     });
   }
 
-  if !EMAIL_REGEX.is_match(email) {
+  if email.len() > 255 {
     return Err(ValidationError {
       field:   "email".to_string(),
-      message: "Invalid email format".to_string(),
+      message: "Email must be 255 characters or less".to_string(),
     });
+  }
+
+  match regex {
+    Some(re) => {
+      if !re.is_match(email) {
+        return Err(ValidationError {
+          field:   "email".to_string(),
+          message: "Invalid email format".to_string(),
+        });
+      }
+    },
+    None => {
+      if !email.contains('@') {
+        return Err(ValidationError {
+          field:   "email".to_string(),
+          message: "Email must contain '@'".to_string(),
+        });
+      }
+    },
   }
 
   Ok(())

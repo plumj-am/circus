@@ -41,6 +41,7 @@ xz2.workspace                = true
 # Our crates
 circus-common.workspace = true
 
-[dev-dependencies]
 regex.workspace = true
+
+[dev-dependencies]
 tower.workspace = true

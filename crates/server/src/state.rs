@@ -6,6 +6,7 @@ use circus_common::{
 };
 use dashmap::DashMap;
 use hmac::KeyInit;
+use regex::Regex;
 use sqlx::PgPool;
 
 /// Maximum session lifetime before automatic eviction (24 hours).
@@ -78,6 +79,9 @@ pub struct AppState {
   /// Regenerated on every restart, which invalidates outstanding tokens; the
   /// dashboard re-issues them on the next page render so this is benign.
   pub csrf_secret:   Arc<[u8; 32]>,
+  /// Compiled email validation regex from `server.email_validation_regex`.
+  /// `None` means only structural checks (non-empty, contains `@`).
+  pub email_regex:   Option<Arc<Regex>>,
 }
 
 impl AppState {

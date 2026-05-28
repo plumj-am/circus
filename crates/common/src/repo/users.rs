@@ -1,5 +1,6 @@
 //! User repository - CRUD operations and authentication
 
+use regex::Regex;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -56,16 +57,22 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool> {
 
 /// Create a new user with validation
 ///
+/// `email_regex` controls email format validation - see [`validate_email`].
+///
 /// # Errors
 ///
 /// Returns error if validation fails or database insert fails.
-pub async fn create(pool: &PgPool, data: &CreateUser) -> Result<User> {
+pub async fn create(
+  pool: &PgPool,
+  data: &CreateUser,
+  email_regex: Option<&Regex>,
+) -> Result<User> {
   // Validate username
   validate_username(&data.username)
     .map_err(|e| CiError::Validation(e.to_string()))?;
 
   // Validate email
-  validate_email(&data.email)
+  validate_email(&data.email, email_regex)
     .map_err(|e| CiError::Validation(e.to_string()))?;
 
   // Validate password
@@ -223,6 +230,8 @@ pub async fn count(pool: &PgPool) -> Result<i64> {
 
 /// Update a user with the provided data
 ///
+/// `email_regex` controls email format validation - see [`validate_email`].
+///
 /// # Errors
 ///
 /// Returns error if validation fails or database update fails.
@@ -230,10 +239,11 @@ pub async fn update(
   pool: &PgPool,
   id: Uuid,
   data: &UpdateUser,
+  email_regex: Option<&Regex>,
 ) -> Result<User> {
   // Apply all updates sequentially
   if let Some(ref email) = data.email {
-    update_email(pool, id, email).await?;
+    update_email(pool, id, email, email_regex).await?;
   }
 
   if let Some(ref full_name) = data.full_name {
@@ -261,6 +271,8 @@ pub async fn update(
 
 /// Update user email with validation
 ///
+/// `email_regex` controls email format validation - see [`validate_email`].
+///
 /// # Errors
 ///
 /// Returns error if validation fails or database update fails.
@@ -268,8 +280,10 @@ pub async fn update_email(
   pool: &PgPool,
   id: Uuid,
   email: &str,
+  email_regex: Option<&Regex>,
 ) -> Result<User> {
-  validate_email(email).map_err(|e| CiError::Validation(e.to_string()))?;
+  validate_email(email, email_regex)
+    .map_err(|e| CiError::Validation(e.to_string()))?;
 
   sqlx::query_as::<_, User>(
     "UPDATE users SET email = $1 WHERE id = $2 RETURNING *",
@@ -399,6 +413,8 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
 
 /// Create or update OAuth user
 ///
+/// `email_regex` controls email format validation - see [`validate_email`].
+///
 /// # Errors
 ///
 /// Returns error if validation fails or database operation fails.
@@ -408,6 +424,7 @@ pub async fn upsert_oauth_user(
   email: Option<&str>,
   user_type: UserType,
   oauth_provider_id: &str,
+  email_regex: Option<&Regex>,
 ) -> Result<User> {
   // Use provider ID in username to avoid collisions
   let unique_username = format!("{username}_{oauth_provider_id}");
@@ -423,7 +440,8 @@ pub async fn upsert_oauth_user(
     // Update existing user
     if let Some(e) = email {
       // Validate email before updating
-      validate_email(e).map_err(|err| CiError::Validation(err.to_string()))?;
+      validate_email(e, email_regex)
+        .map_err(|err| CiError::Validation(err.to_string()))?;
       sqlx::query(
         "UPDATE users SET email = $1, last_login_at = NOW(), updated_at = \
          NOW() WHERE id = $2",

@@ -37,6 +37,7 @@ fn build_app(pool: sqlx::PgPool) -> axum::Router {
     narinfo_cache: std::sync::Arc::new(dashmap::DashMap::new()),
     http_client: reqwest::Client::new(),
     csrf_secret: std::sync::Arc::new([0u8; 32]),
+    email_regex: None,
   };
   circus_server::routes::router(state, &server_config)
 }
@@ -56,6 +57,7 @@ async fn test_router_no_duplicate_routes() {
     narinfo_cache: std::sync::Arc::new(dashmap::DashMap::new()),
     http_client: reqwest::Client::new(),
     csrf_secret: std::sync::Arc::new([0u8; 32]),
+    email_regex: None,
   };
 
   let _app = circus_server::routes::router(state, &server_config);
@@ -73,6 +75,7 @@ fn build_app_with_config(
     narinfo_cache: std::sync::Arc::new(dashmap::DashMap::new()),
     http_client: reqwest::Client::new(),
     csrf_secret: std::sync::Arc::new([0u8; 32]),
+    email_regex: None,
   };
   circus_server::routes::router(state, &server_config)
 }

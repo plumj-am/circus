@@ -116,6 +116,7 @@ async fn ldap_login(
     None,
     UserType::Ldap,
     "ldap",
+    state.email_regex.as_deref(),
   )
   .await
   .map_err(ApiError)?;

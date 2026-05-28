@@ -300,7 +300,7 @@ pub async fn run(pool: &PgPool, config: &DeclarativeConfig) -> Result<()> {
         enabled: Some(decl_user.enabled),
         public_dashboard: None,
       };
-      if let Err(e) = repo::users::update(pool, user.id, &update).await {
+      if let Err(e) = repo::users::update(pool, user.id, &update, None).await {
         tracing::warn!(
           username = %decl_user.username,
           "Failed to update declarative user: {e}"
@@ -320,7 +320,7 @@ pub async fn run(pool: &PgPool, config: &DeclarativeConfig) -> Result<()> {
         password:  pwd,
         role:      Some(decl_user.role.clone()),
       };
-      match repo::users::create(pool, &create).await {
+      match repo::users::create(pool, &create, None).await {
         Ok(user) => {
           tracing::info!(
             username = %user.username,

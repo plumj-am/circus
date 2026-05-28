@@ -66,13 +66,25 @@ async fn main() -> anyhow::Result<()> {
   csrf_secret[..16].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
   csrf_secret[16..].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
 
+  let email_regex = config
+    .server
+    .email_validation_regex
+    .as_deref()
+    .map(|pat| {
+      regex::Regex::new(pat)
+        .map(std::sync::Arc::new)
+        .map_err(|e| anyhow::anyhow!("Invalid email_validation_regex: {e}"))
+    })
+    .transpose()?;
+
   let state = AppState {
-    pool:          db.pool().clone(),
-    config:        config.clone(),
-    sessions:      std::sync::Arc::new(dashmap::DashMap::new()),
+    pool: db.pool().clone(),
+    config: config.clone(),
+    sessions: std::sync::Arc::new(dashmap::DashMap::new()),
     narinfo_cache: std::sync::Arc::new(dashmap::DashMap::new()),
-    http_client:   reqwest::Client::new(),
-    csrf_secret:   std::sync::Arc::new(csrf_secret),
+    http_client: reqwest::Client::new(),
+    csrf_secret: std::sync::Arc::new(csrf_secret),
+    email_regex,
   };
 
   // Start background session cleanup to prevent memory leaks

@@ -33,13 +33,17 @@ async fn test_user_crud() {
   let email = format!("{username}@example.com");
 
   // Create user
-  let user = repo::users::create(&pool, &CreateUser {
-    username:  username.clone(),
-    email:     email.clone(),
-    full_name: Some("Test User".to_string()),
-    password:  "secure_password_123".to_string(),
-    role:      Some("admin".to_string()),
-  })
+  let user = repo::users::create(
+    &pool,
+    &CreateUser {
+      username:  username.clone(),
+      email:     email.clone(),
+      full_name: Some("Test User".to_string()),
+      password:  "secure_password_123".to_string(),
+      role:      Some("admin".to_string()),
+    },
+    None,
+  )
   .await
   .expect("create user");
 
@@ -79,7 +83,7 @@ async fn test_user_crud() {
 
   // Update email
   let new_email = format!("updated-{email}");
-  let updated = repo::users::update_email(&pool, user.id, &new_email)
+  let updated = repo::users::update_email(&pool, user.id, &new_email, None)
     .await
     .expect("update email");
   assert_eq!(updated.email, new_email);
@@ -139,13 +143,17 @@ async fn test_user_authentication() {
   let password = "my_secret_password";
 
   // Create user
-  let user = repo::users::create(&pool, &CreateUser {
-    username:  username.clone(),
-    email:     format!("{username}@example.com"),
-    full_name: None,
-    password:  password.to_string(),
-    role:      None,
-  })
+  let user = repo::users::create(
+    &pool,
+    &CreateUser {
+      username:  username.clone(),
+      email:     format!("{username}@example.com"),
+      full_name: None,
+      password:  password.to_string(),
+      role:      None,
+    },
+    None,
+  )
   .await
   .expect("create user");
 
@@ -237,35 +245,47 @@ async fn test_user_unique_constraints() {
   let email = format!("{username}@example.com");
 
   // Create first user
-  let _ = repo::users::create(&pool, &CreateUser {
-    username:  username.clone(),
-    email:     email.clone(),
-    full_name: None,
-    password:  "password".to_string(),
-    role:      None,
-  })
+  let _ = repo::users::create(
+    &pool,
+    &CreateUser {
+      username:  username.clone(),
+      email:     email.clone(),
+      full_name: None,
+      password:  "password".to_string(),
+      role:      None,
+    },
+    None,
+  )
   .await
   .expect("create first user");
 
   // Try to create with same username
-  let result = repo::users::create(&pool, &CreateUser {
-    username:  username.clone(),
-    email:     format!("other-{email}"),
-    full_name: None,
-    password:  "password".to_string(),
-    role:      None,
-  })
+  let result = repo::users::create(
+    &pool,
+    &CreateUser {
+      username:  username.clone(),
+      email:     format!("other-{email}"),
+      full_name: None,
+      password:  "password".to_string(),
+      role:      None,
+    },
+    None,
+  )
   .await;
   assert!(matches!(result, Err(circus_common::CiError::Conflict(_))));
 
   // Try to create with same email
-  let result = repo::users::create(&pool, &CreateUser {
-    username:  format!("other-{username}"),
-    email:     email.clone(),
-    full_name: None,
-    password:  "password".to_string(),
-    role:      None,
-  })
+  let result = repo::users::create(
+    &pool,
+    &CreateUser {
+      username:  format!("other-{username}"),
+      email:     email.clone(),
+      full_name: None,
+      password:  "password".to_string(),
+      role:      None,
+    },
+    None,
+  )
   .await;
   assert!(matches!(result, Err(circus_common::CiError::Conflict(_))));
 
@@ -294,6 +314,7 @@ async fn test_oauth_user_creation() {
     Some(email.as_str()),
     UserType::Github,
     &oauth_provider_id,
+    None,
   )
   .await
   .expect("create OAuth user");
@@ -309,6 +330,7 @@ async fn test_oauth_user_creation() {
     Some(email.as_str()),
     UserType::Github,
     &oauth_provider_id,
+    None,
   )
   .await
   .expect("update OAuth user");
@@ -328,13 +350,17 @@ async fn test_starred_jobs_crud() {
   };
 
   // Create prerequisite data
-  let user = repo::users::create(&pool, &CreateUser {
-    username:  format!("star-user-{}", Uuid::new_v4().simple()),
-    email:     format!("star-{}@example.com", Uuid::new_v4().simple()),
-    full_name: None,
-    password:  "password".to_string(),
-    role:      None,
-  })
+  let user = repo::users::create(
+    &pool,
+    &CreateUser {
+      username:  format!("star-user-{}", Uuid::new_v4().simple()),
+      email:     format!("star-{}@example.com", Uuid::new_v4().simple()),
+      full_name: None,
+      password:  "password".to_string(),
+      role:      None,
+    },
+    None,
+  )
   .await
   .expect("create user");
 
@@ -442,13 +468,17 @@ async fn test_starred_jobs_delete_by_job() {
   };
 
   // Setup
-  let user = repo::users::create(&pool, &CreateUser {
-    username:  format!("del-user-{}", Uuid::new_v4().simple()),
-    email:     format!("del-{}@example.com", Uuid::new_v4().simple()),
-    full_name: None,
-    password:  "password".to_string(),
-    role:      None,
-  })
+  let user = repo::users::create(
+    &pool,
+    &CreateUser {
+      username:  format!("del-user-{}", Uuid::new_v4().simple()),
+      email:     format!("del-{}@example.com", Uuid::new_v4().simple()),
+      full_name: None,
+      password:  "password".to_string(),
+      role:      None,
+    },
+    None,
+  )
   .await
   .expect("create user");
 
@@ -515,13 +545,17 @@ async fn test_project_members_crud() {
   };
 
   // Setup
-  let user = repo::users::create(&pool, &CreateUser {
-    username:  format!("member-user-{}", Uuid::new_v4().simple()),
-    email:     format!("member-{}@example.com", Uuid::new_v4().simple()),
-    full_name: None,
-    password:  "password".to_string(),
-    role:      None,
-  })
+  let user = repo::users::create(
+    &pool,
+    &CreateUser {
+      username:  format!("member-user-{}", Uuid::new_v4().simple()),
+      email:     format!("member-{}@example.com", Uuid::new_v4().simple()),
+      full_name: None,
+      password:  "password".to_string(),
+      role:      None,
+    },
+    None,
+  )
   .await
   .expect("create user");
 
@@ -616,33 +650,45 @@ async fn test_project_members_permissions() {
   };
 
   // Setup
-  let admin_user = repo::users::create(&pool, &CreateUser {
-    username:  format!("admin-user-{}", Uuid::new_v4().simple()),
-    email:     format!("admin-{}@example.com", Uuid::new_v4().simple()),
-    full_name: None,
-    password:  "password".to_string(),
-    role:      None,
-  })
+  let admin_user = repo::users::create(
+    &pool,
+    &CreateUser {
+      username:  format!("admin-user-{}", Uuid::new_v4().simple()),
+      email:     format!("admin-{}@example.com", Uuid::new_v4().simple()),
+      full_name: None,
+      password:  "password".to_string(),
+      role:      None,
+    },
+    None,
+  )
   .await
   .expect("create admin user");
 
-  let maintainer_user = repo::users::create(&pool, &CreateUser {
-    username:  format!("maint-user-{}", Uuid::new_v4().simple()),
-    email:     format!("maint-{}@example.com", Uuid::new_v4().simple()),
-    full_name: None,
-    password:  "password".to_string(),
-    role:      None,
-  })
+  let maintainer_user = repo::users::create(
+    &pool,
+    &CreateUser {
+      username:  format!("maint-user-{}", Uuid::new_v4().simple()),
+      email:     format!("maint-{}@example.com", Uuid::new_v4().simple()),
+      full_name: None,
+      password:  "password".to_string(),
+      role:      None,
+    },
+    None,
+  )
   .await
   .expect("create maintainer user");
 
-  let member_user = repo::users::create(&pool, &CreateUser {
-    username:  format!("member-user-{}", Uuid::new_v4().simple()),
-    email:     format!("mem-{}@example.com", Uuid::new_v4().simple()),
-    full_name: None,
-    password:  "password".to_string(),
-    role:      None,
-  })
+  let member_user = repo::users::create(
+    &pool,
+    &CreateUser {
+      username:  format!("member-user-{}", Uuid::new_v4().simple()),
+      email:     format!("mem-{}@example.com", Uuid::new_v4().simple()),
+      full_name: None,
+      password:  "password".to_string(),
+      role:      None,
+    },
+    None,
+  )
   .await
   .expect("create member user");
 
@@ -773,13 +819,17 @@ async fn test_project_members_permissions() {
   );
 
   // Non-member has no permissions
-  let non_member = repo::users::create(&pool, &CreateUser {
-    username:  format!("non-member-{}", Uuid::new_v4().simple()),
-    email:     format!("non-{}@example.com", Uuid::new_v4().simple()),
-    full_name: None,
-    password:  "password".to_string(),
-    role:      None,
-  })
+  let non_member = repo::users::create(
+    &pool,
+    &CreateUser {
+      username:  format!("non-member-{}", Uuid::new_v4().simple()),
+      email:     format!("non-{}@example.com", Uuid::new_v4().simple()),
+      full_name: None,
+      password:  "password".to_string(),
+      role:      None,
+    },
+    None,
+  )
   .await
   .expect("create non-member");
 
