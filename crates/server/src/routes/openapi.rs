@@ -549,6 +549,75 @@ fn document() -> Value {
         "delete": { "summary": "Remove a builder",
           "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Uuid" } }],
           "responses": { "204": { "description": "Deleted" } } }
+      },
+      "/admin/config": {
+        "get": { "summary": "Read the server config file",
+          "responses": { "200": { "description": "Raw config body",
+            "content": { "text/plain": { "schema": { "type": "string" } } } } } },
+        "put": { "summary": "Replace the server config file",
+          "responses": { "200": { "description": "Updated" } } }
+      },
+      "/admin/audit-log": {
+        "get": { "summary": "Paginated audit log (admin only)",
+          "parameters": [
+            { "name": "limit",  "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 500 } },
+            { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+          ],
+          "responses": { "200": { "description": "Audit entries page" } } }
+      },
+      "/admin/notification-tasks": {
+        "get": { "summary": "List pending notification delivery tasks",
+          "responses": { "200": { "description": "Array of task records" } } }
+      },
+      "/admin/notification-tasks/{id}/retry": {
+        "post": { "summary": "Retry a notification delivery task",
+          "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Uuid" } }],
+          "responses": { "202": { "description": "Retry scheduled" } } }
+      },
+      "/news": {
+        "get":  { "summary": "List news/announcement entries",
+          "responses": { "200": { "description": "Array of news items" } } },
+        "post": { "summary": "Create a news entry (admin only)",
+          "responses": { "201": { "description": "Created" } } }
+      },
+      "/news/{id}": {
+        "delete": { "summary": "Delete a news entry (admin only)",
+          "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Uuid" } }],
+          "responses": { "204": { "description": "Deleted" } } }
+      },
+      "/builds/{id}/dependencies": {
+        "get": { "summary": "List builds this build depends on",
+          "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Uuid" } }],
+          "responses": { "200": { "description": "Array of Build" } } }
+      },
+      "/builds/{id}/dependents": {
+        "get": { "summary": "List builds that depend on this build",
+          "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Uuid" } }],
+          "responses": { "200": { "description": "Array of Build" } } }
+      },
+      "/auth/ldap": {
+        "post": { "summary": "Authenticate via LDAP bind (sets session cookie)",
+          "responses": {
+            "200": { "description": "Authenticated; Set-Cookie returned" },
+            "401": { "description": "Bad credentials" }
+          } }
+      },
+      "/channel/{name}/git-revision": {
+        "get": { "summary": "Plain-text git revision pinned to this channel",
+          "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+          "responses": { "200": { "description": "Git revision",
+            "content": { "text/plain": { "schema": { "type": "string" } } } } } }
+      },
+      "/channel/{name}/binary-cache-url": {
+        "get": { "summary": "Plain-text binary cache URL for this channel",
+          "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+          "responses": { "200": { "description": "Cache URL",
+            "content": { "text/plain": { "schema": { "type": "string" } } } } } }
+      },
+      "/channel/{name}/store-paths.xz": {
+        "get": { "summary": "xz-compressed list of channel store paths",
+          "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+          "responses": { "200": { "description": "Compressed list" } } }
       }
     }
   })

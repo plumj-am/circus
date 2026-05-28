@@ -42,4 +42,5 @@ xz2.workspace                = true
 circus-common.workspace = true
 
 [dev-dependencies]
+regex.workspace = true
 tower.workspace = true
