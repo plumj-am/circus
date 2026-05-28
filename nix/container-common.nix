@@ -16,7 +16,7 @@ in {
 
     environment.systemPackages = with pkgs; [nix nix-eval-jobs zstd curl jq openssl python3];
 
-    nix.settings.experimental-features = ["nix-command" "flakes"];
+    nix.settings.experimental-features = ["nix-command" "flakes" "auto-allocate-uids"];
     nix.settings.substituters = lib.mkForce [];
 
     networking.firewall.allowedTCPPorts = [3000];

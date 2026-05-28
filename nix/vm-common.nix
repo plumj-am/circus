@@ -35,7 +35,7 @@ in {
     environment.systemPackages = with pkgs; [nix nix-eval-jobs zstd curl jq openssl python3];
 
     # Enable Nix flakes and nix-command experimental features required by evaluator
-    nix.settings.experimental-features = ["nix-command" "flakes"];
+    nix.settings.experimental-features = ["nix-command" "flakes" "auto-allocate-uids"];
 
     # VM tests have no network. We need to disable substituters to prevent
     # Nix from trying to contact cache.nixos.org and timing out each time.
