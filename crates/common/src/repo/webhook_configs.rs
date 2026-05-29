@@ -9,13 +9,18 @@ use crate::{
 
 /// Create a new webhook config.
 ///
+/// `secret` is the raw webhook secret. Despite the underlying column
+/// being called `secret_hash`, signature verification requires the
+/// original secret (HMAC key for GitHub/Gitea/Forgejo, bearer token for
+/// GitLab), so the value is stored as-is.
+///
 /// # Errors
 ///
 /// Returns error if database insert fails or config already exists.
 pub async fn create(
   pool: &PgPool,
   input: CreateWebhookConfig,
-  secret_hash: Option<&str>,
+  secret: Option<&str>,
 ) -> Result<WebhookConfig> {
   sqlx::query_as::<_, WebhookConfig>(
     "INSERT INTO webhook_configs (project_id, forge_type, secret_hash) VALUES \
@@ -23,7 +28,7 @@ pub async fn create(
   )
   .bind(input.project_id)
   .bind(&input.forge_type)
-  .bind(secret_hash)
+  .bind(secret)
   .fetch_one(pool)
   .await
   .map_err(|e| {
@@ -112,6 +117,9 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
 
 /// Upsert a webhook config (insert or update on conflict).
 ///
+/// `secret` is the raw webhook secret; see `create` for the rationale on
+/// plaintext storage.
+///
 /// # Errors
 ///
 /// Returns error if database operation fails.
@@ -119,7 +127,7 @@ pub async fn upsert(
   pool: &PgPool,
   project_id: Uuid,
   forge_type: &str,
-  secret_hash: Option<&str>,
+  secret: Option<&str>,
   enabled: bool,
 ) -> Result<WebhookConfig> {
   sqlx::query_as::<_, WebhookConfig>(
@@ -130,7 +138,7 @@ pub async fn upsert(
   )
   .bind(project_id)
   .bind(forge_type)
-  .bind(secret_hash)
+  .bind(secret)
   .bind(enabled)
   .fetch_one(pool)
   .await
