@@ -32,9 +32,10 @@
     <div class="stat-value">{{ pending_builds }}</div>
     <div class="stat-label">Pending</div>
   </div>
-  {% if total_builds > 0 %}
+  {% let finished_builds = total_builds - running_builds - pending_builds %}
+  {% if finished_builds > 0 %}
   <div class="stat-card">
-    {% let rate = completed_builds * 100 / total_builds %}
+    {% let rate = completed_builds * 100 / finished_builds %}
     <div class="stat-value">
       {% if rate >= 80 %}
       <span class="success-rate success-rate-high">{{ rate }}%</span>
