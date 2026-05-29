@@ -477,6 +477,36 @@ async fn nixexprs_tarball(
   )
 }
 
+/// Channel management routes: CRUD for release channels, Nix channel tarball
+/// serving, and manual evaluation promotion.
+///
+/// # Returns
+///
+/// A router with the following routes mounted:
+///
+/// - `GET /channels` - list all channels
+/// - `POST /channels` - create a channel (admin only)
+/// - `GET /channels/{id}` - get a channel by ID
+/// - `DELETE /channels/{id}` - delete a channel (admin only)
+/// - `GET /channels/{id}/nixexprs.tar.xz` - serve the Nix channel tarball
+/// - `POST /channels/{channel_id}/promote/{eval_id}` - promote an evaluation to
+///   a channel (admin only)
+/// - `GET /projects/{project_id}/channels` - list channels for a project
+pub fn router() -> Router<AppState> {
+  Router::new()
+    .route("/channels", get(list_channels).post(create_channel))
+    .route("/channels/{id}", get(get_channel).delete(delete_channel))
+    .route("/channels/{id}/nixexprs.tar.xz", get(nixexprs_tarball))
+    .route(
+      "/channels/{channel_id}/promote/{eval_id}",
+      post(promote_channel),
+    )
+    .route(
+      "/projects/{project_id}/channels",
+      get(list_project_channels),
+    )
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -526,19 +556,4 @@ mod tests {
       "a.b".to_string()
     ]);
   }
-}
-
-pub fn router() -> Router<AppState> {
-  Router::new()
-    .route("/channels", get(list_channels).post(create_channel))
-    .route("/channels/{id}", get(get_channel).delete(delete_channel))
-    .route("/channels/{id}/nixexprs.tar.xz", get(nixexprs_tarball))
-    .route(
-      "/channels/{channel_id}/promote/{eval_id}",
-      post(promote_channel),
-    )
-    .route(
-      "/projects/{project_id}/channels",
-      get(list_project_channels),
-    )
 }
