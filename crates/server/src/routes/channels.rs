@@ -104,12 +104,124 @@ async fn promote_channel(
   Ok(Json(channel))
 }
 
-/// Build the `nixexprs.tar.xz` payload for an evaluation. The archive
-/// contains a single `default.nix` exposing every succeeded build as a
-/// fake derivation pointing at the build's output store path. Shared by
-/// the by-id (`/api/v1/channels/{id}/nixexprs.tar.xz`) and by-name
-/// (`/channel/{name}/nixexprs.tar.xz`, consumed by `nix-channel`)
-/// endpoints.
+/// Escape a string for use as a Nix string literal.
+fn nix_escape_string(s: &str) -> String {
+  let mut out = String::with_capacity(s.len() + 2);
+  out.push('"');
+  for ch in s.chars() {
+    match ch {
+      '"' => out.push_str("\\\""),
+      '\\' => out.push_str("\\\\"),
+      '\n' => out.push_str("\\n"),
+      '\r' => out.push_str("\\r"),
+      '\t' => out.push_str("\\t"),
+      '$' => out.push_str("\\$"),
+      c => out.push(c),
+    }
+  }
+  out.push('"');
+  out
+}
+
+/// True if `ident` is a Nix attribute name that can appear unquoted.
+/// Matches `[A-Za-z_][A-Za-z0-9_'-]*`.
+fn is_bare_nix_ident(ident: &str) -> bool {
+  let mut bytes = ident.bytes();
+  let Some(first) = bytes.next() else {
+    return false;
+  };
+  if !(first.is_ascii_alphabetic() || first == b'_') {
+    return false;
+  }
+  bytes
+    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'\'' || b == b'-')
+}
+
+/// Render a dotted attribute path as a Nix attr path, quoting each segment
+/// that isn't a bare identifier. Empty segments are dropped, which matches
+/// Hydra's behaviour for jobs like `.hello` or `foo..bar`.
+fn render_attr_path(job_name: &str) -> String {
+  job_name
+    .split('.')
+    .filter(|s| !s.is_empty())
+    .map(|seg| {
+      if is_bare_nix_ident(seg) {
+        seg.to_string()
+      } else {
+        nix_escape_string(seg)
+      }
+    })
+    .collect::<Vec<_>>()
+    .join(".")
+}
+
+/// Collect every non-leaf prefix of an attribute path. Given `foo.bar.baz`
+/// returns `["foo", "foo.bar"]`, each rendered to its Nix attr-path form.
+fn intermediate_paths(job_name: &str) -> Vec<String> {
+  let segs: Vec<&str> = job_name.split('.').filter(|s| !s.is_empty()).collect();
+  if segs.len() < 2 {
+    return Vec::new();
+  }
+  (1..segs.len())
+    .map(|i| {
+      segs[..i]
+        .iter()
+        .map(|seg| {
+          if is_bare_nix_ident(seg) {
+            (*seg).to_string()
+          } else {
+            nix_escape_string(seg)
+          }
+        })
+        .collect::<Vec<_>>()
+        .join(".")
+    })
+    .collect()
+}
+
+/// Resolve a build's output map. Prefers the normalized `build_outputs`
+/// table; if it's empty (older rows or aggregates) falls back to a
+/// synthetic `{"out": build_output_path}`.
+async fn collect_outputs(
+  pool: &sqlx::PgPool,
+  build: &circus_common::models::Build,
+) -> std::collections::BTreeMap<String, String> {
+  use std::collections::BTreeMap;
+
+  let mut outputs: BTreeMap<String, String> = BTreeMap::new();
+
+  if let Ok(rows) =
+    circus_common::repo::build_outputs::list_for_build(pool, build.id).await
+  {
+    for row in rows {
+      if let Some(path) = row.path {
+        outputs.insert(row.name, path);
+      }
+    }
+  }
+
+  if outputs.is_empty()
+    && let Some(path) = build.build_output_path.clone()
+  {
+    outputs.insert("out".to_string(), path);
+  }
+
+  outputs
+}
+
+/// Build the `nixexprs.tar.xz` payload for an evaluation, matching the
+/// Hydra channel layout that `nix-channel --update` (and consumers
+/// pinning by sha256) expect:
+///
+/// * archive contains a single top-level directory named `channel/`,
+/// * `channel/channel-name` carries the channel's display name as plain text,
+/// * `channel/default.nix` exposes each succeeded build as a fake derivation,
+///   branched per `system`, with multi-output and dotted attribute path
+///   support.
+///
+/// The tar headers use a fixed mtime/uid/gid/owner so the bytes are
+/// deterministic for a given (channel name, evaluation) input. Clients
+/// can pin the resulting tarball by sha256.
 ///
 /// # Errors
 ///
@@ -117,73 +229,148 @@ async fn promote_channel(
 /// a `Build` error if archive construction fails.
 pub async fn build_nixexprs_tarball(
   pool: &sqlx::PgPool,
+  channel_name: &str,
   evaluation_id: Uuid,
 ) -> Result<Vec<u8>, ApiError> {
+  use std::collections::{BTreeMap, BTreeSet};
+
   let builds =
     circus_common::repo::builds::list_for_evaluation(pool, evaluation_id)
       .await
       .map_err(ApiError)?;
 
-  let succeeded: Vec<_> = builds
-    .iter()
-    .filter(|b| b.status == BuildStatus::Succeeded)
-    .collect();
+  // Group by system. Skip builds with no system attribute or no outputs;
+  // they can't be expressed as a per-system fake derivation.
+  let mut by_system: BTreeMap<String, Vec<&circus_common::models::Build>> =
+    BTreeMap::new();
+  for build in &builds {
+    if build.status != BuildStatus::Succeeded {
+      continue;
+    }
+    let Some(system) = build.system.clone() else {
+      continue;
+    };
+    by_system.entry(system).or_default().push(build);
+  }
 
-  if succeeded.is_empty() {
+  if by_system.is_empty() {
     return Err(ApiError(circus_common::CiError::NotFound(
-      "No succeeded builds in current evaluation".to_string(),
+      "No succeeded builds with a system attribute in current evaluation"
+        .to_string(),
     )));
   }
 
-  let approx_size = 256 + succeeded.len() * 200;
-  let mut nix_src = String::with_capacity(approx_size);
-  let _ = writeln!(nix_src, "{{ system ? builtins.currentSystem }}:");
-  let _ = writeln!(nix_src, "let");
-  let _ = writeln!(nix_src, "  mkFakeDerivation = attrs:");
-  let _ = writeln!(
-    nix_src,
-    "    let d = derivation (attrs // {{ builder = \"builtin:fetchurl\"; \
-     preferLocalBuild = true; }});"
-  );
-  let _ = writeln!(
-    nix_src,
-    "    in d // {{ type = \"derivation\"; inherit (d) outPath drvPath name \
-     system; outputSpecified = true; }};"
-  );
-  let _ = writeln!(nix_src, "in {{");
-
-  for build in &succeeded {
-    let Some(output_path) = &build.build_output_path else {
-      continue;
-    };
-    let system = build.system.as_deref().unwrap_or("x86_64-linux");
-    // Sanitize job_name for use as a Nix attribute (replace dots/slashes).
-    let attr_name = build.job_name.replace(['.', '/'], "-");
-    let _ = writeln!(
-      nix_src,
-      "  \"{attr_name}\" = mkFakeDerivation {{ name = \"{}\"; system = \
-       \"{system}\"; outPath = \"{output_path}\"; }};",
-      build.job_name.replace('"', "\\\""),
-    );
+  // Sort each system's builds by (job_name, id) so repeated requests
+  // produce the same bytes.
+  for builds in by_system.values_mut() {
+    builds.sort_by(|a, b| a.job_name.cmp(&b.job_name).then(a.id.cmp(&b.id)));
   }
 
-  let _ = writeln!(nix_src, "}}");
+  let mut nix_src = String::with_capacity(1024 + builds.len() * 240);
+  nix_src.push_str(
+    "{ system ? builtins.currentSystem }:\n\nlet\n\n  maybeStorePath = if \
+     builtins ? langVersion && builtins.lessThan 1 builtins.langVersion\n    \
+     then builtins.storePath\n    else x: x;\n\n  mkFakeDerivation = attrs: \
+     outputs:\n    let\n      outputNames = builtins.attrNames outputs;\n      \
+     common = attrs // outputsSet //\n        { type = \"derivation\";\n          \
+     outputs = outputNames;\n          all = outputsList;\n        };\n      \
+     outputToAttrListElement = outputName:\n        { name = outputName;\n          \
+     value = common // {\n            inherit outputName;\n            outPath = \
+     maybeStorePath (builtins.getAttr outputName outputs);\n          };\n        \
+     };\n      outputsList = map outputToAttrListElement outputNames;\n      \
+     outputsSet = builtins.listToAttrs outputsList;\n    in outputsSet;\n\nin\n\n",
+  );
 
+  let mut first = true;
+  for (system, system_builds) in &by_system {
+    if !first {
+      nix_src.push_str("else ");
+    }
+    let _ = writeln!(
+      nix_src,
+      "if system == {} then {{\n",
+      nix_escape_string(system)
+    );
+
+    let mut intermediates: BTreeSet<String> = BTreeSet::new();
+
+    for build in system_builds {
+      let outputs = collect_outputs(pool, build).await;
+      if outputs.is_empty() {
+        continue;
+      }
+      let attr_path = render_attr_path(&build.job_name);
+      if attr_path.is_empty() {
+        continue;
+      }
+      for p in intermediate_paths(&build.job_name) {
+        intermediates.insert(p);
+      }
+
+      let _ = writeln!(nix_src, "  # Circus build {}", build.id);
+      let _ = writeln!(nix_src, "  {attr_path} = (mkFakeDerivation {{");
+      let _ = writeln!(nix_src, "    type = \"derivation\";");
+      let _ = writeln!(
+        nix_src,
+        "    name = {};",
+        nix_escape_string(&build.job_name)
+      );
+      let _ = writeln!(nix_src, "    system = {};", nix_escape_string(system));
+      nix_src.push_str("  } {\n");
+      for (name, path) in &outputs {
+        let _ = writeln!(
+          nix_src,
+          "    {} = {};",
+          nix_escape_string(name),
+          nix_escape_string(path)
+        );
+      }
+      let default_output = if outputs.contains_key("out") {
+        "out"
+      } else {
+        outputs.keys().next().map(String::as_str).unwrap_or("out")
+      };
+      let _ = writeln!(
+        nix_src,
+        "  }}).{};\n",
+        if is_bare_nix_ident(default_output) {
+          default_output.to_string()
+        } else {
+          nix_escape_string(default_output)
+        }
+      );
+    }
+
+    for p in &intermediates {
+      let _ = writeln!(nix_src, "  {p}.recurseForDerivations = true;\n");
+    }
+
+    nix_src.push_str("}\n\n");
+    first = false;
+  }
+
+  if !first {
+    nix_src.push_str("else ");
+  }
+  nix_src.push_str("{}\n");
+
+  let channel_name = channel_name.to_string();
   tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
     let mut xz_buf = Vec::new();
     {
       let xz_writer = xz2::write::XzEncoder::new(&mut xz_buf, 6);
       let mut tar_builder = tar::Builder::new(xz_writer);
 
-      let nix_bytes = nix_src.as_bytes();
-      let mut header = tar::Header::new_gnu();
-      header.set_size(nix_bytes.len() as u64);
-      header.set_mode(0o644);
-      header.set_cksum();
-
-      tar_builder
-        .append_data(&mut header, "default.nix", nix_bytes)
-        .map_err(|e| format!("Failed to append to tar: {e}"))?;
+      append_deterministic(
+        &mut tar_builder,
+        "channel/channel-name",
+        channel_name.as_bytes(),
+      )?;
+      append_deterministic(
+        &mut tar_builder,
+        "channel/default.nix",
+        nix_src.as_bytes(),
+      )?;
 
       let xz_writer = tar_builder
         .into_inner()
@@ -203,6 +390,33 @@ pub async fn build_nixexprs_tarball(
   .map_err(|e| ApiError(circus_common::CiError::Build(e)))
 }
 
+/// Append a single file to a tar archive with fixed metadata (mtime=1,
+/// uid=gid=0, owner/group empty). Matches Hydra's `mtime => 1` choice so
+/// the produced bytes are deterministic across requests.
+fn append_deterministic<W: std::io::Write>(
+  tar_builder: &mut tar::Builder<W>,
+  path: &str,
+  data: &[u8],
+) -> Result<(), String> {
+  let mut header = tar::Header::new_gnu();
+  header.set_size(data.len() as u64);
+  header.set_mode(0o644);
+  header.set_mtime(1);
+  header.set_uid(0);
+  header.set_gid(0);
+  header.set_entry_type(tar::EntryType::Regular);
+  if let Err(e) = header.set_username("") {
+    return Err(format!("Failed to set tar username: {e}"));
+  }
+  if let Err(e) = header.set_groupname("") {
+    return Err(format!("Failed to set tar groupname: {e}"));
+  }
+  header.set_cksum();
+  tar_builder
+    .append_data(&mut header, path, data)
+    .map_err(|e| format!("Failed to append {path}: {e}"))
+}
+
 /// Generate and serve `nixexprs.tar.xz` for Nix channel compatibility.
 async fn nixexprs_tarball(
   State(state): State<AppState>,
@@ -218,7 +432,8 @@ async fn nixexprs_tarball(
     ))
   })?;
 
-  let xz_data = build_nixexprs_tarball(&state.pool, evaluation_id).await?;
+  let xz_data =
+    build_nixexprs_tarball(&state.pool, &channel.name, evaluation_id).await?;
 
   Ok(
     (
@@ -234,6 +449,57 @@ async fn nixexprs_tarball(
     )
       .into_response(),
   )
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn nix_escape_basic() {
+    assert_eq!(nix_escape_string("hello"), r#""hello""#);
+    assert_eq!(nix_escape_string("with \"quote\""), r#""with \"quote\"""#);
+    assert_eq!(nix_escape_string("a\\b"), r#""a\\b""#);
+    assert_eq!(nix_escape_string("$var"), r#""\$var""#);
+    assert_eq!(nix_escape_string("line\n"), r#""line\n""#);
+  }
+
+  #[test]
+  fn bare_ident_classifier() {
+    assert!(is_bare_nix_ident("foo"));
+    assert!(is_bare_nix_ident("_x"));
+    assert!(is_bare_nix_ident("a-b"));
+    assert!(is_bare_nix_ident("a'"));
+    assert!(!is_bare_nix_ident(""));
+    assert!(!is_bare_nix_ident("1foo"));
+    assert!(!is_bare_nix_ident("a.b"));
+    assert!(!is_bare_nix_ident("with space"));
+  }
+
+  #[test]
+  fn attr_path_quotes_segments_that_need_it() {
+    assert_eq!(render_attr_path("hello"), "hello");
+    assert_eq!(render_attr_path("foo.bar.baz"), "foo.bar.baz");
+    assert_eq!(
+      render_attr_path("nixpkgs.python3Packages.requests"),
+      "nixpkgs.python3Packages.requests"
+    );
+    assert_eq!(
+      render_attr_path("checks.x86_64-linux.full"),
+      "checks.x86_64-linux.full"
+    );
+    assert_eq!(render_attr_path("foo.1bar.baz"), r#"foo."1bar".baz"#);
+  }
+
+  #[test]
+  fn intermediate_paths_for_recurse_markers() {
+    assert!(intermediate_paths("hello").is_empty());
+    assert_eq!(intermediate_paths("a.b"), vec!["a".to_string()]);
+    assert_eq!(intermediate_paths("a.b.c"), vec![
+      "a".to_string(),
+      "a.b".to_string()
+    ]);
+  }
 }
 
 pub fn router() -> Router<AppState> {

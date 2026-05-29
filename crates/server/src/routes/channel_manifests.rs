@@ -158,9 +158,12 @@ async fn nixexprs(
     return Ok(StatusCode::NOT_FOUND.into_response());
   };
 
-  let xz_data =
-    crate::routes::channels::build_nixexprs_tarball(&state.pool, eval_id)
-      .await?;
+  let xz_data = crate::routes::channels::build_nixexprs_tarball(
+    &state.pool,
+    &channel.name,
+    eval_id,
+  )
+  .await?;
 
   Ok(
     (
