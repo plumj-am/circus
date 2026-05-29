@@ -170,14 +170,15 @@ async fn narinfo(
   let mut narinfo_text = if is_uncompressed {
     format!(
       "StorePath: {store_path}\nURL: {nar_url}\nCompression: \
-       {compression_str}\nFileHash: {nar_hash}\nFileSize: {nar_size}\nNarHash: \
-       {nar_hash}\nNarSize: {nar_size}\nReferences: {refs_joined}\n",
+       {compression_str}\nFileHash: {nar_hash}\nFileSize: \
+       {nar_size}\nNarHash: {nar_hash}\nNarSize: {nar_size}\nReferences: \
+       {refs_joined}\n",
     )
   } else {
     format!(
       "StorePath: {store_path}\nURL: {nar_url}\nCompression: \
-       {compression_str}\nNarHash: {nar_hash}\nNarSize: {nar_size}\nReferences: \
-       {refs_joined}\n",
+       {compression_str}\nNarHash: {nar_hash}\nNarSize: \
+       {nar_size}\nReferences: {refs_joined}\n",
     )
   };
 
@@ -314,10 +315,12 @@ fn pipe_through_compressor(
   compressor: &str,
   args: &[&str],
 ) -> Result<ChildOutput, ApiError> {
+  // Inherit stderr so a failing nix/compressor child shows up in the
+  // server log instead of truncating the response body silently.
   let mut nix_child = std::process::Command::new("nix")
     .args(["store", "dump-path", store_path])
     .stdout(std::process::Stdio::piped())
-    .stderr(std::process::Stdio::null())
+    .stderr(std::process::Stdio::inherit())
     .spawn()
     .map_err(|_| {
       ApiError(circus_common::CiError::Build(
@@ -335,7 +338,7 @@ fn pipe_through_compressor(
     .args(args)
     .stdin(nix_stdout)
     .stdout(std::process::Stdio::piped())
-    .stderr(std::process::Stdio::null())
+    .stderr(std::process::Stdio::inherit())
     .kill_on_drop(true)
     .spawn()
     .map_err(|_| {
@@ -405,7 +408,7 @@ async fn serve_nar_combined(
     let mut child = Command::new("nix")
       .args(["store", "dump-path", &store_path])
       .stdout(std::process::Stdio::piped())
-      .stderr(std::process::Stdio::null())
+      .stderr(std::process::Stdio::inherit())
       .kill_on_drop(true)
       .spawn()
       .map_err(|_| {
