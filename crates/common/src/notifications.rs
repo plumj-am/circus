@@ -377,6 +377,29 @@ async fn enqueue_commit_status_notification(
   }
 }
 
+/// Send commit status to all configured forges immediately (fire-and-forget).
+/// Used when `enable_retry_queue` is false.
+async fn send_commit_status_immediate(
+  build: &Build,
+  project: &Project,
+  commit_hash: &str,
+  config: &NotificationsConfig,
+) {
+  if let Some(ref token) = config.github_token
+    && project.repository_url.contains("github.com")
+  {
+    set_github_status(token, &project.repository_url, commit_hash, build).await;
+  }
+  if let (Some(url), Some(token)) = (&config.gitea_url, &config.gitea_token) {
+    set_gitea_status(url, token, &project.repository_url, commit_hash, build)
+      .await;
+  }
+  if let (Some(url), Some(token)) = (&config.gitlab_url, &config.gitlab_token) {
+    set_gitlab_status(url, token, &project.repository_url, commit_hash, build)
+      .await;
+  }
+}
+
 /// Dispatch commit status notification when a build is created (pending state).
 ///
 /// # Errors
@@ -389,18 +412,24 @@ pub async fn dispatch_build_created(
   commit_hash: &str,
   config: &NotificationsConfig,
 ) {
-  if !config.enable_retry_queue {
-    return;
-  }
-
-  enqueue_commit_status_notification(pool, build, project, commit_hash, config)
+  if config.enable_retry_queue {
+    enqueue_commit_status_notification(
+      pool,
+      build,
+      project,
+      commit_hash,
+      config,
+    )
     .await;
-  info!(
-    build_id = %build.id,
-    job = %build.job_name,
-    status = %build.status,
-    "Enqueued commit status notification for build creation"
-  );
+    info!(
+      build_id = %build.id,
+      job = %build.job_name,
+      status = %build.status,
+      "Enqueued commit status notification for build creation"
+    );
+  } else {
+    send_commit_status_immediate(build, project, commit_hash, config).await;
+  }
 }
 
 /// Dispatch commit status notification when a build starts (running state).
@@ -415,18 +444,24 @@ pub async fn dispatch_build_started(
   commit_hash: &str,
   config: &NotificationsConfig,
 ) {
-  if !config.enable_retry_queue {
-    return;
-  }
-
-  enqueue_commit_status_notification(pool, build, project, commit_hash, config)
+  if config.enable_retry_queue {
+    enqueue_commit_status_notification(
+      pool,
+      build,
+      project,
+      commit_hash,
+      config,
+    )
     .await;
-  info!(
-    build_id = %build.id,
-    job = %build.job_name,
-    status = %build.status,
-    "Enqueued commit status notification for build start"
-  );
+    info!(
+      build_id = %build.id,
+      job = %build.job_name,
+      status = %build.status,
+      "Enqueued commit status notification for build start"
+    );
+  } else {
+    send_commit_status_immediate(build, project, commit_hash, config).await;
+  }
 }
 
 /// Send notifications immediately.
