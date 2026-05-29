@@ -262,6 +262,10 @@ async fn evaluate_flake(
     // Surface meta.{description, license, homepage, maintainers} so the
     // channel tarball can carry them through to nix-env / nix search.
     cmd.arg("--meta");
+    // Evaluation must never mutate the consumer's flake.lock. Without this,
+    // nix-eval-jobs can race against the checked-out working tree and write a
+    // refreshed lock that the next eval then disagrees with.
+    cmd.arg("--no-write-lock-file");
     cmd.kill_on_drop(true);
 
     if config.restrict_eval {
