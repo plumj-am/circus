@@ -680,6 +680,7 @@ pub(super) async fn queue_page(
           .map(|t| t.format("%H:%M:%S").to_string())
           .unwrap_or_default(),
         elapsed,
+        started_epoch: b.started_at.map(|t| t.timestamp()),
         priority: b.priority,
         builder_name,
         queue_pos: 0,
@@ -693,15 +694,19 @@ pub(super) async fn queue_page(
     .enumerate()
     .map(|(idx, b)| {
       QueueBuildView {
-        id:           b.id,
-        job_name:     b.job_name.clone(),
-        system:       b.system.clone().unwrap_or_else(|| "unknown".to_string()),
-        created_at:   b.created_at.format("%Y-%m-%d %H:%M").to_string(),
-        started_at:   String::new(),
-        elapsed:      String::new(),
-        priority:     b.priority,
-        builder_name: None,
-        queue_pos:    (idx + 1) as i64,
+        id:            b.id,
+        job_name:      b.job_name.clone(),
+        system:        b
+          .system
+          .clone()
+          .unwrap_or_else(|| "unknown".to_string()),
+        created_at:    b.created_at.format("%Y-%m-%d %H:%M").to_string(),
+        started_at:    String::new(),
+        elapsed:       String::new(),
+        started_epoch: None,
+        priority:      b.priority,
+        builder_name:  None,
+        queue_pos:     (idx + 1) as i64,
       }
     })
     .collect();
@@ -805,14 +810,19 @@ pub(super) async fn starred_page(
   State(state): State<AppState>,
   extensions: Extensions,
 ) -> Html<String> {
-  // Check if user is logged in via session
+  // Session login (User) or API-key auth (ApiKey with user_id) both count
+  // as logged in. API keys without a bound user_id can't list starred jobs.
   let user = extensions.get::<circus_common::models::User>().cloned();
-  let is_logged_in = user.is_some();
+  let api_key_user_id = extensions
+    .get::<circus_common::models::ApiKey>()
+    .and_then(|k| k.user_id);
+  let viewer_user_id = user.as_ref().map(|u| u.id).or(api_key_user_id);
+  let is_logged_in = viewer_user_id.is_some();
 
-  let starred_jobs = if let Some(ref u) = user {
+  let starred_jobs = if let Some(uid) = viewer_user_id {
     let starred = circus_common::repo::starred_jobs::list_for_user(
       &state.pool,
-      u.id,
+      uid,
       100,
       0,
     )
