@@ -242,8 +242,24 @@ async fn evaluate_legacy(
       cmd.args(["--option", "allow-import-from-derivation", "false"]);
     }
     for input in inputs {
-      if input.input_type == "string" || input.input_type == "path" {
-        cmd.args(["--arg", &input.name, &input.value]);
+      match input.input_type.as_str() {
+        "string" | "path" => {
+          cmd.args(["--arg", &input.name, &input.value]);
+        },
+        // Legacy expressions can't take a git override the way flakes do,
+        // but the input value (a fetched path) is meaningful as a path
+        // argument. Threading it through as --arg preserves the input's
+        // effect on evaluation instead of silently dropping it.
+        "git" => {
+          cmd.args(["--arg", &input.name, &input.value]);
+        },
+        _ => {
+          tracing::warn!(
+            input_name = %input.name,
+            input_type = %input.input_type,
+            "Unrecognized jobset input type in legacy mode, skipping"
+          );
+        },
       }
     }
 
