@@ -15,10 +15,19 @@ use crate::{
 };
 
 /// Shared HTTP client for all notification dispatches.
-/// Avoids recreating connection pools on every build completion.
+/// Avoids recreating connection pools on every build completion. A bounded
+/// timeout keeps a misbehaving webhook target from pinning a worker
+/// indefinitely; the retry queue handles transient timeouts via its own
+/// backoff.
 fn http_client() -> &'static reqwest::Client {
   static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-  CLIENT.get_or_init(reqwest::Client::new)
+  CLIENT.get_or_init(|| {
+    reqwest::Client::builder()
+      .connect_timeout(std::time::Duration::from_secs(10))
+      .timeout(std::time::Duration::from_secs(30))
+      .build()
+      .unwrap_or_else(|_| reqwest::Client::new())
+  })
 }
 
 #[derive(Debug, Clone, Copy)]
