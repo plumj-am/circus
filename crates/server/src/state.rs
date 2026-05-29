@@ -17,6 +17,14 @@ const SESSION_MAX_AGE: std::time::Duration =
 const SESSION_CLEANUP_INTERVAL: std::time::Duration =
   std::time::Duration::from_mins(5);
 
+/// How long a cached narinfo stays in memory before eviction.
+const NARINFO_CACHE_TTL: std::time::Duration =
+  std::time::Duration::from_hours(1);
+
+/// Hard cap on the number of cached narinfos. Excess entries are evicted
+/// on the next sweep regardless of TTL.
+const NARINFO_CACHE_MAX_ENTRIES: usize = 50_000;
+
 /// Session data supporting both API key and user authentication
 #[derive(Clone)]
 pub struct SessionData {
@@ -68,12 +76,21 @@ impl SessionData {
   }
 }
 
+/// Cached narinfo body together with the instant it was inserted.
+/// Used by the background eviction task to drop entries past
+/// `NARINFO_CACHE_TTL`.
+#[derive(Clone)]
+pub struct CachedNarinfo {
+  pub body:       String,
+  pub created_at: Instant,
+}
+
 #[derive(Clone)]
 pub struct AppState {
   pub pool:          PgPool,
   pub config:        Config,
   pub sessions:      Arc<DashMap<String, SessionData>>,
-  pub narinfo_cache: Arc<DashMap<String, String>>,
+  pub narinfo_cache: Arc<DashMap<String, CachedNarinfo>>,
   pub http_client:   reqwest::Client,
   /// Per-process key used to derive CSRF tokens from session IDs via HMAC.
   /// Regenerated on every restart, which invalidates outstanding tokens; the
@@ -123,6 +140,31 @@ impl AppState {
             remaining = sessions.len(),
             "Evicted expired sessions"
           );
+        }
+      }
+    });
+  }
+
+  /// Spawn a background task that evicts narinfo cache entries past the TTL
+  /// and trims the map back to the size cap. Without this the cache grows
+  /// without bound on a busy mirror.
+  pub fn spawn_narinfo_cleanup(&self) {
+    let cache = self.narinfo_cache.clone();
+    tokio::spawn(async move {
+      loop {
+        tokio::time::sleep(SESSION_CLEANUP_INTERVAL).await;
+        cache.retain(|_, v| v.created_at.elapsed() < NARINFO_CACHE_TTL);
+        if cache.len() > NARINFO_CACHE_MAX_ENTRIES {
+          // Over the hard cap: drop the oldest entries until under the limit.
+          let mut entries: Vec<(String, Instant)> = cache
+            .iter()
+            .map(|e| (e.key().clone(), e.value().created_at))
+            .collect();
+          entries.sort_by_key(|(_, t)| *t);
+          let to_drop = cache.len().saturating_sub(NARINFO_CACHE_MAX_ENTRIES);
+          for (k, _) in entries.into_iter().take(to_drop) {
+            cache.remove(&k);
+          }
         }
       }
     });

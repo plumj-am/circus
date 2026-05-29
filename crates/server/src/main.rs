@@ -89,6 +89,7 @@ async fn main() -> anyhow::Result<()> {
 
   // Start background session cleanup to prevent memory leaks
   state.spawn_session_cleanup();
+  state.spawn_narinfo_cleanup();
 
   let app = routes::router(state, &config.server);
 
