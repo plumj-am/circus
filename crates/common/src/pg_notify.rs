@@ -12,9 +12,10 @@ pub const CHANNEL_BUILDS_CHANGED: &str = "circus_builds_changed";
 /// Channel emitted on `jobsets` INSERT, UPDATE (relevant fields), or DELETE.
 pub const CHANNEL_JOBSETS_CHANGED: &str = "circus_jobsets_changed";
 
-/// Spawns a background task that listens on the given PG channels and calls
-/// `wakeup.notify_waiters()` on each notification. Reconnects with 5s backoff
-/// on connection loss.
+/// Spawns a background task that listens on the given PG channels and signals
+/// `wakeup` on each notification. Uses `notify_one` so a notification arriving
+/// while the daemon is mid-cycle still wakes the next `.notified()` await.
+/// Reconnects with 5s backoff on connection loss.
 pub fn spawn_listener(
   pool: &PgPool,
   channels: &[&str],
@@ -49,7 +50,9 @@ async fn listen_loop(
 
   loop {
     listener.recv().await?;
-    wakeup.notify_waiters();
+    // notify_one deposits a permit so notifications arriving while the daemon
+    // is busy aren't lost.
+    wakeup.notify_one();
   }
 }
 
