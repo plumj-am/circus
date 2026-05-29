@@ -690,6 +690,10 @@ async fn create_builds_from_eval(
       constituents: constituents_json,
       is_fod: Some(is_fod),
       fod_hash,
+      meta_description: job.meta.description.clone(),
+      meta_license: job.meta.license.clone(),
+      meta_homepage: job.meta.homepage.clone(),
+      meta_maintainers: job.meta.maintainers.clone(),
     })
     .await?;
 

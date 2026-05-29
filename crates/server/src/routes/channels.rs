@@ -316,6 +316,32 @@ pub async fn build_nixexprs_tarball(
         nix_escape_string(&build.job_name)
       );
       let _ = writeln!(nix_src, "    system = {};", nix_escape_string(system));
+
+      let has_meta = build.meta_description.is_some()
+        || build.meta_license.is_some()
+        || build.meta_homepage.is_some()
+        || build.meta_maintainers.is_some();
+      if has_meta {
+        nix_src.push_str("    meta = {\n");
+        if let Some(d) = &build.meta_description {
+          let _ =
+            writeln!(nix_src, "      description = {};", nix_escape_string(d));
+        }
+        if let Some(l) = &build.meta_license {
+          let _ =
+            writeln!(nix_src, "      license = {};", nix_escape_string(l));
+        }
+        if let Some(h) = &build.meta_homepage {
+          let _ =
+            writeln!(nix_src, "      homepage = {};", nix_escape_string(h));
+        }
+        if let Some(m) = &build.meta_maintainers {
+          let _ =
+            writeln!(nix_src, "      maintainers = {};", nix_escape_string(m));
+        }
+        nix_src.push_str("    };\n");
+      }
+
       nix_src.push_str("  } {\n");
       for (name, path) in &outputs {
         let _ = writeln!(

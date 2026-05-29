@@ -8,6 +8,14 @@ use circus_common::{
 };
 use serde::Deserialize;
 
+#[derive(Debug, Clone, Default)]
+pub struct NixMeta {
+  pub description: Option<String>,
+  pub license:     Option<String>,
+  pub homepage:    Option<String>,
+  pub maintainers: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct NixJob {
   pub name:         String,
@@ -16,6 +24,7 @@ pub struct NixJob {
   pub outputs:      Option<HashMap<String, String>>,
   pub input_drvs:   Option<HashMap<String, serde_json::Value>>,
   pub constituents: Option<Vec<String>>,
+  pub meta:         NixMeta,
 }
 
 /// Raw deserialization target for nix-eval-jobs output.
@@ -33,6 +42,93 @@ struct RawNixJob {
   #[serde(alias = "inputDrvs")]
   input_drvs:   Option<HashMap<String, serde_json::Value>>,
   constituents: Option<Vec<String>>,
+  /// `meta` is freeform in nixpkgs (description, license, maintainers,
+  /// homepage, ...). nix-eval-jobs forwards it verbatim when
+  /// `--meta` (or the default in newer versions) is set; older
+  /// invocations omit it entirely and this stays `None`.
+  meta:         Option<serde_json::Value>,
+}
+
+/// Flatten a single `meta.license` JSON value to a display string. nixpkgs
+/// licenses can be a string, an object with `fullName`/`spdxId`/`shortName`,
+/// or a list of either. The channel tarball and `nix-env -qa --description`
+/// expect a single string, so we pick the first sensible label.
+fn flatten_license(v: &serde_json::Value) -> Option<String> {
+  match v {
+    serde_json::Value::String(s) => Some(s.clone()),
+    serde_json::Value::Object(map) => {
+      map
+        .get("fullName")
+        .or_else(|| map.get("spdxId"))
+        .or_else(|| map.get("shortName"))
+        .and_then(|x| x.as_str())
+        .map(str::to_owned)
+    },
+    serde_json::Value::Array(arr) => {
+      let parts: Vec<String> = arr.iter().filter_map(flatten_license).collect();
+      if parts.is_empty() {
+        None
+      } else {
+        Some(parts.join(", "))
+      }
+    },
+    _ => None,
+  }
+}
+
+/// Flatten `meta.maintainers` to a comma-separated list. nixpkgs entries
+/// are either bare strings or objects carrying `github`/`name`/`email`.
+fn flatten_maintainers(v: &serde_json::Value) -> Option<String> {
+  let arr = v.as_array()?;
+  let parts: Vec<String> = arr
+    .iter()
+    .filter_map(|m| {
+      match m {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Object(map) => {
+          map
+            .get("github")
+            .or_else(|| map.get("name"))
+            .or_else(|| map.get("email"))
+            .and_then(|x| x.as_str())
+            .map(str::to_owned)
+        },
+        _ => None,
+      }
+    })
+    .collect();
+  if parts.is_empty() {
+    None
+  } else {
+    Some(parts.join(", "))
+  }
+}
+
+fn parse_meta(v: Option<&serde_json::Value>) -> NixMeta {
+  let Some(serde_json::Value::Object(map)) = v else {
+    return NixMeta::default();
+  };
+  NixMeta {
+    description: map
+      .get("description")
+      .and_then(|x| x.as_str())
+      .map(str::to_owned),
+    license:     map.get("license").and_then(flatten_license),
+    homepage:    map.get("homepage").and_then(|x| {
+      match x {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Array(arr) => {
+          arr
+            .iter()
+            .filter_map(|v| v.as_str())
+            .next()
+            .map(str::to_owned)
+        },
+        _ => None,
+      }
+    }),
+    maintainers: map.get("maintainers").and_then(flatten_maintainers),
+  }
 }
 
 /// An error reported by nix-eval-jobs for a single job.
@@ -83,12 +179,14 @@ pub fn parse_eval_output(stdout: &str) -> EvalResult {
       Ok(raw) => {
         // drv_path is required for a valid job
         if let Some(drv_path) = raw.drv_path {
+          let meta = parse_meta(raw.meta.as_ref());
           jobs.push(NixJob {
             name: raw.attr.or(raw.name).unwrap_or_default(),
             drv_path,
             system: raw.system,
             outputs: raw.outputs,
             input_drvs: raw.input_drvs,
+            meta,
             // nix-eval-jobs emits `"constituents": []` for ordinary jobs; only
             // a non-empty list denotes an aggregate. Treat empty as None so
             // ordinary builds are not misclassified as aggregates, which the
@@ -161,6 +259,9 @@ async fn evaluate_flake(
   tokio::time::timeout(timeout, async {
     let mut cmd = tokio::process::Command::new("nix-eval-jobs");
     cmd.arg("--flake").arg(&flake_ref).arg("--force-recurse");
+    // Surface meta.{description, license, homepage, maintainers} so the
+    // channel tarball can carry them through to nix-env / nix search.
+    cmd.arg("--meta");
     cmd.kill_on_drop(true);
 
     if config.restrict_eval {
@@ -233,6 +334,7 @@ async fn evaluate_legacy(
     // Try nix-eval-jobs without --flake for legacy expressions
     let mut cmd = tokio::process::Command::new("nix-eval-jobs");
     cmd.arg(&expr_path).arg("--force-recurse");
+    cmd.arg("--meta");
     cmd.kill_on_drop(true);
 
     if config.restrict_eval {
@@ -317,6 +419,7 @@ async fn evaluate_legacy(
               outputs: None,
               input_drvs: None,
               constituents: None,
+              meta: NixMeta::default(),
             }
           })
           .collect();
@@ -400,6 +503,7 @@ async fn evaluate_with_nix_eval(
             outputs: None,
             input_drvs: None,
             constituents: None,
+            meta: NixMeta::default(),
           });
         }
       }
@@ -407,4 +511,87 @@ async fn evaluate_with_nix_eval(
   }
 
   Ok(jobs)
+}
+
+#[cfg(test)]
+mod meta_tests {
+  use super::*;
+
+  #[test]
+  fn license_string() {
+    let v = serde_json::json!("MIT");
+    assert_eq!(flatten_license(&v).as_deref(), Some("MIT"));
+  }
+
+  #[test]
+  fn license_object_prefers_full_name() {
+    let v = serde_json::json!({
+      "fullName": "MIT License",
+      "spdxId": "MIT",
+      "shortName": "mit",
+    });
+    assert_eq!(flatten_license(&v).as_deref(), Some("MIT License"));
+  }
+
+  #[test]
+  fn license_object_falls_back_to_spdx_then_short_name() {
+    assert_eq!(
+      flatten_license(&serde_json::json!({"spdxId": "MIT"})).as_deref(),
+      Some("MIT"),
+    );
+    assert_eq!(
+      flatten_license(&serde_json::json!({"shortName": "mit"})).as_deref(),
+      Some("mit"),
+    );
+  }
+
+  #[test]
+  fn license_list_joins() {
+    let v = serde_json::json!([
+      {"fullName": "MIT License"},
+      "Apache-2.0",
+    ]);
+    assert_eq!(
+      flatten_license(&v).as_deref(),
+      Some("MIT License, Apache-2.0"),
+    );
+  }
+
+  #[test]
+  fn maintainers_handles_string_and_object_entries() {
+    let v = serde_json::json!([
+      "alice",
+      {"github": "bob"},
+      {"name": "Carol", "email": "carol@example.com"},
+      {"email": "dave@example.com"},
+    ]);
+    assert_eq!(
+      flatten_maintainers(&v).as_deref(),
+      Some("alice, bob, Carol, dave@example.com"),
+    );
+  }
+
+  #[test]
+  fn parse_meta_full() {
+    let v = serde_json::json!({
+      "description": "hello",
+      "license": {"fullName": "MIT"},
+      "homepage": "https://example.com",
+      "maintainers": [{"github": "alice"}],
+    });
+    let m = parse_meta(Some(&v));
+    assert_eq!(m.description.as_deref(), Some("hello"));
+    assert_eq!(m.license.as_deref(), Some("MIT"));
+    assert_eq!(m.homepage.as_deref(), Some("https://example.com"));
+    assert_eq!(m.maintainers.as_deref(), Some("alice"));
+  }
+
+  #[test]
+  fn parse_meta_absent() {
+    let m = parse_meta(None);
+    assert!(m.description.is_none());
+    assert!(m.license.is_none());
+    assert!(m.homepage.is_none());
+    assert!(m.maintainers.is_none());
+  }
 }
