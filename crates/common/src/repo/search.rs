@@ -315,12 +315,25 @@ async fn search_jobsets(
     }
   }
 
-  // Get count
-  let (total,): (i64,) =
-    sqlx::query_as("SELECT COUNT(*) FROM jobsets WHERE name ILIKE $1")
-      .bind(&pattern)
-      .fetch_one(pool)
-      .await?;
+  // Count query mirrors the data query filters.
+  let mut count_builder: QueryBuilder<Postgres> =
+    QueryBuilder::new("SELECT COUNT(*) FROM jobsets WHERE name ILIKE ");
+  count_builder.push_bind(&pattern);
+  if let Some(ref filters) = params.jobset_filters {
+    if let Some(project_id) = filters.project_id {
+      count_builder.push(" AND project_id = ");
+      count_builder.push_bind(project_id);
+    }
+    if let Some(enabled) = filters.enabled {
+      count_builder.push(" AND enabled = ");
+      count_builder.push_bind(enabled);
+    }
+    if let Some(flake_mode) = filters.flake_mode {
+      count_builder.push(" AND flake_mode = ");
+      count_builder.push_bind(flake_mode);
+    }
+  }
+  let (total,): (i64,) = count_builder.build_query_as().fetch_one(pool).await?;
 
   // Apply sorting
   query_builder.push(" ORDER BY name ASC LIMIT ");
@@ -377,11 +390,41 @@ async fn search_evaluations(
     }
   }
 
-  // Get count - simple count (full filter support would require building query
-  // differently)
-  let (total,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM evaluations")
-    .fetch_one(pool)
-    .await?;
+  // Count query mirrors the data query filters.
+  let mut count_builder: QueryBuilder<Postgres> =
+    QueryBuilder::new("SELECT COUNT(*) FROM evaluations WHERE 1=1");
+  if let Some(ref filters) = params.evaluation_filters {
+    if let Some(project_id) = filters.project_id {
+      count_builder.push(" AND project_id = ");
+      count_builder.push_bind(project_id);
+    }
+    if let Some(jobset_id) = filters.jobset_id {
+      count_builder.push(" AND jobset_id = ");
+      count_builder.push_bind(jobset_id);
+    }
+    if let Some(has_builds) = filters.has_builds {
+      if has_builds {
+        count_builder.push(
+          " AND EXISTS (SELECT 1 FROM builds WHERE builds.evaluation_id = \
+           evaluations.id)",
+        );
+      } else {
+        count_builder.push(
+          " AND NOT EXISTS (SELECT 1 FROM builds WHERE builds.evaluation_id = \
+           evaluations.id)",
+        );
+      }
+    }
+    if let Some(after) = filters.finished_after {
+      count_builder.push(" AND finished_at >= ");
+      count_builder.push_bind(after);
+    }
+    if let Some(before) = filters.finished_before {
+      count_builder.push(" AND finished_at <= ");
+      count_builder.push_bind(before);
+    }
+  }
+  let (total,): (i64,) = count_builder.build_query_as().fetch_one(pool).await?;
 
   // Apply sorting and pagination
   query_builder.push(" ORDER BY created_at DESC LIMIT ");
@@ -471,14 +514,68 @@ async fn search_builds(
     }
   }
 
-  // Get count - simple count with the same text pattern
-  // (full filter support would require building the query differently)
-  let (total,): (i64,) = sqlx::query_as(
-    "SELECT COUNT(*) FROM builds WHERE job_name ILIKE $1 OR drv_path ILIKE $1",
-  )
-  .bind(&pattern)
-  .fetch_one(pool)
-  .await?;
+  // Count query mirrors the data query filters.
+  let mut count_builder: QueryBuilder<Postgres> =
+    QueryBuilder::new("SELECT COUNT(*) FROM builds WHERE (job_name ILIKE ");
+  count_builder.push_bind(&pattern);
+  count_builder.push(" OR drv_path ILIKE ");
+  count_builder.push_bind(&pattern);
+  count_builder.push(")");
+  if let Some(ref filters) = params.build_filters {
+    if let Some(status) = filters.status {
+      let status_str = match status {
+        BuildStatusFilter::Pending => "pending",
+        BuildStatusFilter::Running => "running",
+        BuildStatusFilter::Succeeded => "succeeded",
+        BuildStatusFilter::Failed => "failed",
+        BuildStatusFilter::Cancelled => "cancelled",
+        BuildStatusFilter::DependencyFailed => "dependency_failed",
+        BuildStatusFilter::Aborted => "aborted",
+        BuildStatusFilter::FailedWithOutput => "failed_with_output",
+        BuildStatusFilter::Timeout => "timeout",
+        BuildStatusFilter::CachedFailure => "cached_failure",
+        BuildStatusFilter::UnsupportedSystem => "unsupported_system",
+        BuildStatusFilter::LogLimitExceeded => "log_limit_exceeded",
+        BuildStatusFilter::NarSizeLimitExceeded => "nar_size_limit_exceeded",
+        BuildStatusFilter::NonDeterministic => "non_deterministic",
+      };
+      count_builder.push(" AND status = ");
+      count_builder.push_bind(status_str);
+    }
+    if let Some(project_id) = filters.project_id {
+      count_builder.push(" AND project_id = ");
+      count_builder.push_bind(project_id);
+    }
+    if let Some(jobset_id) = filters.jobset_id {
+      count_builder.push(" AND jobset_id = ");
+      count_builder.push_bind(jobset_id);
+    }
+    if let Some(evaluation_id) = filters.evaluation_id {
+      count_builder.push(" AND evaluation_id = ");
+      count_builder.push_bind(evaluation_id);
+    }
+    if let Some(after) = filters.created_after {
+      count_builder.push(" AND created_at >= ");
+      count_builder.push_bind(after);
+    }
+    if let Some(before) = filters.created_before {
+      count_builder.push(" AND created_at <= ");
+      count_builder.push_bind(before);
+    }
+    if let Some(min) = filters.min_priority {
+      count_builder.push(" AND priority >= ");
+      count_builder.push_bind(min);
+    }
+    if let Some(max) = filters.max_priority {
+      count_builder.push(" AND priority <= ");
+      count_builder.push_bind(max);
+    }
+    if let Some(has) = filters.has_substitutes {
+      count_builder.push(" AND has_substitutes = ");
+      count_builder.push_bind(has);
+    }
+  }
+  let (total,): (i64,) = count_builder.build_query_as().fetch_one(pool).await?;
 
   // Apply sorting
   query_builder.push(" ORDER BY ");
