@@ -618,6 +618,11 @@ fn document() -> Value {
         "get": { "summary": "xz-compressed list of channel store paths",
           "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
           "responses": { "200": { "description": "Compressed list" } } }
+      },
+      "/channel/{name}/nixexprs.tar.xz": {
+        "get": { "summary": "Hydra-compatible nixexprs tarball for this channel",
+          "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+          "responses": { "200": { "description": "xz-compressed tar containing channel/default.nix" } } }
       }
     }
   })
