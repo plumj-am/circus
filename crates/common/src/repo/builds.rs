@@ -230,7 +230,9 @@ pub async fn get_stats(pool: &PgPool) -> Result<BuildStats> {
 }
 
 /// Reset builds that were left in 'running' state (orphaned by a crashed
-/// runner). Limited to 50 builds per call to prevent thundering herd.
+/// runner). Resets every row older than the threshold; the caller is
+/// expected to run this periodically so a crash that orphans many builds
+/// converges rather than stranding the tail.
 ///
 /// # Errors
 ///
@@ -240,9 +242,8 @@ pub async fn reset_orphaned(
   older_than_secs: i64,
 ) -> Result<u64> {
   let result = sqlx::query(
-    "UPDATE builds SET status = 'pending', started_at = NULL WHERE id IN \
-     (SELECT id FROM builds WHERE status = 'running' AND started_at < NOW() - \
-     make_interval(secs => $1) LIMIT 50)",
+    "UPDATE builds SET status = 'pending', started_at = NULL WHERE status = \
+     'running' AND started_at < NOW() - make_interval(secs => $1)",
   )
   .bind(older_than_secs)
   .execute(pool)

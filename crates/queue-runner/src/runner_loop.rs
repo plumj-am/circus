@@ -10,6 +10,20 @@ use tokio::sync::{Notify, RwLock};
 
 use crate::worker::WorkerPool;
 
+/// Reset builds left in `running` from a crashed runner. Builds older
+/// than 5 minutes in `running` are assumed orphaned.
+async fn reset_orphaned_builds(pool: &PgPool) {
+  match repo::builds::reset_orphaned(pool, 300).await {
+    Ok(count) if count > 0 => {
+      tracing::warn!(count, "Reset orphaned builds back to pending");
+    },
+    Ok(_) => {},
+    Err(e) => {
+      tracing::error!("Failed to reset orphaned builds: {e}");
+    },
+  }
+}
+
 /// Query the expected output path for a derivation using `nix-store --query`.
 /// Returns the first output path, or `None` if the query fails.
 async fn query_drv_output(drv_path: &str) -> Option<String> {
@@ -59,18 +73,16 @@ pub async fn run(
   failed_paths_cache: bool,
   unsupported_timeout: Option<Duration>,
 ) -> anyhow::Result<()> {
-  // Reset orphaned builds from previous crashes (older than 5 minutes)
-  match repo::builds::reset_orphaned(&pool, 300).await {
-    Ok(count) if count > 0 => {
-      tracing::warn!(count, "Reset orphaned builds back to pending");
-    },
-    Ok(_) => {},
-    Err(e) => {
-      tracing::error!("Failed to reset orphaned builds: {e}");
-    },
-  }
+  let mut last_orphan_reset = tokio::time::Instant::now();
+  let orphan_reset_interval = Duration::from_secs(60);
+  reset_orphaned_builds(&pool).await;
 
   loop {
+    if last_orphan_reset.elapsed() >= orphan_reset_interval {
+      reset_orphaned_builds(&pool).await;
+      last_orphan_reset = tokio::time::Instant::now();
+    }
+
     let (
       poll_interval,
       notifications_config,
