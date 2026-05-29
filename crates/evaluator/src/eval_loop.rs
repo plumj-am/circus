@@ -6,9 +6,11 @@ use circus_common::{
   config::EvaluatorConfig,
   error::{CiError, check_disk_space},
   models::{
+    ActiveJobset,
     CreateBuild,
     CreateEvaluation,
     CreateJobset,
+    Evaluation,
     EvaluationStatus,
     JobsetInput,
     JobsetState,
@@ -66,13 +68,91 @@ async fn run_cycle(
   git_timeout: Duration,
 ) -> anyhow::Result<()> {
   let active = repo::jobsets::list_active(pool).await?;
+  let active_by_id: HashMap<Uuid, ActiveJobset> =
+    active.iter().cloned().map(|j| (j.id, j)).collect();
 
-  // Filter to jobsets that are due for evaluation based on their
-  // check_interval and last_checked_at
+  let max_concurrent = config.max_concurrent_evals;
+
+  // First drain push-driven work. Webhooks and /evaluations/trigger
+  // insert pending eval rows with a specific commit_hash (push commit,
+  // PR head). Each one is evaluated at exactly that commit, independent
+  // of jobset check_interval and independent of the branch tip.
+  let pending =
+    repo::evaluations::list_pending(pool)
+      .await
+      .unwrap_or_else(|e| {
+        tracing::warn!("Failed to list pending evaluations: {e}");
+        Vec::new()
+      });
+
+  let pending_jobset_ids: std::collections::HashSet<Uuid> =
+    pending.iter().map(|e| e.jobset_id).collect();
+
+  let pending_tasks: Vec<(Evaluation, ActiveJobset)> = pending
+    .into_iter()
+    .filter_map(|eval| {
+      active_by_id
+        .get(&eval.jobset_id)
+        .map(|js| (eval, js.clone()))
+    })
+    .collect();
+
+  if !pending_tasks.is_empty() {
+    tracing::info!("Draining {} pending evaluation(s)", pending_tasks.len());
+  }
+
+  stream::iter(pending_tasks)
+    .for_each_concurrent(max_concurrent, |(eval, jobset)| {
+      async move {
+        if let Err(e) = evaluate_pending_eval(
+          pool,
+          &eval,
+          &jobset,
+          config,
+          notifications_config,
+          nix_timeout,
+          git_timeout,
+        )
+        .await
+        {
+          tracing::error!(
+              jobset_id = %jobset.id,
+              jobset_name = %jobset.name,
+              eval_id = %eval.id,
+              commit = %eval.commit_hash,
+              "Failed to process pending evaluation: {e}"
+          );
+
+          let msg = e.to_string();
+          if let Err(mark_err) = repo::evaluations::update_status(
+            pool,
+            eval.id,
+            EvaluationStatus::Failed,
+            Some(&msg),
+          )
+          .await
+          {
+            tracing::warn!(
+              eval_id = %eval.id,
+              "Failed to record evaluation failure status: {mark_err}"
+            );
+          }
+
+          warn_on_disk_pressure(&msg);
+        }
+      }
+    })
+    .await;
+
+  // Then, git polling for jobsets due by check_interval, excluding any
+  // we just handled via the push path (their work is already current).
   let now = Utc::now();
   let ready: Vec<_> = active
     .into_iter()
     .filter(|js| {
+      if pending_jobset_ids.contains(&js.id) {
+        return false;
+      }
       js.last_checked_at.is_none_or(|last| {
         let elapsed = (now - last).num_seconds();
         elapsed >= i64::from(js.check_interval)
@@ -81,8 +161,6 @@ async fn run_cycle(
     .collect();
 
   tracing::info!("Found {} jobsets due for evaluation", ready.len());
-
-  let max_concurrent = config.max_concurrent_evals;
 
   stream::iter(ready)
     .for_each_concurrent(max_concurrent, |jobset| {
@@ -102,21 +180,7 @@ async fn run_cycle(
               jobset_name = %jobset.name,
               "Failed to evaluate jobset: {e}"
           );
-
-          let msg = e.to_string().to_lowercase();
-          if msg.contains("no space left on device")
-            || msg.contains("disk full")
-            || msg.contains("enospc")
-            || msg.contains("cannot create")
-            || msg.contains("sqlite")
-          {
-            tracing::error!(
-              "Evaluation failed due to disk space problems. Please free up \
-               space on the server:\n- Run `nix-collect-garbage -d` to clean \
-               the Nix store\n- Clear /tmp/circus-evaluator directory\n- \
-               Check build logs directory if configured"
-            );
-          }
+          warn_on_disk_pressure(&e.to_string());
         }
       }
     })
@@ -126,6 +190,242 @@ async fn run_cycle(
   // This handles the case where a project is declared in the server config
   // without any jobsets and relies solely on .circus.toml to define them.
   discover_projects_without_jobsets(pool, config, git_timeout).await;
+
+  Ok(())
+}
+
+fn warn_on_disk_pressure(msg: &str) {
+  let lower = msg.to_lowercase();
+  if lower.contains("no space left on device")
+    || lower.contains("disk full")
+    || lower.contains("enospc")
+    || lower.contains("cannot create")
+    || lower.contains("sqlite")
+  {
+    tracing::error!(
+      "Evaluation failed due to disk space problems. Please free up space on \
+       the server:\n- Run `nix-collect-garbage -d` to clean the Nix store\n- \
+       Clear /tmp/circus-evaluator directory\n- Check build logs directory if \
+       configured"
+    );
+  }
+}
+
+/// Process a single push-driven pending evaluation by checking out its
+/// declared `commit_hash` (which may be a PR head not on any branch tip)
+/// and running nix evaluation against it. Idempotent: skips silently if
+/// another worker already claimed the row.
+async fn evaluate_pending_eval(
+  pool: &PgPool,
+  eval: &Evaluation,
+  jobset: &ActiveJobset,
+  config: &EvaluatorConfig,
+  notifications_config: &circus_common::config::NotificationsConfig,
+  nix_timeout: Duration,
+  git_timeout: Duration,
+) -> anyhow::Result<()> {
+  // Claim the row atomically. If the row is no longer pending another
+  // wakeup already handled it; bail out without doing the git fetch.
+  let claimed =
+    match repo::evaluations::try_claim_pending(pool, eval.id).await? {
+      Some(e) => e,
+      None => {
+        tracing::debug!(
+          eval_id = %eval.id,
+          "Pending evaluation already claimed, skipping"
+        );
+        return Ok(());
+      },
+    };
+
+  tracing::info!(
+      jobset = %jobset.name,
+      eval_id = %claimed.id,
+      commit = %claimed.commit_hash,
+      pr_number = ?claimed.pr_number,
+      "Processing pending evaluation"
+  );
+
+  log_disk_space(&config.work_dir, &jobset.name);
+
+  let url = jobset.repository_url.clone();
+  let work_dir = config.work_dir.clone();
+  let project_name = jobset.project_name.clone();
+  let target_commit = claimed.commit_hash.clone();
+
+  let repo_path = tokio::time::timeout(
+    git_timeout,
+    tokio::task::spawn_blocking(move || {
+      crate::git::fetch_and_checkout_commit(
+        &url,
+        &work_dir,
+        &project_name,
+        &target_commit,
+      )
+    }),
+  )
+  .await
+  .map_err(|_| {
+    anyhow::anyhow!("Git operation timed out after {git_timeout:?}")
+  })???;
+
+  let inputs = repo::jobset_inputs::list_for_jobset(pool, jobset.id)
+    .await
+    .unwrap_or_default();
+  let inputs_hash = compute_inputs_hash(&claimed.commit_hash, &inputs);
+
+  if let Err(e) =
+    repo::evaluations::set_inputs_hash(pool, claimed.id, &inputs_hash).await
+  {
+    tracing::warn!(eval_id = %claimed.id, "Failed to set inputs hash: {e}");
+  }
+
+  sync_repo_declarative_config(pool, &repo_path, jobset.project_id).await;
+
+  run_nix_and_record_builds(
+    pool,
+    jobset,
+    &claimed,
+    &repo_path,
+    &inputs,
+    config,
+    notifications_config,
+    nix_timeout,
+  )
+  .await?;
+
+  if jobset.state == JobsetState::OneShot {
+    tracing::info!(
+      jobset = %jobset.name,
+      "One-shot evaluation complete, disabling jobset"
+    );
+    if let Err(e) = repo::jobsets::mark_one_shot_complete(pool, jobset.id).await
+    {
+      tracing::error!(
+        jobset = %jobset.name,
+        "Failed to mark one-shot complete: {e}"
+      );
+    }
+  }
+
+  Ok(())
+}
+
+fn log_disk_space(work_dir: &std::path::Path, jobset_name: &str) {
+  match check_disk_space(work_dir) {
+    Ok(info) => {
+      if info.is_critical() {
+        tracing::error!(
+          jobset = jobset_name,
+          "Less than 1GB disk space available. {}",
+          info.summary()
+        );
+      } else if info.is_low() {
+        tracing::warn!(
+          jobset = jobset_name,
+          "Less than 5GB disk space available. {}",
+          info.summary()
+        );
+      }
+    },
+    Err(e) => {
+      tracing::warn!(
+        jobset = jobset_name,
+        "Disk space check failed: {}. Proceeding anyway...",
+        e
+      );
+    },
+  }
+}
+
+/// Shared back-half: invoke nix, persist builds, dispatch notifications,
+/// and mark the eval row Completed or Failed. Used by both the branch-tip
+/// path (`evaluate_jobset`) and the push-driven path
+/// (`evaluate_pending_eval`).
+#[allow(clippy::too_many_arguments)]
+async fn run_nix_and_record_builds(
+  pool: &PgPool,
+  jobset: &ActiveJobset,
+  eval: &Evaluation,
+  repo_path: &std::path::Path,
+  inputs: &[JobsetInput],
+  config: &EvaluatorConfig,
+  notifications_config: &circus_common::config::NotificationsConfig,
+  nix_timeout: Duration,
+) -> anyhow::Result<()> {
+  match crate::nix::evaluate(
+    repo_path,
+    &jobset.nix_expression,
+    jobset.flake_mode,
+    nix_timeout,
+    config,
+    inputs,
+  )
+  .await
+  {
+    Ok(eval_result) => {
+      tracing::debug!(jobset = %jobset.name, job_count = eval_result.jobs.len(), "Nix evaluation returned");
+      tracing::info!(
+          jobset = %jobset.name,
+          count = eval_result.jobs.len(),
+          errors = eval_result.error_count,
+          "Evaluation discovered jobs"
+      );
+
+      create_builds_from_eval(pool, eval.id, &eval_result).await?;
+
+      if notifications_config.enable_retry_queue {
+        if let Ok(project) = repo::projects::get(pool, jobset.project_id).await
+        {
+          if let Ok(builds) =
+            repo::builds::list_for_evaluation(pool, eval.id).await
+          {
+            for build in builds {
+              if !build.is_aggregate {
+                circus_common::notifications::dispatch_build_created(
+                  pool,
+                  &build,
+                  &project,
+                  &eval.commit_hash,
+                  notifications_config,
+                )
+                .await;
+              }
+            }
+          } else {
+            tracing::warn!(
+              eval_id = %eval.id,
+              "Failed to fetch builds for pending notifications"
+            );
+          }
+        } else {
+          tracing::warn!(
+            project_id = %jobset.project_id,
+            "Failed to fetch project for pending notifications"
+          );
+        }
+      }
+
+      repo::evaluations::update_status(
+        pool,
+        eval.id,
+        EvaluationStatus::Completed,
+        None,
+      )
+      .await?;
+    },
+    Err(e) => {
+      let msg = e.to_string();
+      tracing::error!(jobset = %jobset.name, "Evaluation failed: {msg}");
+      repo::evaluations::update_status(
+        pool,
+        eval.id,
+        EvaluationStatus::Failed,
+        Some(&msg),
+      )
+      .await?;
+    },
+  }
 
   Ok(())
 }
@@ -149,30 +449,7 @@ async fn evaluate_jobset(
       "Starting evaluation cycle"
   );
 
-  match check_disk_space(&work_dir) {
-    Ok(info) => {
-      if info.is_critical() {
-        tracing::error!(
-          jobset = %jobset.name,
-          "Less than 1GB disk space available. {}",
-          info.summary()
-        );
-      } else if info.is_low() {
-        tracing::warn!(
-          jobset = %jobset.name,
-          "Less than 5GB disk space available. {}",
-          info.summary()
-        );
-      }
-    },
-    Err(e) => {
-      tracing::warn!(
-        jobset = %jobset.name,
-        "Disk space check failed: {}. Proceeding anyway...",
-        e
-      );
-    },
-  }
+  log_disk_space(&work_dir, &jobset.name);
 
   // Clone/fetch in a blocking task (git2 is sync) with timeout
   let (repo_path, commit_hash) = tokio::time::timeout(
@@ -328,83 +605,17 @@ async fn evaluate_jobset(
   // Sync any jobsets declared in the repo's .circus.toml
   sync_repo_declarative_config(pool, &repo_path, jobset.project_id).await;
 
-  // Run nix evaluation
-  match crate::nix::evaluate(
+  run_nix_and_record_builds(
+    pool,
+    jobset,
+    &eval,
     &repo_path,
-    &jobset.nix_expression,
-    jobset.flake_mode,
-    nix_timeout,
-    config,
     &inputs,
+    config,
+    notifications_config,
+    nix_timeout,
   )
-  .await
-  {
-    Ok(eval_result) => {
-      tracing::debug!(jobset = %jobset.name, job_count = eval_result.jobs.len(), "Nix evaluation returned");
-      tracing::info!(
-          jobset = %jobset.name,
-          count = eval_result.jobs.len(),
-          errors = eval_result.error_count,
-          "Evaluation discovered jobs"
-      );
-
-      create_builds_from_eval(pool, eval.id, &eval_result).await?;
-
-      // Dispatch pending notifications for created builds
-      if notifications_config.enable_retry_queue {
-        if let Ok(project) = repo::projects::get(pool, jobset.project_id).await
-        {
-          if let Ok(builds) =
-            repo::builds::list_for_evaluation(pool, eval.id).await
-          {
-            for build in builds {
-              // Skip aggregate builds (they complete later when constituents
-              // finish)
-              if !build.is_aggregate {
-                circus_common::notifications::dispatch_build_created(
-                  pool,
-                  &build,
-                  &project,
-                  &eval.commit_hash,
-                  notifications_config,
-                )
-                .await;
-              }
-            }
-          } else {
-            tracing::warn!(
-              eval_id = %eval.id,
-              "Failed to fetch builds for pending notifications"
-            );
-          }
-        } else {
-          tracing::warn!(
-            project_id = %jobset.project_id,
-            "Failed to fetch project for pending notifications"
-          );
-        }
-      }
-
-      repo::evaluations::update_status(
-        pool,
-        eval.id,
-        EvaluationStatus::Completed,
-        None,
-      )
-      .await?;
-    },
-    Err(e) => {
-      let msg = e.to_string();
-      tracing::error!(jobset = %jobset.name, "Evaluation failed: {msg}");
-      repo::evaluations::update_status(
-        pool,
-        eval.id,
-        EvaluationStatus::Failed,
-        Some(&msg),
-      )
-      .await?;
-    },
-  }
+  .await?;
 
   // Update last_checked_at timestamp for per-jobset interval tracking
   if let Err(e) = repo::jobsets::update_last_checked(pool, jobset.id).await {
