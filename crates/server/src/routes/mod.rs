@@ -75,12 +75,24 @@ pub fn cookie_security_flags(
   format!("HttpOnly; SameSite=Strict{secure_flag}")
 }
 
-struct RateLimitState {
-  requests:     DashMap<IpAddr, Vec<Instant>>,
-  rps:          u64,
-  burst:        u32,
-  last_cleanup: std::sync::atomic::AtomicU64,
+/// Per-IP token bucket. Tokens accrue at `rps` per second up to `burst`.
+/// Each request costs one token; if the bucket is empty the request is
+/// rejected with 429.
+struct Bucket {
+  tokens:        f64,
+  last_refilled: Instant,
 }
+
+struct RateLimitState {
+  buckets:      DashMap<IpAddr, Bucket>,
+  rps:          f64,
+  burst:        f64,
+  last_cleanup: std::sync::Mutex<Instant>,
+}
+
+/// How long an idle bucket persists before the periodic sweep drops it.
+const RATE_LIMIT_BUCKET_TTL: std::time::Duration =
+  std::time::Duration::from_secs(300);
 
 async fn rate_limit_middleware(
   ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
@@ -92,54 +104,34 @@ async fn rate_limit_middleware(
   if let Some(rl) = state {
     let ip = addr.ip();
     let now = Instant::now();
-    let window = std::time::Duration::from_secs(1);
 
-    // Periodic cleanup of stale entries (every 60 seconds)
-    let now_secs = std::time::SystemTime::now()
-      .duration_since(std::time::UNIX_EPOCH)
-      .unwrap_or_default()
-      .as_secs();
-    let last = rl.last_cleanup.load(std::sync::atomic::Ordering::Relaxed);
-    if now_secs - last > 60
-      && rl
-        .last_cleanup
-        .compare_exchange(
-          last,
-          now_secs,
-          std::sync::atomic::Ordering::SeqCst,
-          std::sync::atomic::Ordering::Relaxed,
-        )
-        .is_ok()
+    // Periodic cleanup of idle buckets (every 60s, Instant-based so a
+    // wall-clock step doesn't strand us).
     {
-      rl.requests.retain(|_, v| {
-        v.retain(|t| {
-          now.duration_since(*t) < std::time::Duration::from_secs(10)
+      let mut last = rl.last_cleanup.lock().unwrap_or_else(|e| e.into_inner());
+      if now.duration_since(*last) > std::time::Duration::from_secs(60) {
+        *last = now;
+        rl.buckets.retain(|_, b| {
+          now.duration_since(b.last_refilled) < RATE_LIMIT_BUCKET_TTL
         });
-        !v.is_empty()
-      });
-    }
-
-    let mut entry = rl.requests.entry(ip).or_default();
-    entry.retain(|t| now.duration_since(*t) < window);
-
-    // Token bucket algorithm: allow burst, then enforce rps limit
-    let request_count = entry.len();
-    if request_count >= rl.burst as usize {
-      return StatusCode::TOO_MANY_REQUESTS.into_response();
-    }
-
-    // If within burst but need to check rate, ensure we don't exceed rps
-    if request_count >= rl.rps as usize {
-      // Check if oldest request in window is still within the rps constraint
-      if let Some(oldest) = entry.first() {
-        let elapsed = now.duration_since(*oldest);
-        if elapsed < window {
-          return StatusCode::TOO_MANY_REQUESTS.into_response();
-        }
       }
     }
 
-    entry.push(now);
+    let mut entry = rl.buckets.entry(ip).or_insert_with(|| {
+      Bucket {
+        tokens:        rl.burst,
+        last_refilled: now,
+      }
+    });
+
+    let elapsed = now.duration_since(entry.last_refilled).as_secs_f64();
+    entry.tokens = (entry.tokens + elapsed * rl.rps).min(rl.burst);
+    entry.last_refilled = now;
+
+    if entry.tokens < 1.0 {
+      return StatusCode::TOO_MANY_REQUESTS.into_response();
+    }
+    entry.tokens -= 1.0;
     drop(entry);
   }
 
@@ -231,10 +223,10 @@ pub fn router(state: AppState, config: &ServerConfig) -> Router {
     (config.rate_limit_rps, config.rate_limit_burst)
   {
     let rl_state = Arc::new(RateLimitState {
-      requests: DashMap::new(),
-      rps,
-      burst,
-      last_cleanup: std::sync::atomic::AtomicU64::new(0),
+      buckets:      DashMap::new(),
+      rps:          rps as f64,
+      burst:        f64::from(burst),
+      last_cleanup: std::sync::Mutex::new(Instant::now()),
     });
     app = app
       .layer(axum::Extension(rl_state))
