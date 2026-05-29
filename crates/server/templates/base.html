@@ -44,6 +44,28 @@
     el.innerHTML = '<div class="flash-message flash-error">' + escapeHtml(msg) + '</div>';
   }
   </script>
+  <script>
+  // Tick any element carrying data-live-elapsed="<unix-epoch-seconds>" once
+  // per second so running build timers advance without a page refresh.
+  (function() {
+    function fmt(secs) {
+      if (secs < 0) secs = 0;
+      var m = Math.floor(secs / 60);
+      var s = secs % 60;
+      return m > 0 ? m + 'm ' + s + 's' : s + 's';
+    }
+    function tick() {
+      var now = Math.floor(Date.now() / 1000);
+      var nodes = document.querySelectorAll('[data-live-elapsed]');
+      for (var i = 0; i < nodes.length; i++) {
+        var start = parseInt(nodes[i].getAttribute('data-live-elapsed'), 10);
+        if (!isNaN(start)) nodes[i].textContent = fmt(now - start);
+      }
+    }
+    tick();
+    setInterval(tick, 1000);
+  })();
+  </script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

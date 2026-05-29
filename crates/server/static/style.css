@@ -1066,3 +1066,58 @@ details summary:hover {
     justify-content: center;
   }
 }
+
+.build-error {
+  margin: 1.25rem 0;
+}
+.build-error h2 {
+  margin-bottom: 0.5rem;
+}
+.error-log {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border: 1px solid #e5d7d7;
+  border-radius: 4px;
+  background: #fbf5f5;
+  max-height: 24rem;
+  overflow-y: auto;
+}
+.error-log-line {
+  padding: 0.3rem 0.75rem;
+  border-bottom: 1px solid #f0e4e4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.error-log-line:last-child {
+  border-bottom: 0;
+}
+.error-log-error {
+  color: #b42318;
+  background: #fef3f2;
+}
+.error-log-warn {
+  color: #92400e;
+  background: #fffaeb;
+}
+.error-log-notice {
+  color: #475467;
+}
+.error-log-info {
+  color: #344054;
+}
+.error-log-raw {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #fbf5f5;
+  border: 1px solid #e5d7d7;
+  border-radius: 4px;
+  padding: 0.75rem;
+  max-height: 24rem;
+  overflow: auto;
+}

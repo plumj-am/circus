@@ -35,7 +35,7 @@
       <td><a href="/build/{{ b.id }}">{{ b.job_name }}</a></td>
       <td>{{ b.system }}</td>
       <td>{{ b.started_at }}</td>
-      <td>{{ b.elapsed }}</td>
+      <td{% if let Some(ts) = b.started_epoch %} data-live-elapsed="{{ ts }}"{% endif %}>{{ b.elapsed }}</td>
       <td>{% match b.builder_name %}{% when Some with (name) %}{{ name }}{% when None %}local{% endmatch %}</td>
     </tr>
     {% endfor %}
