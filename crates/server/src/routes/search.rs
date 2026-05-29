@@ -148,7 +148,7 @@ const fn default_limit() -> i64 {
   20
 }
 
-/// Search results response
+/// Response for the advanced multi-entity search endpoint.
 #[derive(Debug, Serialize)]
 struct SearchResponse {
   projects:          Vec<Project>,
@@ -167,6 +167,18 @@ struct SearchResponse {
   limit:             Option<i64>,
   #[serde(skip_serializing_if = "Option::is_none")]
   offset:            Option<i64>,
+}
+
+/// Response for the quick search endpoint. Only covers projects and builds;
+/// jobsets and evaluations are not searched by this endpoint.
+#[derive(Debug, Serialize)]
+struct QuickSearchResponse {
+  projects: Vec<Project>,
+  builds:   Vec<Build>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  limit:    Option<i64>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  offset:   Option<i64>,
 }
 
 /// Legacy quick search parameters (for backward compatibility)
@@ -367,20 +379,14 @@ async fn advanced_search_handler(
 async fn quick_search_handler(
   State(state): State<AppState>,
   Query(params): Query<QuickSearchParams>,
-) -> Result<Json<SearchResponse>, ApiError> {
+) -> Result<Json<QuickSearchResponse>, ApiError> {
   let query = params.q.trim();
   if query.is_empty() || query.len() > 256 {
-    return Ok(Json(SearchResponse {
-      projects:          vec![],
-      jobsets:           vec![],
-      evaluations:       vec![],
-      builds:            vec![],
-      total_projects:    None,
-      total_jobsets:     None,
-      total_evaluations: None,
-      total_builds:      None,
-      limit:             None,
-      offset:            None,
+    return Ok(Json(QuickSearchResponse {
+      projects: vec![],
+      builds:   vec![],
+      limit:    None,
+      offset:   None,
     }));
   }
 
@@ -390,15 +396,9 @@ async fn quick_search_handler(
     .await
     .map_err(ApiError)?;
 
-  Ok(Json(SearchResponse {
+  Ok(Json(QuickSearchResponse {
     projects,
-    jobsets: vec![],
-    evaluations: vec![],
     builds,
-    total_projects: None,
-    total_jobsets: None,
-    total_evaluations: None,
-    total_builds: None,
     limit: Some(limit),
     offset: Some(0),
   }))
