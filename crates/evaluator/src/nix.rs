@@ -271,9 +271,14 @@ async fn evaluate_legacy(
         Ok(parse_eval_output(&stdout))
       },
       _ => {
-        // Fallback: nix eval on the legacy import
-        tracing::info!(
-          "nix-eval-jobs unavailable for legacy expr, using nix-instantiate"
+        // Degraded path: nix-eval-jobs unavailable. The fabricated jobs below
+        // have no name, system, outputs, input_drvs, or constituents, which
+        // breaks per-system scheduling, dep wiring, FOD detection, and dedup.
+        // This should be rare; log loudly so the deployment notices.
+        tracing::error!(
+          "nix-eval-jobs unavailable for legacy expr; falling back to \
+           nix-instantiate. Scheduling, dependency wiring, and dedup will be \
+           degraded for this evaluation."
         );
         let output = tokio::process::Command::new("nix-instantiate")
           .arg(&expr_path)
