@@ -16,51 +16,19 @@
     ...
   }: {
     imports = [
-      self.nixosModules.circus
       (modulesPath + "/virtualisation/qemu-vm.nix")
+
+      self.nixosModules.circus
       ./vm-common.nix
 
       {config._module.args = {inherit self;};}
     ];
 
-    services.circus = {
-      enable = true;
-
-      package = circus-packages.circus-server;
-      evaluatorPackage = circus-packages.circus-evaluator;
-      queueRunnerPackage = circus-packages.circus-queue-runner;
-      migratePackage = circus-packages.circus-migrate-cli;
-
-      server.enable = true;
-      evaluator.enable = true;
-      queueRunner.enable = true;
-
-      settings = {
-        database.url = "postgresql:///circus?host=/run/postgresql";
-        gc.enabled = false;
-        logs.log_dir = "/var/lib/circus/logs";
-        cache.enabled = true;
-        signing.enabled = false;
-        server = {
-          # Bind to all interfaces so port forwarding works
-          host = mkForce "0.0.0.0";
-          port = 3000;
-          cors_permissive = mkForce true;
-        };
-      };
-
-      declarative.users = {
-        admin = {
-          email = "admin@circus.local";
-          password = "AdminPassword123!";
-          role = "admin";
-        };
-        demo = {
-          email = "demo@circus.local";
-          role = "read-only";
-          passwordFile = toString demoPasswordFile;
-        };
-      };
+    ## VM hardware
+    # As it turns out 2gb and 2 cores is not enough.
+    virtualisation = {
+      memorySize = lib.mkForce 4096;
+      cores = lib.mkForce 4;
     };
 
     ## Seed an admin API key on first boot
@@ -94,25 +62,70 @@
         # Read-only key: circus_demo_readonly_key
         RO_HASH="$(echo -n 'circus_demo_readonly_key' | sha256sum | cut -d' ' -f1)"
         psql -U circus -d circus -c "INSERT INTO api_keys (name, key_hash, role) VALUES ('demo-readonly', '$RO_HASH', 'read-only') ON CONFLICT DO NOTHING" 2>/dev/null || true
-
-        echo ""
-        echo "====================================================="
-        echo ""
-        echo "  Dashboard:     http://localhost:3000"
-        echo "  Health:        http://localhost:3000/health"
-        echo "  API base:      http://localhost:3000/api/v1"
-        echo ""
-        echo "  Web login:     admin / AdminPassword123! (admin)"
-        echo "                 demo / DemoPassword123! (read-only)"
-        echo ""
-        echo "  Admin API key: circus_demo_admin_key"
-        echo "  Read-only key: circus_demo_readonly_key"
-        echo ""
-        echo "  Login at http://localhost:3000/login using"
-        echo "  the credentials or the API key provided above."
-        echo ""
-        echo "====================================================="
       '';
+    };
+    services = {
+      circus = {
+        enable = true;
+
+        package = circus-packages.circus-server;
+        evaluatorPackage = circus-packages.circus-evaluator;
+        queueRunnerPackage = circus-packages.circus-queue-runner;
+        migratePackage = circus-packages.circus-migrate-cli;
+
+        server.enable = true;
+        evaluator.enable = true;
+        queueRunner.enable = true;
+
+        settings = {
+          database.url = "postgresql:///circus?host=/run/postgresql";
+          gc.enabled = false;
+          logs.log_dir = "/var/lib/circus/logs";
+          cache.enabled = true;
+          signing.enabled = false;
+          server = {
+            # Bind to all interfaces so port forwarding works
+            host = mkForce "0.0.0.0";
+            port = 3000;
+            cors_permissive = mkForce true;
+          };
+        };
+
+        declarative.users = {
+          admin = {
+            email = "admin@circus.local";
+            password = "AdminPassword123!";
+            role = "admin";
+          };
+          demo = {
+            email = "demo@circus.local";
+            role = "read-only";
+            passwordFile = toString demoPasswordFile;
+          };
+        };
+      };
+
+      getty = {
+        autologinUser = "root";
+        greetingLine = ''
+          ====================================================
+
+          Dashboard:     http://localhost:3000
+          Health:        http://localhost:3000/health
+          API base:      http://localhost:3000/api/v1
+
+          Web login:     admin / AdminPassword123! (admin)
+                         demo / DemoPassword123! (read-only)
+
+          Admin API key: circus_demo_admin_key
+          Read-only key: circus_demo_readonly_key
+
+          Login at http://localhost:3000/login using
+          the credentials or the API key provided above.
+
+          ===================================================
+        '';
+      };
     };
 
     # Useful tools inside the VM
@@ -129,7 +142,6 @@
     # Misc VM settings
     networking.hostName = "circus-demo";
     networking.firewall.allowedTCPPorts = [3000];
-    services.getty.autologinUser = "root";
     system.stateVersion = "26.11";
   });
 in
