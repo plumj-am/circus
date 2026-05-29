@@ -80,14 +80,10 @@ async fn create_test_build(
 ) -> Build {
   repo::builds::create(pool, CreateBuild {
     evaluation_id: eval_id,
-    job_name:      job_name.to_string(),
-    drv_path:      drv_path.to_string(),
-    system:        system.map(std::string::ToString::to_string),
-    outputs:       None,
-    is_aggregate:  None,
-    constituents:  None,
-    is_fod:        None,
-    fod_hash:      None,
+    job_name: job_name.to_string(),
+    drv_path: drv_path.to_string(),
+    system: system.map(std::string::ToString::to_string),
+    ..Default::default()
   })
   .await
   .expect("create build")

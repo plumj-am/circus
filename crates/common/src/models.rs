@@ -135,6 +135,10 @@ pub struct Build {
   pub keep:                       bool,
   pub is_fod:                     bool,
   pub fod_hash:                   Option<String>,
+  pub meta_description:           Option<String>,
+  pub meta_license:               Option<String>,
+  pub meta_homepage:              Option<String>,
+  pub meta_maintainers:           Option<String>,
 }
 
 #[derive(
@@ -656,17 +660,26 @@ pub struct CreateEvaluation {
   pub pr_action:      Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CreateBuild {
-  pub evaluation_id: Uuid,
-  pub job_name:      String,
-  pub drv_path:      String,
-  pub system:        Option<String>,
-  pub outputs:       Option<serde_json::Value>,
-  pub is_aggregate:  Option<bool>,
-  pub constituents:  Option<serde_json::Value>,
-  pub is_fod:        Option<bool>,
-  pub fod_hash:      Option<String>,
+  pub evaluation_id:    Uuid,
+  pub job_name:         String,
+  pub drv_path:         String,
+  pub system:           Option<String>,
+  pub outputs:          Option<serde_json::Value>,
+  pub is_aggregate:     Option<bool>,
+  pub constituents:     Option<serde_json::Value>,
+  pub is_fod:           Option<bool>,
+  pub fod_hash:         Option<String>,
+  /// Free-form `meta.description` from the nix expression.
+  pub meta_description: Option<String>,
+  /// `meta.license`, rendered to a string. nix-eval-jobs surfaces this as
+  /// an object; we flatten to its `fullName` (or `spdxId`) when present.
+  pub meta_license:     Option<String>,
+  /// `meta.homepage` URL.
+  pub meta_homepage:    Option<String>,
+  /// Comma-separated list of `meta.maintainers[*].github` (or name) handles.
+  pub meta_maintainers: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -730,14 +730,10 @@ mod tests {
   fn test_create_build_valid() {
     let b = CreateBuild {
       evaluation_id: Uuid::new_v4(),
-      job_name:      "hello".to_string(),
-      drv_path:      "/nix/store/abc123-hello.drv".to_string(),
-      system:        Some("x86_64-linux".to_string()),
-      outputs:       None,
-      is_aggregate:  None,
-      constituents:  None,
-      is_fod:        None,
-      fod_hash:      None,
+      job_name: "hello".to_string(),
+      drv_path: "/nix/store/abc123-hello.drv".to_string(),
+      system: Some("x86_64-linux".to_string()),
+      ..Default::default()
     };
     assert!(b.validate().is_ok());
   }
@@ -746,14 +742,9 @@ mod tests {
   fn test_create_build_invalid_drv() {
     let b = CreateBuild {
       evaluation_id: Uuid::new_v4(),
-      job_name:      "hello".to_string(),
-      drv_path:      "/tmp/bad-path".to_string(),
-      system:        None,
-      outputs:       None,
-      is_aggregate:  None,
-      constituents:  None,
-      is_fod:        None,
-      fod_hash:      None,
+      job_name: "hello".to_string(),
+      drv_path: "/tmp/bad-path".to_string(),
+      ..Default::default()
     };
     assert!(b.validate().is_err());
   }

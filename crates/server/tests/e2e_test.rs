@@ -106,28 +106,30 @@ async fn test_e2e_project_eval_build_flow() {
   // 6. Create builds as if nix evaluation found jobs
   let build1 = circus_common::repo::builds::create(&pool, CreateBuild {
     evaluation_id: eval.id,
-    job_name:      "hello".to_string(),
-    drv_path:      "/nix/store/e2e000-hello.drv".to_string(),
-    system:        Some("x86_64-linux".to_string()),
-    outputs:       Some(serde_json::json!({"out": "/nix/store/e2e000-hello"})),
-    is_aggregate:  Some(false),
-    constituents:  None,
-    is_fod:        None,
-    fod_hash:      None,
+    job_name: "hello".to_string(),
+    drv_path: "/nix/store/e2e000-hello.drv".to_string(),
+    system: Some("x86_64-linux".to_string()),
+    outputs: Some(serde_json::json!({"out": "/nix/store/e2e000-hello"})),
+    is_aggregate: Some(false),
+    constituents: None,
+    is_fod: None,
+    fod_hash: None,
+    ..Default::default()
   })
   .await
   .expect("create build 1");
 
   let build2 = circus_common::repo::builds::create(&pool, CreateBuild {
     evaluation_id: eval.id,
-    job_name:      "world".to_string(),
-    drv_path:      "/nix/store/e2e000-world.drv".to_string(),
-    system:        Some("x86_64-linux".to_string()),
-    outputs:       Some(serde_json::json!({"out": "/nix/store/e2e000-world"})),
-    is_aggregate:  Some(false),
-    constituents:  None,
-    is_fod:        None,
-    fod_hash:      None,
+    job_name: "world".to_string(),
+    drv_path: "/nix/store/e2e000-world.drv".to_string(),
+    system: Some("x86_64-linux".to_string()),
+    outputs: Some(serde_json::json!({"out": "/nix/store/e2e000-world"})),
+    is_aggregate: Some(false),
+    constituents: None,
+    is_fod: None,
+    fod_hash: None,
+    ..Default::default()
   })
   .await
   .expect("create build 2");

@@ -132,14 +132,15 @@ async fn test_build_search_with_filters() {
   // Create builds with different statuses
   let build1 = repo::builds::create(&pool, CreateBuild {
     evaluation_id: evaluation.id,
-    job_name:      "package-hello".to_string(),
-    drv_path:      format!("/nix/store/{}-hello.drv", Uuid::new_v4().simple()),
-    system:        Some("x86_64-linux".to_string()),
-    outputs:       None,
-    is_aggregate:  None,
-    constituents:  None,
-    is_fod:        None,
-    fod_hash:      None,
+    job_name: "package-hello".to_string(),
+    drv_path: format!("/nix/store/{}-hello.drv", Uuid::new_v4().simple()),
+    system: Some("x86_64-linux".to_string()),
+    outputs: None,
+    is_aggregate: None,
+    constituents: None,
+    is_fod: None,
+    fod_hash: None,
+    ..Default::default()
   })
   .await
   .expect("create build 1");
@@ -161,14 +162,15 @@ async fn test_build_search_with_filters() {
 
   let build2 = repo::builds::create(&pool, CreateBuild {
     evaluation_id: evaluation.id,
-    job_name:      "package-world".to_string(),
-    drv_path:      format!("/nix/store/{}-world.drv", Uuid::new_v4().simple()),
-    system:        Some("x86_64-linux".to_string()),
-    outputs:       None,
-    is_aggregate:  None,
-    constituents:  None,
-    is_fod:        None,
-    fod_hash:      None,
+    job_name: "package-world".to_string(),
+    drv_path: format!("/nix/store/{}-world.drv", Uuid::new_v4().simple()),
+    system: Some("x86_64-linux".to_string()),
+    outputs: None,
+    is_aggregate: None,
+    constituents: None,
+    is_fod: None,
+    fod_hash: None,
+    ..Default::default()
   })
   .await
   .expect("create build 2");
@@ -280,14 +282,15 @@ async fn test_multi_entity_search() {
 
   let _build = repo::builds::create(&pool, CreateBuild {
     evaluation_id: evaluation.id,
-    job_name:      "test-job".to_string(),
-    drv_path:      format!("/nix/store/{}-test.drv", Uuid::new_v4().simple()),
-    system:        Some("x86_64-linux".to_string()),
-    outputs:       None,
-    is_aggregate:  None,
-    constituents:  None,
-    is_fod:        None,
-    fod_hash:      None,
+    job_name: "test-job".to_string(),
+    drv_path: format!("/nix/store/{}-test.drv", Uuid::new_v4().simple()),
+    system: Some("x86_64-linux".to_string()),
+    outputs: None,
+    is_aggregate: None,
+    constituents: None,
+    is_fod: None,
+    fod_hash: None,
+    ..Default::default()
   })
   .await
   .expect("create build");
@@ -497,14 +500,15 @@ async fn test_quick_search() {
 
   let _build = repo::builds::create(&pool, CreateBuild {
     evaluation_id: evaluation.id,
-    job_name:      "quick-job".to_string(),
-    drv_path:      format!("/nix/store/{}-quick.drv", Uuid::new_v4().simple()),
-    system:        Some("x86_64-linux".to_string()),
-    outputs:       None,
-    is_aggregate:  None,
-    constituents:  None,
-    is_fod:        None,
-    fod_hash:      None,
+    job_name: "quick-job".to_string(),
+    drv_path: format!("/nix/store/{}-quick.drv", Uuid::new_v4().simple()),
+    system: Some("x86_64-linux".to_string()),
+    outputs: None,
+    is_aggregate: None,
+    constituents: None,
+    is_fod: None,
+    fod_hash: None,
+    ..Default::default()
   })
   .await
   .expect("create build");

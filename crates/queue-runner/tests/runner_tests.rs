@@ -366,14 +366,15 @@ async fn test_fair_share_scheduling() {
     &pool,
     circus_common::models::CreateBuild {
       evaluation_id: eval_hi.id,
-      job_name:      "hi-build-1".to_string(),
-      drv_path:      drv_hi_1,
-      system:        Some("x86_64-linux".to_string()),
-      outputs:       None,
-      is_aggregate:  None,
-      constituents:  None,
-      is_fod:        None,
-      fod_hash:      None,
+      job_name: "hi-build-1".to_string(),
+      drv_path: drv_hi_1,
+      system: Some("x86_64-linux".to_string()),
+      outputs: None,
+      is_aggregate: None,
+      constituents: None,
+      is_fod: None,
+      fod_hash: None,
+      ..Default::default()
     },
   )
   .await
@@ -383,14 +384,15 @@ async fn test_fair_share_scheduling() {
     &pool,
     circus_common::models::CreateBuild {
       evaluation_id: eval_hi.id,
-      job_name:      "hi-build-2".to_string(),
-      drv_path:      drv_hi_2,
-      system:        Some("x86_64-linux".to_string()),
-      outputs:       None,
-      is_aggregate:  None,
-      constituents:  None,
-      is_fod:        None,
-      fod_hash:      None,
+      job_name: "hi-build-2".to_string(),
+      drv_path: drv_hi_2,
+      system: Some("x86_64-linux".to_string()),
+      outputs: None,
+      is_aggregate: None,
+      constituents: None,
+      is_fod: None,
+      fod_hash: None,
+      ..Default::default()
     },
   )
   .await
@@ -400,14 +402,15 @@ async fn test_fair_share_scheduling() {
     &pool,
     circus_common::models::CreateBuild {
       evaluation_id: eval_lo.id,
-      job_name:      "lo-build-1".to_string(),
-      drv_path:      drv_lo_1,
-      system:        Some("x86_64-linux".to_string()),
-      outputs:       None,
-      is_aggregate:  None,
-      constituents:  None,
-      is_fod:        None,
-      fod_hash:      None,
+      job_name: "lo-build-1".to_string(),
+      drv_path: drv_lo_1,
+      system: Some("x86_64-linux".to_string()),
+      outputs: None,
+      is_aggregate: None,
+      constituents: None,
+      is_fod: None,
+      fod_hash: None,
+      ..Default::default()
     },
   )
   .await
@@ -417,14 +420,15 @@ async fn test_fair_share_scheduling() {
     &pool,
     circus_common::models::CreateBuild {
       evaluation_id: eval_lo.id,
-      job_name:      "lo-build-2".to_string(),
-      drv_path:      drv_lo_2,
-      system:        Some("x86_64-linux".to_string()),
-      outputs:       None,
-      is_aggregate:  None,
-      constituents:  None,
-      is_fod:        None,
-      fod_hash:      None,
+      job_name: "lo-build-2".to_string(),
+      drv_path: drv_lo_2,
+      system: Some("x86_64-linux".to_string()),
+      outputs: None,
+      is_aggregate: None,
+      constituents: None,
+      is_fod: None,
+      fod_hash: None,
+      ..Default::default()
     },
   )
   .await
@@ -552,14 +556,15 @@ async fn test_atomic_build_claiming() {
     &pool,
     circus_common::models::CreateBuild {
       evaluation_id: eval.id,
-      job_name:      "test-build".to_string(),
-      drv_path:      "/nix/store/test-runner-test.drv".to_string(),
-      system:        Some("x86_64-linux".to_string()),
-      outputs:       None,
-      is_aggregate:  None,
-      constituents:  None,
-      is_fod:        None,
-      fod_hash:      None,
+      job_name: "test-build".to_string(),
+      drv_path: "/nix/store/test-runner-test.drv".to_string(),
+      system: Some("x86_64-linux".to_string()),
+      outputs: None,
+      is_aggregate: None,
+      constituents: None,
+      is_fod: None,
+      fod_hash: None,
+      ..Default::default()
     },
   )
   .await
@@ -649,14 +654,15 @@ async fn test_orphan_build_reset() {
     &pool,
     circus_common::models::CreateBuild {
       evaluation_id: eval.id,
-      job_name:      "orphan-build".to_string(),
-      drv_path:      "/nix/store/test-orphan.drv".to_string(),
-      system:        None,
-      outputs:       None,
-      is_aggregate:  None,
-      constituents:  None,
-      is_fod:        None,
-      fod_hash:      None,
+      job_name: "orphan-build".to_string(),
+      drv_path: "/nix/store/test-orphan.drv".to_string(),
+      system: None,
+      outputs: None,
+      is_aggregate: None,
+      constituents: None,
+      is_fod: None,
+      fod_hash: None,
+      ..Default::default()
     },
   )
   .await
@@ -761,14 +767,15 @@ async fn test_get_cancelled_among() {
     &pool,
     circus_common::models::CreateBuild {
       evaluation_id: eval.id,
-      job_name:      "pending-job".to_string(),
-      drv_path:      format!("/nix/store/{}-pending.drv", uuid::Uuid::new_v4()),
-      system:        None,
-      outputs:       None,
-      is_aggregate:  None,
-      constituents:  None,
-      is_fod:        None,
-      fod_hash:      None,
+      job_name: "pending-job".to_string(),
+      drv_path: format!("/nix/store/{}-pending.drv", uuid::Uuid::new_v4()),
+      system: None,
+      outputs: None,
+      is_aggregate: None,
+      constituents: None,
+      is_fod: None,
+      fod_hash: None,
+      ..Default::default()
     },
   )
   .await
@@ -779,14 +786,15 @@ async fn test_get_cancelled_among() {
     &pool,
     circus_common::models::CreateBuild {
       evaluation_id: eval.id,
-      job_name:      "running-job".to_string(),
-      drv_path:      format!("/nix/store/{}-running.drv", uuid::Uuid::new_v4()),
-      system:        None,
-      outputs:       None,
-      is_aggregate:  None,
-      constituents:  None,
-      is_fod:        None,
-      fod_hash:      None,
+      job_name: "running-job".to_string(),
+      drv_path: format!("/nix/store/{}-running.drv", uuid::Uuid::new_v4()),
+      system: None,
+      outputs: None,
+      is_aggregate: None,
+      constituents: None,
+      is_fod: None,
+      fod_hash: None,
+      ..Default::default()
     },
   )
   .await
@@ -800,17 +808,15 @@ async fn test_get_cancelled_among() {
     &pool,
     circus_common::models::CreateBuild {
       evaluation_id: eval.id,
-      job_name:      "cancelled-job".to_string(),
-      drv_path:      format!(
-        "/nix/store/{}-cancelled.drv",
-        uuid::Uuid::new_v4()
-      ),
-      system:        None,
-      outputs:       None,
-      is_aggregate:  None,
-      constituents:  None,
-      is_fod:        None,
-      fod_hash:      None,
+      job_name: "cancelled-job".to_string(),
+      drv_path: format!("/nix/store/{}-cancelled.drv", uuid::Uuid::new_v4()),
+      system: None,
+      outputs: None,
+      is_aggregate: None,
+      constituents: None,
+      is_fod: None,
+      fod_hash: None,
+      ..Default::default()
     },
   )
   .await
