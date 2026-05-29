@@ -215,6 +215,13 @@ fn warn_on_disk_pressure(msg: &str) {
 /// declared `commit_hash` (which may be a PR head not on any branch tip)
 /// and running nix evaluation against it. Idempotent: skips silently if
 /// another worker already claimed the row.
+///
+/// `last_checked_at` is intentionally not touched here. The push path
+/// evaluates a specific commit; the branch-tip poll runs against
+/// whatever the configured branch points at now. If the push commit was
+/// the branch tip the next branch poll is absorbed by the eval-cache
+/// check on the inputs hash; if it wasn't, the branch poll still needs
+/// to fire on its own cadence.
 async fn evaluate_pending_eval(
   pool: &PgPool,
   eval: &Evaluation,
