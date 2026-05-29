@@ -71,19 +71,21 @@
 
     checks = forAllSystems (system: let
       pkgs = nixpkgs.legacyPackages.${system};
+
+      callTest = path: pkgs.callPackage path {inherit self;};
       vmTests = {
         # Split VM integration tests
-        service-startup = pkgs.callPackage ./nix/tests/startup.nix {inherit self;};
-        basic-api = pkgs.callPackage ./nix/tests/basic-api.nix {inherit self;};
-        auth-rbac = pkgs.callPackage ./nix/tests/auth-rbac.nix {inherit self;};
-        api-crud = pkgs.callPackage ./nix/tests/api-crud.nix {inherit self;};
-        features = pkgs.callPackage ./nix/tests/features.nix {inherit self;};
-        webhooks = pkgs.callPackage ./nix/tests/webhooks.nix {inherit self;};
-        e2e = pkgs.callPackage ./nix/tests/e2e.nix {inherit self;};
-        declarative = pkgs.callPackage ./nix/tests/declarative.nix {inherit self;};
-        gc-pinning = pkgs.callPackage ./nix/tests/gc-pinning.nix {inherit self;};
-        machine-health = pkgs.callPackage ./nix/tests/machine-health.nix {inherit self;};
-        channel-tarball = pkgs.callPackage ./nix/tests/channel-tarball.nix {inherit self;};
+        service-startup = callTest ./nix/tests/startup.nix;
+        basic-api = callTest ./nix/tests/basic-api.nix;
+        auth-rbac = callTest ./nix/tests/auth-rbac.nix;
+        api-crud = callTest ./nix/tests/api-crud.nix;
+        features = callTest ./nix/tests/features.nix;
+        webhooks = callTest ./nix/tests/webhooks.nix;
+        e2e = callTest ./nix/tests/e2e.nix;
+        declarative = callTest ./nix/tests/declarative.nix;
+        gc-pinning = callTest ./nix/tests/gc-pinning.nix;
+        machine-health = callTest ./nix/tests/machine-health.nix;
+        channel-tarball = callTest ./nix/tests/channel-tarball.nix;
       };
     in {
       inherit (vmTests) service-startup basic-api auth-rbac api-crud features webhooks e2e declarative gc-pinning machine-health channel-tarball;
