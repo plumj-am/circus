@@ -29,8 +29,9 @@ pub async fn run_nix_build_remote(
   store_uri: &str,
   ssh_key_file: Option<&str>,
   live_log_path: Option<&Path>,
+  extra_args: &[String],
 ) -> Result<BuildResult> {
-  let mut args = common_nix_build_args(drv_path);
+  let mut args = common_nix_build_args(drv_path, extra_args);
   args.splice(args.len() - 1..args.len() - 1, [
     "--store".into(),
     store_uri.into(),
@@ -99,9 +100,10 @@ pub async fn run_nix_build(
   work_dir: &Path,
   timeout: Duration,
   live_log_path: Option<&Path>,
+  extra_args: &[String],
 ) -> Result<BuildResult> {
   run_nix_build_command(
-    common_nix_build_args(drv_path),
+    common_nix_build_args(drv_path, extra_args),
     work_dir,
     timeout,
     live_log_path,
@@ -111,13 +113,13 @@ pub async fn run_nix_build(
   .await
 }
 
-fn common_nix_build_args(drv_path: &str) -> Vec<OsString> {
+fn common_nix_build_args(drv_path: &str, extra: &[String]) -> Vec<OsString> {
   // Build every output of the derivation via the "^*" selector. A bare ".drv"
   // path is treated by `nix build` as a store path to realise (a no-op that
   // emits the .drv path rather than building it), so the outputs would never
   // be produced and --print-out-paths would not emit real output paths.
   let installable = format!("{drv_path}^*");
-  [
+  let defaults: [&str; 11] = [
     "build",
     "--no-link",
     "--print-out-paths",
@@ -129,10 +131,20 @@ fn common_nix_build_args(drv_path: &str) -> Vec<OsString> {
     "--max-build-log-size",
     "104857600",
     installable.as_str(),
-  ]
-  .into_iter()
-  .map(OsString::from)
-  .collect()
+  ];
+  // Operator-supplied args go before the installable so they remain valid
+  // overrides (nix's `--option` resolution lets later flags win), while the
+  // installable stays in last position where `nix build` requires it.
+  let mut args: Vec<OsString> =
+    Vec::with_capacity(defaults.len() + extra.len());
+  for s in &defaults[..defaults.len() - 1] {
+    args.push(OsString::from(*s));
+  }
+  for s in extra {
+    args.push(OsString::from(s));
+  }
+  args.push(OsString::from(installable));
+  args
 }
 
 async fn run_nix_build_command(

@@ -137,6 +137,14 @@ pub struct QueueRunnerConfig {
   /// Timeout in seconds for SSH PSI checks (default 5).
   #[serde(default = "default_psi_check_timeout")]
   pub psi_check_timeout: u64,
+
+  /// Extra arguments appended to every `nix build` invocation (after the
+  /// queue-runner's defaults, before the installable). Use this to inject
+  /// substituters, trusted public keys, or override sandbox settings without
+  /// changing the daemon's `nix.conf`. Example:
+  /// `["--option", "extra-substituters", "https://cache.nixos.org"]`.
+  #[serde(default)]
+  pub extra_nix_build_args: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -721,17 +729,18 @@ impl Default for EvaluatorConfig {
 impl Default for QueueRunnerConfig {
   fn default() -> Self {
     Self {
-      workers:             4,
-      poll_interval:       5,
-      build_timeout:       3600,
-      work_dir:            PathBuf::from("/tmp/circus-queue-runner"),
-      strict_errors:       false,
-      failed_paths_cache:  true,
-      failed_paths_ttl:    86400,
-      unsupported_timeout: None,
-      scheduling_strategy: BuilderSchedulingStrategy::SpeedFactorOnly,
-      psi_threshold:       None,
-      psi_check_timeout:   5,
+      workers:              4,
+      poll_interval:        5,
+      build_timeout:        3600,
+      work_dir:             PathBuf::from("/tmp/circus-queue-runner"),
+      strict_errors:        false,
+      failed_paths_cache:   true,
+      failed_paths_ttl:     86400,
+      unsupported_timeout:  None,
+      scheduling_strategy:  BuilderSchedulingStrategy::SpeedFactorOnly,
+      psi_threshold:        None,
+      psi_check_timeout:    5,
+      extra_nix_build_args: Vec::new(),
     }
   }
 }
@@ -793,6 +802,7 @@ pub struct HotConfig {
   pub scheduling_strategy:  BuilderSchedulingStrategy,
   pub psi_threshold:        Option<f64>,
   pub psi_check_timeout:    std::time::Duration,
+  pub extra_nix_build_args: Vec<String>,
 }
 
 impl HotConfig {
@@ -813,6 +823,7 @@ impl HotConfig {
       psi_check_timeout:    std::time::Duration::from_secs(
         config.queue_runner.psi_check_timeout,
       ),
+      extra_nix_build_args: config.queue_runner.extra_nix_build_args.clone(),
     }
   }
 }

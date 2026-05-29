@@ -156,6 +156,7 @@ impl WorkerPool {
           scheduling_strategy,
           psi_threshold,
           psi_check_timeout,
+          extra_nix_args,
         ) = {
           let hot = hot_config.read().await;
           (
@@ -164,6 +165,7 @@ impl WorkerPool {
             hot.scheduling_strategy.clone(),
             hot.psi_threshold,
             hot.psi_check_timeout,
+            Arc::new(hot.extra_nix_build_args.clone()),
           )
         };
 
@@ -184,6 +186,7 @@ impl WorkerPool {
           psi_threshold,
           psi_check_timeout,
           psi_cache.clone(),
+          extra_nix_args,
         )
         .await
         {
@@ -457,6 +460,7 @@ async fn try_remote_build(
   psi_threshold: Option<f64>,
   psi_check_timeout: Duration,
   psi_cache: &crate::psi::PsiCache,
+  extra_nix_args: &[String],
 ) -> Option<crate::builder::BuildResult> {
   let system = build.system.as_deref()?;
 
@@ -504,6 +508,7 @@ async fn try_remote_build(
       &store_uri,
       builder.ssh_key_file.as_deref(),
       live_log_path,
+      extra_nix_args,
     )
     .await;
 
@@ -612,6 +617,7 @@ async fn run_build(
   psi_threshold: Option<f64>,
   psi_check_timeout: Duration,
   psi_cache: Arc<crate::psi::PsiCache>,
+  extra_nix_args: Arc<Vec<String>>,
 ) -> anyhow::Result<()> {
   // Atomically claim the build
   let claimed = repo::builds::start(pool, build.id).await?;
@@ -680,6 +686,7 @@ async fn run_build(
       psi_threshold,
       psi_check_timeout,
       &psi_cache,
+      &extra_nix_args,
     )
     .await
     {
@@ -691,6 +698,7 @@ async fn run_build(
           work_dir,
           timeout,
           Some(&live_log_path),
+          &extra_nix_args,
         )
         .await
       },
@@ -701,6 +709,7 @@ async fn run_build(
       work_dir,
       timeout,
       Some(&live_log_path),
+      &extra_nix_args,
     )
     .await
   };
