@@ -323,11 +323,10 @@ async fn sign_outputs(
       },
     }
   }
-  // The  build is "marked signed" if we attempted signing.
-  // If we wanted more strict semantics (i.e., "all paths must sign") we can
-  // change this to `!any_failed`
-  let _ = any_failed;
-  true
+  // "Signed" only if every path succeeded. A partial signing leaves cache
+  // consumers unable to verify some outputs; surfacing that to the caller
+  // lets it skip cache upload rather than push half-signed paths.
+  !any_failed
 }
 
 /// Push output paths to an external binary cache via `nix copy`. Returns
