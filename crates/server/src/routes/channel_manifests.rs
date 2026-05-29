@@ -1,14 +1,14 @@
 //! Channel manifest endpoints used by `nix-channel --update`.
 //!
-//! `nix-channel` fetches three small files when refreshing a channel:
+//! `nix-channel` fetches four small files when refreshing a channel:
 //!
 //! * `git-revision`     - the commit hash the channel currently points at,
 //! * `binary-cache-url` - URL of the binary cache to pull NARs from,
 //! * `store-paths.xz`   - xz-compressed newline-delimited list of every store
-//!   path in the channel.
-//!
-//! `nixexprs.tar.xz` is intentionally not implemented - it requires the
-//! evaluator to preserve the full expression tree, which is out of scope.
+//!   path in the channel,
+//! * `nixexprs.tar.xz`  - a tar.xz with a single `default.nix` exposing each
+//!   succeeded build as a fake derivation so `nix-env -qa` and `nix-channel
+//!   --update` work.
 //!
 //! All endpoints are public (no API key) since they are consumed by Nix
 //! clients that have no way to supply credentials.
@@ -147,9 +147,41 @@ async fn store_paths(
   )
 }
 
+async fn nixexprs(
+  State(state): State<AppState>,
+  Path(name): Path<String>,
+) -> Result<Response, ApiError> {
+  let channel = circus_common::repo::channels::get_by_name(&state.pool, &name)
+    .await
+    .map_err(ApiError)?;
+  let Some(eval_id) = channel.current_evaluation_id else {
+    return Ok(StatusCode::NOT_FOUND.into_response());
+  };
+
+  let xz_data =
+    crate::routes::channels::build_nixexprs_tarball(&state.pool, eval_id)
+      .await?;
+
+  Ok(
+    (
+      StatusCode::OK,
+      [
+        ("content-type", "application/x-xz"),
+        (
+          "content-disposition",
+          "attachment; filename=\"nixexprs.tar.xz\"",
+        ),
+      ],
+      Body::from(xz_data),
+    )
+      .into_response(),
+  )
+}
+
 pub fn router() -> Router<AppState> {
   Router::new()
     .route("/channel/{name}/git-revision", get(git_revision))
     .route("/channel/{name}/binary-cache-url", get(binary_cache_url))
     .route("/channel/{name}/store-paths.xz", get(store_paths))
+    .route("/channel/{name}/nixexprs.tar.xz", get(nixexprs))
 }

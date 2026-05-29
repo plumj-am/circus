@@ -104,29 +104,25 @@ async fn promote_channel(
   Ok(Json(channel))
 }
 
-/// Generate and serve `nixexprs.tar.xz` for Nix channel compatibility.
-/// Contains a `default.nix` with fake derivations pointing at store paths,
-/// enabling `nix-channel --add <url>`.
-async fn nixexprs_tarball(
-  State(state): State<AppState>,
-  Path(id): Path<Uuid>,
-) -> Result<Response, ApiError> {
-  let channel = circus_common::repo::channels::get(&state.pool, id)
-    .await
-    .map_err(ApiError)?;
-
-  let evaluation_id = channel.current_evaluation_id.ok_or_else(|| {
-    ApiError(circus_common::CiError::NotFound(
-      "Channel has no current evaluation".to_string(),
-    ))
-  })?;
-
-  let builds = circus_common::repo::builds::list_for_evaluation(
-    &state.pool,
-    evaluation_id,
-  )
-  .await
-  .map_err(ApiError)?;
+/// Build the `nixexprs.tar.xz` payload for an evaluation. The archive
+/// contains a single `default.nix` exposing every succeeded build as a
+/// fake derivation pointing at the build's output store path. Shared by
+/// the by-id (`/api/v1/channels/{id}/nixexprs.tar.xz`) and by-name
+/// (`/channel/{name}/nixexprs.tar.xz`, consumed by `nix-channel`)
+/// endpoints.
+///
+/// # Errors
+///
+/// Returns `NotFound` when the evaluation has no succeeded builds, or
+/// a `Build` error if archive construction fails.
+pub async fn build_nixexprs_tarball(
+  pool: &sqlx::PgPool,
+  evaluation_id: Uuid,
+) -> Result<Vec<u8>, ApiError> {
+  let builds =
+    circus_common::repo::builds::list_for_evaluation(pool, evaluation_id)
+      .await
+      .map_err(ApiError)?;
 
   let succeeded: Vec<_> = builds
     .iter()
@@ -139,7 +135,6 @@ async fn nixexprs_tarball(
     )));
   }
 
-  // Generate default.nix
   let approx_size = 256 + succeeded.len() * 200;
   let mut nix_src = String::with_capacity(approx_size);
   let _ = writeln!(nix_src, "{{ system ? builtins.currentSystem }}:");
@@ -162,7 +157,7 @@ async fn nixexprs_tarball(
       continue;
     };
     let system = build.system.as_deref().unwrap_or("x86_64-linux");
-    // Sanitize job_name for use as a Nix attribute (replace dots/slashes)
+    // Sanitize job_name for use as a Nix attribute (replace dots/slashes).
     let attr_name = build.job_name.replace(['.', '/'], "-");
     let _ = writeln!(
       nix_src,
@@ -174,40 +169,56 @@ async fn nixexprs_tarball(
 
   let _ = writeln!(nix_src, "}}");
 
-  // Build tar.xz archive in memory
-  let xz_data =
-    tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
-      let mut xz_buf = Vec::new();
-      {
-        let xz_writer = xz2::write::XzEncoder::new(&mut xz_buf, 6);
-        let mut tar_builder = tar::Builder::new(xz_writer);
+  tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
+    let mut xz_buf = Vec::new();
+    {
+      let xz_writer = xz2::write::XzEncoder::new(&mut xz_buf, 6);
+      let mut tar_builder = tar::Builder::new(xz_writer);
 
-        let nix_bytes = nix_src.as_bytes();
-        let mut header = tar::Header::new_gnu();
-        header.set_size(nix_bytes.len() as u64);
-        header.set_mode(0o644);
-        header.set_cksum();
+      let nix_bytes = nix_src.as_bytes();
+      let mut header = tar::Header::new_gnu();
+      header.set_size(nix_bytes.len() as u64);
+      header.set_mode(0o644);
+      header.set_cksum();
 
-        tar_builder
-          .append_data(&mut header, "default.nix", nix_bytes)
-          .map_err(|e| format!("Failed to append to tar: {e}"))?;
+      tar_builder
+        .append_data(&mut header, "default.nix", nix_bytes)
+        .map_err(|e| format!("Failed to append to tar: {e}"))?;
 
-        let xz_writer = tar_builder
-          .into_inner()
-          .map_err(|e| format!("Failed to finish tar: {e}"))?;
-        xz_writer
-          .finish()
-          .map_err(|e| format!("Failed to finish xz: {e}"))?;
-      }
-      Ok(xz_buf)
-    })
+      let xz_writer = tar_builder
+        .into_inner()
+        .map_err(|e| format!("Failed to finish tar: {e}"))?;
+      xz_writer
+        .finish()
+        .map_err(|e| format!("Failed to finish xz: {e}"))?;
+    }
+    Ok(xz_buf)
+  })
+  .await
+  .map_err(|e| {
+    ApiError(circus_common::CiError::Build(format!(
+      "Task join error: {e}"
+    )))
+  })?
+  .map_err(|e| ApiError(circus_common::CiError::Build(e)))
+}
+
+/// Generate and serve `nixexprs.tar.xz` for Nix channel compatibility.
+async fn nixexprs_tarball(
+  State(state): State<AppState>,
+  Path(id): Path<Uuid>,
+) -> Result<Response, ApiError> {
+  let channel = circus_common::repo::channels::get(&state.pool, id)
     .await
-    .map_err(|e| {
-      ApiError(circus_common::CiError::Build(format!(
-        "Task join error: {e}"
-      )))
-    })?
-    .map_err(|e| ApiError(circus_common::CiError::Build(e)))?;
+    .map_err(ApiError)?;
+
+  let evaluation_id = channel.current_evaluation_id.ok_or_else(|| {
+    ApiError(circus_common::CiError::NotFound(
+      "Channel has no current evaluation".to_string(),
+    ))
+  })?;
+
+  let xz_data = build_nixexprs_tarball(&state.pool, evaluation_id).await?;
 
   Ok(
     (
