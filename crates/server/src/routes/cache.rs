@@ -155,18 +155,31 @@ async fn narinfo(
   // Extract content-addressable hash
   let ca = entry.get("ca").and_then(|v| v.as_str());
 
-  let file_hash = nar_hash;
-
   let compression = &state.config.cache.compression;
   let nar_url = format!("nar/{hash}{}", compression.file_extension());
   let compression_str = compression.as_str();
+  let is_uncompressed =
+    matches!(compression, circus_common::config::NarCompression::None);
 
   let refs_joined = refs.join(" ");
-  let mut narinfo_text = format!(
-    "StorePath: {store_path}\nURL: {nar_url}\nCompression: \
-     {compression_str}\nFileHash: {file_hash}\nFileSize: {nar_size}\nNarHash: \
-     {nar_hash}\nNarSize: {nar_size}\nReferences: {refs_joined}\n",
-  );
+  // FileHash / FileSize describe the compressed file being served. We can
+  // only set them honestly when compression is none (then they equal the
+  // NAR hash/size). For compressed responses we'd have to buffer the full
+  // compressed stream to hash it; omit the fields instead. Nix clients
+  // fall back to validating NarHash after decompression.
+  let mut narinfo_text = if is_uncompressed {
+    format!(
+      "StorePath: {store_path}\nURL: {nar_url}\nCompression: \
+       {compression_str}\nFileHash: {nar_hash}\nFileSize: {nar_size}\nNarHash: \
+       {nar_hash}\nNarSize: {nar_size}\nReferences: {refs_joined}\n",
+    )
+  } else {
+    format!(
+      "StorePath: {store_path}\nURL: {nar_url}\nCompression: \
+       {compression_str}\nNarHash: {nar_hash}\nNarSize: {nar_size}\nReferences: \
+       {refs_joined}\n",
+    )
+  };
 
   if let Some(deriver) = deriver {
     let _ = writeln!(narinfo_text, "Deriver: {deriver}");
