@@ -161,6 +161,7 @@ async fn evaluate_flake(
   tokio::time::timeout(timeout, async {
     let mut cmd = tokio::process::Command::new("nix-eval-jobs");
     cmd.arg("--flake").arg(&flake_ref).arg("--force-recurse");
+    cmd.kill_on_drop(true);
 
     if config.restrict_eval {
       cmd.args(["--option", "restrict-eval", "true"]);
@@ -232,6 +233,7 @@ async fn evaluate_legacy(
     // Try nix-eval-jobs without --flake for legacy expressions
     let mut cmd = tokio::process::Command::new("nix-eval-jobs");
     cmd.arg(&expr_path).arg("--force-recurse");
+    cmd.kill_on_drop(true);
 
     if config.restrict_eval {
       cmd.args(["--option", "restrict-eval", "true"]);
@@ -261,6 +263,7 @@ async fn evaluate_legacy(
           .arg(&expr_path)
           .arg("--strict")
           .arg("--json")
+          .kill_on_drop(true)
           .output()
           .await
           .map_err(|e| {
@@ -318,6 +321,7 @@ async fn evaluate_with_nix_eval(
 
   let output = tokio::process::Command::new("nix")
     .args(["eval", "--json", &flake_ref])
+    .kill_on_drop(true)
     .output()
     .await
     .map_err(|e| CiError::NixEval(format!("Failed to run nix eval: {e}")))?;
@@ -342,6 +346,7 @@ async fn evaluate_with_nix_eval(
         format!("{}#{}.{}", repo_path.display(), nix_expression, name);
       let drv_output = tokio::process::Command::new("nix")
         .args(["derivation", "show", &drv_ref])
+        .kill_on_drop(true)
         .output()
         .await
         .map_err(|e| {
