@@ -121,6 +121,25 @@ struct GitLabCommit {
   id: Option<String>,
 }
 
+/// Strip the `refs/heads/` prefix from a git ref. Returns the original
+/// string if no such prefix is present.
+fn strip_branch_prefix(git_ref: &str) -> &str {
+  git_ref.strip_prefix("refs/heads/").unwrap_or(git_ref)
+}
+
+/// True if a jobset configured for `jobset_branch` should react to a push
+/// to `pushed_branch`. A jobset with no configured branch matches every
+/// push (treat None as "any branch").
+fn jobset_matches_branch(
+  jobset_branch: Option<&str>,
+  pushed_branch: &str,
+) -> bool {
+  match jobset_branch {
+    None => true,
+    Some(b) => b == pushed_branch,
+  }
+}
+
 /// Verify HMAC-SHA256 webhook signature.
 /// The `secret` parameter is the raw webhook secret stored in DB.
 fn verify_signature(secret: &str, body: &[u8], signature: &str) -> bool {
@@ -234,15 +253,22 @@ async fn handle_github_push(
     ));
   }
 
-  // Find matching jobsets for this project and trigger evaluations
-  let jobsets =
-    repo::jobsets::list_for_project(&state.pool, project_id, 1000, 0)
-      .await
-      .map_err(ApiError)?;
+  let pushed_branch = payload
+    .git_ref
+    .as_deref()
+    .map(strip_branch_prefix)
+    .unwrap_or("");
+
+  let jobsets = repo::jobsets::list_all_for_project(&state.pool, project_id)
+    .await
+    .map_err(ApiError)?;
 
   let mut triggered = 0;
   for jobset in &jobsets {
     if !jobset.enabled {
+      continue;
+    }
+    if !jobset_matches_branch(jobset.branch.as_deref(), pushed_branch) {
       continue;
     }
     match repo::evaluations::create(&state.pool, CreateEvaluation {
@@ -338,14 +364,20 @@ async fn handle_github_pull_request(
   let pr_base_branch = pr.base.as_ref().and_then(|b| b.ref_name.clone());
   let pr_action = Some(action.to_string());
 
-  let jobsets =
-    repo::jobsets::list_for_project(&state.pool, project_id, 1000, 0)
-      .await
-      .map_err(ApiError)?;
+  let jobsets = repo::jobsets::list_all_for_project(&state.pool, project_id)
+    .await
+    .map_err(ApiError)?;
+
+  let base = pr_base_branch.as_deref().unwrap_or("");
 
   let mut triggered = 0;
   for jobset in &jobsets {
     if !jobset.enabled {
+      continue;
+    }
+    // PR builds against the merge target. Only fire jobsets that track
+    // (or are untargetted to) the PR's base branch.
+    if !jobset_matches_branch(jobset.branch.as_deref(), base) {
       continue;
     }
     match repo::evaluations::create(&state.pool, CreateEvaluation {
@@ -465,14 +497,22 @@ async fn handle_gitea_push(
     ));
   }
 
-  let jobsets =
-    repo::jobsets::list_for_project(&state.pool, project_id, 1000, 0)
-      .await
-      .map_err(ApiError)?;
+  let pushed_branch = payload
+    .git_ref
+    .as_deref()
+    .map(strip_branch_prefix)
+    .unwrap_or("");
+
+  let jobsets = repo::jobsets::list_all_for_project(&state.pool, project_id)
+    .await
+    .map_err(ApiError)?;
 
   let mut triggered = 0;
   for jobset in &jobsets {
     if !jobset.enabled {
+      continue;
+    }
+    if !jobset_matches_branch(jobset.branch.as_deref(), pushed_branch) {
       continue;
     }
     match repo::evaluations::create(&state.pool, CreateEvaluation {
@@ -600,14 +640,22 @@ async fn handle_gitlab_push(
     ));
   }
 
-  let jobsets =
-    repo::jobsets::list_for_project(&state.pool, project_id, 1000, 0)
-      .await
-      .map_err(ApiError)?;
+  let pushed_branch = payload
+    .git_ref
+    .as_deref()
+    .map(strip_branch_prefix)
+    .unwrap_or("");
+
+  let jobsets = repo::jobsets::list_all_for_project(&state.pool, project_id)
+    .await
+    .map_err(ApiError)?;
 
   let mut triggered = 0;
   for jobset in &jobsets {
     if !jobset.enabled {
+      continue;
+    }
+    if !jobset_matches_branch(jobset.branch.as_deref(), pushed_branch) {
       continue;
     }
     match repo::evaluations::create(&state.pool, CreateEvaluation {
@@ -700,14 +748,18 @@ async fn handle_gitlab_merge_request(
   let pr_base_branch = attrs.target_branch.clone();
   let pr_action = Some(action.to_string());
 
-  let jobsets =
-    repo::jobsets::list_for_project(&state.pool, project_id, 1000, 0)
-      .await
-      .map_err(ApiError)?;
+  let jobsets = repo::jobsets::list_all_for_project(&state.pool, project_id)
+    .await
+    .map_err(ApiError)?;
+
+  let base = pr_base_branch.as_deref().unwrap_or("");
 
   let mut triggered = 0;
   for jobset in &jobsets {
     if !jobset.enabled {
+      continue;
+    }
+    if !jobset_matches_branch(jobset.branch.as_deref(), base) {
       continue;
     }
     match repo::evaluations::create(&state.pool, CreateEvaluation {

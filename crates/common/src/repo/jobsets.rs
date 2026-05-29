@@ -91,6 +91,26 @@ pub async fn list_for_project(
   .map_err(CiError::Database)
 }
 
+/// List all jobsets for a project without pagination. Used by webhook
+/// fan-out so a project with more than the page-default number of jobsets
+/// is not silently truncated.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
+pub async fn list_all_for_project(
+  pool: &PgPool,
+  project_id: Uuid,
+) -> Result<Vec<Jobset>> {
+  sqlx::query_as::<_, Jobset>(
+    "SELECT * FROM jobsets WHERE project_id = $1 ORDER BY created_at DESC",
+  )
+  .bind(project_id)
+  .fetch_all(pool)
+  .await
+  .map_err(CiError::Database)
+}
+
 /// Count jobsets for a project.
 ///
 /// # Errors
