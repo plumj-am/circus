@@ -476,7 +476,8 @@ async fn evaluate_jobset(
   // Compute inputs hash for eval caching (commit + all input values/revisions)
   let inputs_hash = compute_inputs_hash(&commit_hash, &inputs);
 
-  // Check if this exact combination was already evaluated (eval caching)
+  // Skip re-evaluation when the same (commit, inputs) hash already
+  // produced a completed evaluation.
   if let Ok(Some(cached)) =
     repo::evaluations::get_by_inputs_hash(pool, jobset.id, &inputs_hash).await
   {
@@ -484,22 +485,6 @@ async fn evaluate_jobset(
         jobset = %jobset.name,
         commit = %commit_hash,
         cached_eval = %cached.id,
-        "Inputs unchanged (hash: {}), skipping evaluation",
-        &inputs_hash[..16],
-    );
-    repo::jobsets::update_last_checked(pool, jobset.id).await?;
-    return Ok(());
-  }
-
-  // Also skip if commit hasn't changed and inputs_hash matches (backward
-  // compat for evaluations created before inputs_hash was indexed)
-  if let Some(latest) = repo::evaluations::get_latest(pool, jobset.id).await?
-    && latest.commit_hash == commit_hash
-    && latest.inputs_hash.as_deref() == Some(&inputs_hash)
-  {
-    tracing::debug!(
-        jobset = %jobset.name,
-        commit = %commit_hash,
         "Inputs unchanged (hash: {}), skipping evaluation",
         &inputs_hash[..16],
     );
