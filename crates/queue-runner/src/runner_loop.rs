@@ -101,6 +101,13 @@ pub async fn run(
     };
 
     let wc = worker_pool.worker_count() as i32;
+    // Cache `nix-store --query` results within a single cycle so we
+    // don't shell out twice for the same FOD drv path across multiple
+    // pending rows that share it.
+    let mut fod_output_cache: std::collections::HashMap<
+      String,
+      Option<String>,
+    > = std::collections::HashMap::new();
     match repo::builds::list_pending(&pool, 10, wc).await {
       Ok(builds) => {
         if !builds.is_empty() {
@@ -204,8 +211,19 @@ pub async fn run(
 
           // FOD store check: if the output already exists in the Nix store,
           // mark as succeeded without running the full build.
+          let fod_output = if build.is_fod {
+            if let Some(cached) = fod_output_cache.get(&build.drv_path) {
+              cached.clone()
+            } else {
+              let v = query_drv_output(&build.drv_path).await;
+              fod_output_cache.insert(build.drv_path.clone(), v.clone());
+              v
+            }
+          } else {
+            None
+          };
           if build.is_fod
-            && let Some(output_path) = query_drv_output(&build.drv_path).await
+            && let Some(output_path) = fod_output
           {
             let valid = tokio::process::Command::new("nix-store")
               .args(["--check-validity", &output_path])
