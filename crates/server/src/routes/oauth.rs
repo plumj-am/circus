@@ -144,7 +144,9 @@ async fn github_callback(
     )));
   };
 
-  // Verify CSRF token from cookie
+  // Verify CSRF token from cookie. Use constant-time comparison: the
+  // received state and the cookie value are both attacker-controlled
+  // inputs to the compare, and a timing leak would reveal a valid token.
   let stored_state = headers
     .get(header::COOKIE)
     .and_then(|c| c.to_str().ok())
@@ -155,7 +157,12 @@ async fn github_callback(
       })
     });
 
-  if stored_state != Some(&params.state) {
+  use subtle::ConstantTimeEq;
+  let state_ok = stored_state.is_some_and(|s| {
+    s.len() == params.state.len()
+      && s.as_bytes().ct_eq(params.state.as_bytes()).into()
+  });
+  if !state_ok {
     return Err(ApiError(circus_common::CiError::Unauthorized(
       "Invalid OAuth state".to_string(),
     )));
