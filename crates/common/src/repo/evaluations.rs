@@ -122,6 +122,30 @@ pub async fn count_filtered(
   Ok(row.0)
 }
 
+/// Atomically transition an evaluation from `pending` to `running`.
+/// Returns the updated row if the transition succeeded, or `None` if the
+/// evaluation was no longer pending (already claimed, completed, or failed).
+///
+/// Used by the evaluator to claim push-driven work and avoid double-processing
+/// when multiple NOTIFY wake-ups land for the same row.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
+pub async fn try_claim_pending(
+  pool: &PgPool,
+  id: Uuid,
+) -> Result<Option<Evaluation>> {
+  sqlx::query_as::<_, Evaluation>(
+    "UPDATE evaluations SET status = 'running' WHERE id = $1 AND status = \
+     'pending' RETURNING *",
+  )
+  .bind(id)
+  .fetch_optional(pool)
+  .await
+  .map_err(CiError::Database)
+}
+
 /// Update evaluation status and optional error message.
 ///
 /// # Errors
@@ -220,6 +244,44 @@ pub async fn count(pool: &PgPool) -> Result<i64> {
     .await
     .map_err(CiError::Database)?;
   Ok(row.0)
+}
+
+/// List all pending evaluations, oldest first. The evaluator drains
+/// this queue every cycle: each row is push-driven work (webhook commit
+/// or `/evaluations/trigger` call) that must run at its declared
+/// `commit_hash`, independent of jobset polling.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
+pub async fn list_pending(pool: &PgPool) -> Result<Vec<Evaluation>> {
+  sqlx::query_as::<_, Evaluation>(
+    "SELECT * FROM evaluations WHERE status = 'pending' ORDER BY \
+     evaluation_time ASC",
+  )
+  .fetch_all(pool)
+  .await
+  .map_err(CiError::Database)
+}
+
+/// List jobset IDs with at least one pending evaluation.
+///
+/// Used by the evaluator to find jobsets that have explicit push-driven
+/// work waiting (webhook commits, manual /evaluations/trigger calls).
+/// These bypass the periodic `check_interval` poll because the work was
+/// pushed in, not discovered by git polling.
+///
+/// # Errors
+///
+/// Returns error if database query fails.
+pub async fn list_jobsets_with_pending(pool: &PgPool) -> Result<Vec<Uuid>> {
+  let rows: Vec<(Uuid,)> = sqlx::query_as(
+    "SELECT DISTINCT jobset_id FROM evaluations WHERE status = 'pending'",
+  )
+  .fetch_all(pool)
+  .await
+  .map_err(CiError::Database)?;
+  Ok(rows.into_iter().map(|(id,)| id).collect())
 }
 
 /// Get an evaluation by `jobset_id` and `commit_hash`.
