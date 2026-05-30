@@ -127,6 +127,44 @@ struct JobChange {
   new_status: String,
 }
 
+async fn retry_evaluation(
+  extensions: Extensions,
+  State(state): State<AppState>,
+  Path(id): Path<Uuid>,
+) -> Result<Json<Evaluation>, ApiError> {
+  RequireRoles::check(&extensions, &["eval-jobset"]).map_err(|s| {
+    ApiError(if s == axum::http::StatusCode::FORBIDDEN {
+      circus_common::CiError::Forbidden("Insufficient permissions".to_string())
+    } else {
+      circus_common::CiError::Unauthorized(
+        "Authentication required".to_string(),
+      )
+    })
+  })?;
+
+  // Reset the evaluation to pending so the evaluator picks it up again.
+  // We can't create a new evaluation for the same (jobset, commit) pair
+  // because of the unique constraint.
+  use circus_common::models::EvaluationStatus;
+  let updated = circus_common::repo::evaluations::update_status(
+    &state.pool,
+    id,
+    EvaluationStatus::Pending,
+    None,
+  )
+  .await
+  .map_err(ApiError)?;
+
+  tracing::info!(
+    eval_id = %id,
+    jobset_id = %updated.jobset_id,
+    commit = %updated.commit_hash,
+    "Evaluation reset to pending for retry"
+  );
+
+  Ok(Json(updated))
+}
+
 async fn compare_evaluations(
   State(state): State<AppState>,
   Path(id): Path<Uuid>,
@@ -219,4 +257,5 @@ pub fn router() -> Router<AppState> {
     .route("/evaluations/{id}", get(get_evaluation))
     .route("/evaluations/{id}/compare", get(compare_evaluations))
     .route("/evaluations/trigger", post(trigger_evaluation))
+    .route("/evaluations/{id}/retry", post(retry_evaluation))
 }

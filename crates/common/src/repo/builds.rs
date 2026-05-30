@@ -407,7 +407,10 @@ pub async fn restart(pool: &PgPool, id: Uuid) -> Result<Build> {
     "UPDATE builds SET status = 'pending', started_at = NULL, completed_at = \
      NULL, log_path = NULL, build_output_path = NULL, error_message = NULL, \
      retry_count = retry_count + 1 WHERE id = $1 AND status IN ('failed', \
-     'succeeded', 'cancelled', 'cached_failure') RETURNING *",
+     'succeeded', 'cancelled', 'aborted', 'dependency_failed', \
+     'failed_with_output', 'timeout', 'cached_failure', \
+     'unsupported_system', 'log_limit_exceeded', 'nar_size_limit_exceeded', \
+     'non_deterministic') RETURNING *",
   )
   .bind(id)
   .fetch_optional(pool)
