@@ -8,6 +8,23 @@
 <a href="/login">Login</a>
 {% endif %}
 {% endblock %}
+{% block scripts %}
+<script>
+async function restartBuild(buildId) {
+  if (!confirm('Restart this build?')) return;
+  try {
+    const res = await fetch('/api/v1/builds/' + buildId + '/restart', { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || err.message || 'Failed to restart build');
+    }
+    window.location.reload();
+  } catch(err) {
+    alert(err.message);
+  }
+}
+</script>
+{% endblock %}
 {% block breadcrumbs %}
 <nav class="breadcrumbs">
   <a href="/projects">Projects</a> <span class="sep">/</span>
@@ -53,6 +70,10 @@
   <dd>Yes</dd>
   {% endif %}
 </dl>
+
+{% if !auth_name.is_empty() %}
+<button class="btn" onclick="restartBuild('{{ build.id }}')">Restart Build</button>
+{% endif %}
 
 {% if !build.output_path.is_empty() %}
 <p><strong>Output:</strong> <code>{{ build.output_path }}</code></p>
