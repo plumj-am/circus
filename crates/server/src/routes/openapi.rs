@@ -350,6 +350,14 @@ fn document() -> Value {
         "post": { "summary": "Trigger an evaluation",
           "responses": { "202": { "description": "Accepted" } } }
       },
+      "/evaluations/{id}/retry": {
+        "post": { "summary": "Retry a failed evaluation",
+          "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Uuid" } }],
+          "responses": {
+            "200": { "description": "New evaluation created" },
+            "403": { "description": "Insufficient permissions" }
+          } }
+      },
       "/builds": {
         "get": { "summary": "List builds",
           "responses": { "200": { "description": "Array of builds",
