@@ -8,6 +8,23 @@
 <a href="/login">Login</a>
 {% endif %}
 {% endblock %}
+{% block scripts %}
+<script>
+async function retryEval(evalId) {
+  if (!confirm('Retry this evaluation?')) return;
+  try {
+    const res = await fetch('/api/v1/evaluations/' + evalId + '/retry', { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || err.message || 'Failed to retry evaluation');
+    }
+    window.location.reload();
+  } catch(err) {
+    alert(err.message);
+  }
+}
+</script>
+{% endblock %}
 {% block breadcrumbs %}
 <nav class="breadcrumbs">
   <a href="/projects">Projects</a> <span class="sep">/</span>
@@ -21,6 +38,9 @@
 <p><strong>Status:</strong> <span class="badge badge-{{ eval.status_class }}">{{ eval.status_text }}</span></p>
 <p><strong>Commit:</strong> <code>{{ eval.commit_hash }}</code></p>
 <p><strong>Time:</strong> {{ eval.time }}</p>
+{% if !auth_name.is_empty() %}
+<button class="btn" onclick="retryEval('{{ eval.id }}')">Retry Evaluation</button>
+{% endif %}
 {% match eval.error_message %}
   {% when Some with (err) %}
 <div class="flash-message flash-error">
