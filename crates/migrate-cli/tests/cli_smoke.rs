@@ -3,6 +3,7 @@
 //! These tests invoke the compiled binary and exercise CLI surface that does
 //! not require a database: `--help`, `create`, and argument validation.
 //! Tests that need a live postgres are covered in the `circus-migrations`
+#![expect(clippy::unwrap_used, clippy::expect_used, reason = "Fine in tests")]
 //! integration suite.
 
 use std::{path::Path, process::Command};
